@@ -98,9 +98,15 @@ For the full payment flow, point `PAYMENT_SERVICE_URL` at a 2-endpoint mock retu
 `OrderResponseDTO` shape (PENDING then PAID) — or the live payment_service after cutover.
 
 ## Status
-**P2 code complete (2026-06-03).** Backend + frontend written; statically validated
-(py_compile, pyflakes clean, pure-logic unit tests, import-graph review). Runtime
-validation pending the fork image build (see smoke test above). Enforcement/metering/tiers
-go live as soon as the fork image is deployed; real end-to-end payment needs the
-payment_service running as the sole instance (cutover — SESSION-HANDOFF §12). See
-SESSION-HANDOFF.md §12 for the deploy/validation steps.
+**P2 DEPLOYED (2026-06-03).** Built via Jenkins `kividas-ci #14` → ECR
+`kividas/openwebui:b14`; smoke-tested; rolling-deployed to kividas-1 + kividas-2 (both
+healthy on the fork image). Migration applied to production RDS, 4 default tiers seeded,
+subscription routes live, ALB both targets healthy, chat.kividas.com 200. Enforcement is
+**live** (non-admin users default to `free` = 10 msgs/day; admins exempt).
+
+**Still needed:** (1) admin configures the Free model allow-list + tier prices at
+`/admin/subscriptions` (seeded defaults: Free model list is empty = all models allowed);
+(2) **real payments require the payment_service running as the sole instance** — until the
+cutover (SESSION-HANDOFF §12 P1②) the "Subscribe" flow 502s at order creation because the
+payment_service is stopped. To soft-launch without enforcement, set
+`ENABLE_SUBSCRIPTIONS=false`. See SESSION-HANDOFF.md §12.
