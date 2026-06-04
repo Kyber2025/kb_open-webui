@@ -79,6 +79,14 @@ from open_webui.utils.oauth import auth_manager_config
 from open_webui.utils.rate_limit import RateLimiter
 from open_webui.utils.redis import get_redis_client
 from open_webui.utils.webhook import post_webhook
+from open_webui.utils.kyber import (
+    KyberError,
+    ensure_kyber_link,
+    kyber_base,
+    kyber_login,
+    kyber_register_verify,
+    kyber_send_register_code,
+)
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -651,20 +659,33 @@ async def signin(
                 detail=ERROR_MESSAGES.RATE_LIMIT_EXCEEDED,
             )
 
-        password_bytes = form_data.password.encode('utf-8')
-        if len(password_bytes) > 72:
-            # TODO: Implement other hashing algorithms that support longer passwords
-            log.info('Password too long, truncating to 72 bytes for bcrypt')
-            password_bytes = password_bytes[:72]
+        user = None
 
-            # decode safely — ignore incomplete UTF-8 sequences
-            form_data.password = password_bytes.decode('utf-8', errors='ignore')
+        # KyberRouter account bridge (SESSION-HANDOFF §12.7): authenticate against
+        # KyberRouter first; on success provision/refresh the local shadow user + key.
+        # Falls through to local auth on ANY non-success, so existing local accounts
+        # (e.g. the admin, who has no KyberRouter account) keep working — and a
+        # KyberRouter outage never locks them out.
+        if request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+            user = await kyber_bridge_signin(
+                request, form_data.email.lower(), form_data.password, db=db
+            )
 
-        user = await Auths.authenticate_user(
-            form_data.email.lower(),
-            lambda pw: verify_password(form_data.password, pw),
-            db=db,
-        )
+        if user is None:
+            password_bytes = form_data.password.encode('utf-8')
+            if len(password_bytes) > 72:
+                # TODO: Implement other hashing algorithms that support longer passwords
+                log.info('Password too long, truncating to 72 bytes for bcrypt')
+                password_bytes = password_bytes[:72]
+
+                # decode safely — ignore incomplete UTF-8 sequences
+                form_data.password = password_bytes.decode('utf-8', errors='ignore')
+
+            user = await Auths.authenticate_user(
+                form_data.email.lower(),
+                lambda pw: verify_password(form_data.password, pw),
+                db=db,
+            )
 
     if user:
         return await create_session_response(request, user, db, response, set_cookie=True)
@@ -737,6 +758,37 @@ async def signup_handler(
     return user
 
 
+async def kyber_bridge_signin(request: Request, email: str, password: str, *, db: AsyncSession):
+    """Authenticate `email`/`password` against KyberRouter (the account source of truth).
+    On success, ensure a local shadow user exists — activated, since KyberRouter already
+    email-verified them — and store the user's sk-or- key. Returns the local UserModel, or
+    None when KyberRouter did not authenticate (the caller then falls back to local auth)."""
+    base = kyber_base(request)
+    data = await kyber_login(base, email, password)
+    if not data:
+        return None
+
+    kyber_user = data.get('user') or {}
+    jwt = data.get('accessToken')
+
+    user = await Users.get_user_by_email(email, db=db)
+    if user is None:
+        name = str(kyber_user.get('name') or '').strip() or email.split('@')[0]
+        user = await signup_handler(request, email, str(uuid.uuid4()), name, db=db)
+        # KyberRouter accounts are email-verified → activate immediately (no pending gate).
+        if user and user.role == 'pending':
+            await Users.update_user_role_by_id(user.id, 'user', db=db)
+            user = await Users.get_user_by_id(user.id, db=db)
+
+    # Best-effort link + key provisioning; never block login on it.
+    try:
+        await ensure_kyber_link(user.id, kyber_user, base, jwt)
+    except Exception:
+        log.exception('KyberRouter linkage failed for %s', email)
+
+    return user
+
+
 @router.post('/signup', response_model=SessionUserResponse)
 async def signup(
     request: Request,
@@ -783,6 +835,85 @@ async def signup(
     except Exception as err:
         log.error(f'Signup error: {str(err)}')
         raise HTTPException(500, detail='An internal error occurred during signup.')
+
+
+############################
+# Register (KyberRouter email-OTP bridge)
+############################
+
+
+class RegisterSendCodeForm(BaseModel):
+    email: str
+
+
+class RegisterVerifyForm(BaseModel):
+    email: str
+    code: str
+    password: str
+    name: str | None = None
+
+
+@router.post('/register/send-code')
+async def register_send_code(
+    request: Request,
+    form_data: RegisterSendCodeForm,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Proxy KyberRouter's 'send email verification code' (account bridge, §12.7)."""
+    if not request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    email = form_data.email.lower().strip()
+    if not validate_email_format(email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
+    try:
+        data = await kyber_send_register_code(kyber_base(request), email)
+    except KyberError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    return {
+        'success': True,
+        'expires_in_sec': data.get('expiresInSec'),
+        'cooldown_sec': data.get('cooldownSec'),
+    }
+
+
+@router.post('/register/verify', response_model=SessionUserResponse)
+async def register_verify(
+    request: Request,
+    response: Response,
+    form_data: RegisterVerifyForm,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Verify the code with KyberRouter (which creates the KyberRouter account), then
+    provision a local shadow user + sk-or- key and log in (account bridge, §12.7)."""
+    if not request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    email = form_data.email.lower().strip()
+    base = kyber_base(request)
+    try:
+        data = await kyber_register_verify(
+            base, email, form_data.code.strip(), form_data.password, form_data.name
+        )
+    except KyberError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+
+    kyber_user = data.get('user') or {}
+    jwt = data.get('accessToken')
+    email = str(kyber_user.get('email') or email).lower()
+
+    user = await Users.get_user_by_email(email, db=db)
+    if user is None:
+        name = (form_data.name or str(kyber_user.get('name') or '')).strip() or email.split('@')[0]
+        user = await signup_handler(request, email, str(uuid.uuid4()), name, db=db)
+        if user and user.role == 'pending':
+            await Users.update_user_role_by_id(user.id, 'user', db=db)
+            user = await Users.get_user_by_id(user.id, db=db)
+
+    try:
+        await ensure_kyber_link(user.id, kyber_user, base, jwt)
+    except Exception:
+        log.exception('KyberRouter linkage failed for %s', email)
+
+    return await create_session_response(request, user, db, response, set_cookie=True)
 
 
 @router.post('/signout')

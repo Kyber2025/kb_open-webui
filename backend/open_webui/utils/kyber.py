@@ -1,0 +1,162 @@
+"""KyberRouter account-bridge client (SESSION-HANDOFF §12.7, P1).
+
+KyberRouter is the account/wallet/billing source of truth. When ENABLE_KYBER_AUTH_BRIDGE
+is on, open-webui proxies KyberRouter's auth API for signin/signup, provisions a local
+shadow user, and stores the user's `sk-or-` API key (Fernet-encrypted) for P2 per-user
+token billing. All functions here are no-ops unless the bridge is enabled by the caller."""
+
+import logging
+from typing import Optional
+
+import aiohttp
+from fastapi import Request
+
+from open_webui.models.kyber_accounts import UserKyberAccounts
+from open_webui.utils.oauth import decrypt_data, encrypt_data
+
+log = logging.getLogger(__name__)
+
+_TIMEOUT = aiohttp.ClientTimeout(total=20)
+
+
+class KyberError(Exception):
+    """A user-facing error from a KyberRouter API call (message + HTTP status to surface)."""
+
+    def __init__(self, message: str, status: int = 502):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def kyber_base(request: Request) -> str:
+    return str(request.app.state.config.KYBERROUTER_API_URL).rstrip('/')
+
+
+def _err_message(data, default: str = 'KyberRouter request failed') -> str:
+    if isinstance(data, dict):
+        for k in ('message', 'error'):
+            v = data.get(k)
+            if isinstance(v, str) and v:
+                return v
+            if isinstance(v, dict) and isinstance(v.get('message'), str):
+                return v['message']
+    return default
+
+
+async def _post(base: str, path: str, payload: dict, jwt: Optional[str] = None):
+    headers = {'Content-Type': 'application/json'}
+    if jwt:
+        headers['Authorization'] = f'Bearer {jwt}'
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+        async with session.post(f'{base}{path}', json=payload, headers=headers) as resp:
+            try:
+                data = await resp.json(content_type=None)
+            except Exception:
+                data = {}
+            return resp.status, (data if isinstance(data, dict) else {})
+
+
+####################
+# Auth API
+####################
+
+
+async def kyber_login(base: str, email: str, password: str) -> Optional[dict]:
+    """Return KyberRouter's auth payload {accessToken, refreshToken, user} on success, or
+    None when authentication did not succeed for ANY reason (bad creds or service issue).
+    The caller falls back to local auth on None, so a KyberRouter outage never locks out
+    existing local accounts (e.g. the admin)."""
+    try:
+        status_code, data = await _post(base, '/auth/login', {'email': email, 'password': password})
+    except Exception:
+        log.exception('KyberRouter login request failed for %s', email)
+        return None
+    if status_code == 200 and data.get('accessToken'):
+        return data
+    log.info('KyberRouter login non-success (%s) for %s: %s', status_code, email, _err_message(data))
+    return None
+
+
+async def kyber_send_register_code(base: str, email: str) -> dict:
+    try:
+        status_code, data = await _post(base, '/auth/register/send-code', {'email': email})
+    except Exception as e:
+        raise KyberError('Could not reach the account service. Please try again.', 502) from e
+    if status_code in (200, 201):
+        return data
+    raise KyberError(_err_message(data, 'Could not send the verification code'), 400)
+
+
+async def kyber_register_verify(
+    base: str, email: str, code: str, password: str, name: Optional[str] = None
+) -> dict:
+    payload = {'email': email, 'code': code, 'password': password}
+    if name:
+        payload['name'] = name
+    try:
+        status_code, data = await _post(base, '/auth/register/verify', payload)
+    except Exception as e:
+        raise KyberError('Could not reach the account service. Please try again.', 502) from e
+    if status_code in (200, 201) and data.get('accessToken'):
+        return data
+    raise KyberError(_err_message(data, 'Verification failed'), 400)
+
+
+async def kyber_create_api_key(base: str, jwt: str, name: str = 'open-webui') -> Optional[str]:
+    """Create a personal sk-or- key for the user (auth'd by their JWT). Returns the raw key
+    string (only available at creation time) or None on failure."""
+    try:
+        status_code, data = await _post(base, '/keys', {'name': name}, jwt=jwt)
+    except Exception:
+        log.exception('KyberRouter create-api-key request failed')
+        return None
+    if status_code in (200, 201):
+        key = data.get('key')
+        return key if isinstance(key, str) and key else None
+    log.info('KyberRouter create-api-key non-success (%s): %s', status_code, _err_message(data))
+    return None
+
+
+####################
+# Linkage helpers
+####################
+
+
+async def ensure_kyber_link(owui_user_id: str, kyber_user: dict, base: str, jwt: str) -> None:
+    """Upsert the open-webui↔KyberRouter link for `owui_user_id`. Provisions and stores a
+    personal sk-or- key (encrypted) the first time, if none is stored yet."""
+    kyber_user_id = str(kyber_user.get('id') or '')
+    kyber_email = str(kyber_user.get('email') or '')
+    if not kyber_user_id:
+        log.warning('ensure_kyber_link called without a KyberRouter user id')
+        return
+
+    existing = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    api_key_enc = existing.api_key_enc if existing else None
+
+    if not api_key_enc and jwt:
+        key = await kyber_create_api_key(base, jwt)
+        if key:
+            try:
+                api_key_enc = encrypt_data(key)
+            except Exception:
+                log.exception('Failed to encrypt KyberRouter api key for %s', owui_user_id)
+
+    await UserKyberAccounts.upsert(
+        user_id=owui_user_id,
+        kyber_user_id=kyber_user_id,
+        kyber_email=kyber_email,
+        api_key_enc=api_key_enc,
+    )
+
+
+async def get_user_kyber_api_key(owui_user_id: str) -> Optional[str]:
+    """Decrypt and return the user's stored sk-or- key, or None. (Used by P2 billing.)"""
+    link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    if not link or not link.api_key_enc:
+        return None
+    try:
+        return decrypt_data(link.api_key_enc)
+    except Exception:
+        log.exception('Failed to decrypt KyberRouter api key for %s', owui_user_id)
+        return None

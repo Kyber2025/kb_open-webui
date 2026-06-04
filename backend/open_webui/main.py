@@ -2453,6 +2453,7 @@ async def get_app_config(request: Request):
             'enable_signup_password_confirmation': ENABLE_SIGNUP_PASSWORD_CONFIRMATION,
             'enable_ldap': app.state.config.ENABLE_LDAP,
             'enable_signup': app.state.config.ENABLE_SIGNUP,
+            'enable_kyber_auth_bridge': app.state.config.ENABLE_KYBER_AUTH_BRIDGE,
             'enable_login_form': app.state.config.ENABLE_LOGIN_FORM,
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
             # --- Authenticated: only consumed by logged-in frontend ---

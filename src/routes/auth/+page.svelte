@@ -4,7 +4,7 @@
 
 	import { toast } from 'svelte-sonner';
 
-	import { onMount, getContext, tick } from 'svelte';
+	import { onMount, onDestroy, getContext, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 
@@ -14,7 +14,9 @@
 		getSessionUser,
 		userSignIn,
 		userSignUp,
-		updateUserTimezone
+		updateUserTimezone,
+		sendRegisterCode,
+		registerVerify
 	} from '$lib/apis/auths';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
@@ -41,6 +43,13 @@
 	let confirmPassword = '';
 
 	let ldapUsername = '';
+
+	// KyberRouter account-bridge registration (email OTP). See SESSION-HANDOFF §12.7.
+	$: kyberBridge = $config?.features?.enable_kyber_auth_bridge ?? false;
+	let verificationCode = '';
+	let sendingCode = false;
+	let codeCooldown = 0;
+	let codeTimer = null;
 
 	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
 		if (sessionUser) {
@@ -95,6 +104,52 @@
 		await setSessionUser(sessionUser);
 	};
 
+	const startCooldown = (secs) => {
+		codeCooldown = Math.max(0, secs | 0);
+		if (codeTimer) clearInterval(codeTimer);
+		codeTimer = setInterval(() => {
+			codeCooldown -= 1;
+			if (codeCooldown <= 0) {
+				clearInterval(codeTimer);
+				codeTimer = null;
+			}
+		}, 1000);
+	};
+
+	const sendCodeHandler = async () => {
+		if (!email) {
+			toast.error($i18n.t('Please enter your email first.'));
+			return;
+		}
+		sendingCode = true;
+		try {
+			const res = await sendRegisterCode(email);
+			toast.success($i18n.t('Verification code sent to {{email}}', { email }));
+			startCooldown(res?.cooldown_sec ?? 60);
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			sendingCode = false;
+		}
+	};
+
+	// Bridge sign-up: verify the email OTP with KyberRouter, which creates the account.
+	const kyberSignUpHandler = async () => {
+		if ($config?.features?.enable_signup_password_confirmation) {
+			if (password !== confirmPassword) {
+				toast.error($i18n.t('Passwords do not match.'));
+				return;
+			}
+		}
+		const sessionUser = await registerVerify(email, verificationCode, password, name || null).catch(
+			(error) => {
+				toast.error(`${error}`);
+				return null;
+			}
+		);
+		await setSessionUser(sessionUser);
+	};
+
 	const ldapSignInHandler = async () => {
 		const sessionUser = await ldapUserSignIn(ldapUsername, password).catch((error) => {
 			toast.error(`${error}`);
@@ -108,6 +163,8 @@
 			await ldapSignInHandler();
 		} else if (mode === 'signin') {
 			await signInHandler();
+		} else if (kyberBridge) {
+			await kyberSignUpHandler();
 		} else {
 			await signUpHandler();
 		}
@@ -212,6 +269,10 @@
 		} else {
 			onboarding = $config?.onboarding ?? false;
 		}
+	});
+
+	onDestroy(() => {
+		if (codeTimer) clearInterval(codeTimer);
 	});
 </script>
 
@@ -351,6 +412,18 @@
 											</div>
 										{/if}
 
+										{#if mode === 'signup' && kyberBridge}
+											<div class="mb-2">
+												<label for="reg-code" class="text-sm font-medium text-left mb-1 block">{$i18n.t('Verification Code')}</label>
+												<div class="flex gap-2 items-center">
+													<input bind:value={verificationCode} type="text" id="reg-code" inputmode="numeric" autocomplete="one-time-code" class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600" placeholder={$i18n.t('6-digit code')} required />
+													<button type="button" class="shrink-0 text-xs font-medium underline disabled:no-underline disabled:text-gray-400" on:click={sendCodeHandler} disabled={sendingCode || codeCooldown > 0 || !email}>
+														{codeCooldown > 0 ? $i18n.t('Resend ({{n}}s)', { n: codeCooldown }) : $i18n.t('Send code')}
+													</button>
+												</div>
+											</div>
+										{/if}
+
 										<div>
 											<label for="password" class="text-sm font-medium text-left mb-1 block"
 												>{$i18n.t('Password')}</label
@@ -411,7 +484,7 @@
 														: $i18n.t('Create Account')}
 											</button>
 
-											{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
+											{#if ($config?.features.enable_signup || kyberBridge) && !($config?.onboarding ?? false)}
 												<div class=" mt-4 text-sm text-center">
 													{mode === 'signin'
 														? $i18n.t("Don't have an account?")

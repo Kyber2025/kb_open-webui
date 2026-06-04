@@ -314,6 +314,31 @@ SUBSCRIPTION_CHAINS = ConfigVar(
 )
 
 ####################################
+# KYBERROUTER ACCOUNT BRIDGE
+####################################
+
+# When enabled, open-webui authenticates users against KyberRouter (the account +
+# wallet + billing source of truth): signin/signup proxy KyberRouter's auth API, a
+# local shadow user is provisioned, and the user's sk-or- API key is stored (for the
+# P2 per-user token billing). Default OFF so production login is unchanged until the
+# bridge has been verified and explicitly flipped on. See SESSION-HANDOFF §12.7.
+ENABLE_KYBER_AUTH_BRIDGE = ConfigVar(
+    'ENABLE_KYBER_AUTH_BRIDGE',
+    'kyber.auth_bridge_enable',
+    os.getenv('ENABLE_KYBER_AUTH_BRIDGE', 'False').lower() == 'true',
+)
+
+# Base URL of the KyberRouter backend API (must include the /api context path).
+# open-webui and KyberRouter run on the same nodes; this must be reachable from the
+# open-webui container — verify at deploy time (loopback :18000, the docker network,
+# or the same base the model calls already use). Used only when the bridge is enabled.
+KYBERROUTER_API_URL = ConfigVar(
+    'KYBERROUTER_API_URL',
+    'kyber.api_url',
+    os.getenv('KYBERROUTER_API_URL', 'http://127.0.0.1:18000/api'),
+)
+
+####################################
 # OLLAMA_BASE_URL
 ####################################
 

@@ -140,6 +140,14 @@ healthy on the fork image). Migration applied to production RDS, 4 default tiers
 subscription routes live, ALB both targets healthy, chat.kividas.com 200. Enforcement is
 **live** (non-admin users default to `free` = 10 msgs/day; admins exempt).
 
+**Gift cards DEPLOYED (2026-06-04).** Built from `feat/subscription-system` (commit
+`f8a5f072d`) via Jenkins `kividas-ci #22` (build+smoke) → `#23` (DEPLOY) → ECR
+`kividas/openwebui:b23`; SQLite smoke passed (migration `f0a1b2c3d4e5 → a7b8c9d0e1f2`,
+table created, 4 tiers seeded, no tracebacks); rolling-deployed to kividas-1 + kividas-2.
+ALB verified: `/redeem` + `/admin/gift-cards` return 401 (live; 404 on the old image), both
+targets healthy. **Merged to `main`** (`12d776a00..f8a5f072d`, fast-forward) — `origin/main`
+now equals `feat/subscription-system`, so default `GIT_REF=main` builds keep the gift cards.
+
 **Still needed:** (1) admin configures the Free model allow-list + tier prices at
 `/admin/subscriptions` (seeded defaults: Free model list is empty = all models allowed);
 (2) **real payments require the payment_service running as the sole instance** — until the
