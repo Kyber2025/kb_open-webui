@@ -900,7 +900,12 @@ def handle_responses_streaming_event(
         response_data = data.get('response', {})
         final_output = response_data.get('output')
 
-        new_output = final_output if final_output is not None else current_output
+        # Prefer the upstream's final output, but fall back to the output we
+        # accumulated from the stream when it's empty. The Chat Completions →
+        # Responses conversion (and some upstreams) emit response.completed with
+        # an empty output:[]; trusting it (only `is not None`) would discard the
+        # fully-streamed reply, persisting an empty message that vanishes on sync.
+        new_output = final_output if final_output else current_output
 
         # Ensure reasoning items are marked as completed in the final output
         if new_output:
