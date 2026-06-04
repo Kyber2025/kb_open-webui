@@ -1837,6 +1837,11 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
                     error_message = e.detail.get('message', str(e.detail))
                 else:
                     error_message = str(e.detail)
+            # A non-HTTPException (timeout, disconnect) leaves error_message empty,
+            # which then renders to the user as a bare "[ERROR: ]". Surface the
+            # exception text (or its type) so the failure is at least identifiable.
+            if not error_message:
+                error_message = str(e) or type(e).__name__
 
             await __event_emitter__(
                 {
@@ -1935,6 +1940,11 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
                     error_message = e.detail.get('message', str(e.detail))
                 else:
                     error_message = str(e.detail)
+            # A non-HTTPException (timeout, disconnect) leaves error_message empty,
+            # which then renders to the user as a bare "[ERROR: ]". Surface the
+            # exception text (or its type) so the failure is at least identifiable.
+            if not error_message:
+                error_message = str(e) or type(e).__name__
 
             await __event_emitter__(
                 {
