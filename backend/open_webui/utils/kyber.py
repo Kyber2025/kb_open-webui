@@ -29,7 +29,9 @@ class KyberError(Exception):
 
 
 def kyber_base(request: Request) -> str:
-    return str(request.app.state.config.KYBERROUTER_API_URL).rstrip('/')
+    return str(
+        getattr(request.app.state.config, 'KYBERROUTER_API_URL', 'http://127.0.0.1:18000/api')
+    ).rstrip('/')
 
 
 def _err_message(data, default: str = 'KyberRouter request failed') -> str:

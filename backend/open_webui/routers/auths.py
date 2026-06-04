@@ -666,7 +666,7 @@ async def signin(
         # Falls through to local auth on ANY non-success, so existing local accounts
         # (e.g. the admin, who has no KyberRouter account) keep working — and a
         # KyberRouter outage never locks them out.
-        if request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+        if getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
             user = await kyber_bridge_signin(
                 request, form_data.email.lower(), form_data.password, db=db
             )
@@ -860,7 +860,7 @@ async def register_send_code(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Proxy KyberRouter's 'send email verification code' (account bridge, §12.7)."""
-    if not request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+    if not getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     email = form_data.email.lower().strip()
     if not validate_email_format(email):
@@ -885,7 +885,7 @@ async def register_verify(
 ):
     """Verify the code with KyberRouter (which creates the KyberRouter account), then
     provision a local shadow user + sk-or- key and log in (account bridge, §12.7)."""
-    if not request.app.state.config.ENABLE_KYBER_AUTH_BRIDGE:
+    if not getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     email = form_data.email.lower().strip()
     base = kyber_base(request)

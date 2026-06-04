@@ -174,6 +174,8 @@ from open_webui.config import (
     ENABLE_SUBSCRIPTIONS,
     PAYMENT_SERVICE_URL,
     SUBSCRIPTION_CHAINS,
+    ENABLE_KYBER_AUTH_BRIDGE,
+    KYBERROUTER_API_URL,
     ENABLE_EVALUATION_ARENA_MODELS,
     ENABLE_FOLDERS,
     ENABLE_FOLLOW_UP_GENERATION,
@@ -867,6 +869,8 @@ app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
 app.state.config.ENABLE_SUBSCRIPTIONS = ENABLE_SUBSCRIPTIONS
 app.state.config.PAYMENT_SERVICE_URL = PAYMENT_SERVICE_URL
 app.state.config.SUBSCRIPTION_CHAINS = SUBSCRIPTION_CHAINS
+app.state.config.ENABLE_KYBER_AUTH_BRIDGE = ENABLE_KYBER_AUTH_BRIDGE
+app.state.config.KYBERROUTER_API_URL = KYBERROUTER_API_URL
 
 ########################################
 #
@@ -2453,7 +2457,7 @@ async def get_app_config(request: Request):
             'enable_signup_password_confirmation': ENABLE_SIGNUP_PASSWORD_CONFIRMATION,
             'enable_ldap': app.state.config.ENABLE_LDAP,
             'enable_signup': app.state.config.ENABLE_SIGNUP,
-            'enable_kyber_auth_bridge': app.state.config.ENABLE_KYBER_AUTH_BRIDGE,
+            'enable_kyber_auth_bridge': getattr(app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False),
             'enable_login_form': app.state.config.ENABLE_LOGIN_FORM,
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
             # --- Authenticated: only consumed by logged-in frontend ---
