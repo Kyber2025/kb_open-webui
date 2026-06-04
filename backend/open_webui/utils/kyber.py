@@ -35,13 +35,24 @@ def kyber_base(request: Request) -> str:
 
 
 def _err_message(data, default: str = 'KyberRouter request failed') -> str:
-    if isinstance(data, dict):
-        for k in ('message', 'error'):
-            v = data.get(k)
-            if isinstance(v, str) and v:
-                return v
-            if isinstance(v, dict) and isinstance(v.get('message'), str):
-                return v['message']
+    if not isinstance(data, dict):
+        return default
+    # Prefer a specific validation issue (Zod/Fastify shapes) over a generic top-level
+    # "Validation Error" — so e.g. a too-short password surfaces a useful message.
+    for arr_key in ('issues', 'errors', 'details'):
+        arr = data.get(arr_key)
+        if isinstance(arr, list):
+            for item in arr:
+                if isinstance(item, dict) and isinstance(item.get('message'), str) and item['message']:
+                    return item['message']
+                if isinstance(item, str) and item:
+                    return item
+    for k in ('message', 'error'):
+        v = data.get(k)
+        if isinstance(v, str) and v:
+            return v
+        if isinstance(v, dict) and isinstance(v.get('message'), str) and v['message']:
+            return v['message']
     return default
 
 

@@ -135,6 +135,14 @@
 
 	// Bridge sign-up: verify the email OTP with KyberRouter, which creates the account.
 	const kyberSignUpHandler = async () => {
+		if (!/^\d{6}$/.test((verificationCode || '').trim())) {
+			toast.error($i18n.t('Please enter the 6-digit verification code from your email.'));
+			return;
+		}
+		if ((password || '').length < 8) {
+			toast.error($i18n.t('Password must be at least 8 characters.'));
+			return;
+		}
 		if ($config?.features?.enable_signup_password_confirmation) {
 			if (password !== confirmPassword) {
 				toast.error($i18n.t('Passwords do not match.'));
@@ -441,6 +449,10 @@
 												aria-required="true"
 											/>
 										</div>
+
+										{#if mode === 'signup' && kyberBridge}
+											<div class="text-xs text-gray-400 mt-1 text-left">{$i18n.t('At least 8 characters')}</div>
+										{/if}
 
 										{#if mode === 'signup' && $config?.features?.enable_signup_password_confirmation}
 											<div class="mt-2">
