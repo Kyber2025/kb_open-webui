@@ -557,6 +557,59 @@ async def generate_images(request: Request, form_data: CreateImageForm, user=Dep
     return await image_generations(request, form_data, user=user)
 
 
+# Transient upstream failures — a backend redeploy window, a brief ChatGPT 502,
+# a SOCKS5 proxy hiccup — should not surface as a hard failure on the very first
+# try. Image generation is slow and worth retrying. We retry ONLY connection-level
+# errors and 502/503/504 gateway statuses: those mean the upstream never produced
+# a billable result, so a retry can't double-charge. A real 4xx (bad prompt,
+# content policy) is NOT retried — it would just fail again. Per-attempt timeout
+# bounds a stalled connection so it becomes a retryable TimeoutError instead of
+# hanging forever.
+_IMAGE_RETRY_STATUSES = {502, 503, 504}
+_IMAGE_RETRY_EXC = (
+    aiohttp.ServerDisconnectedError,
+    aiohttp.ClientConnectorError,
+    aiohttp.ClientOSError,
+    asyncio.TimeoutError,
+)
+
+
+async def _post_image_json_with_retry(
+    session: aiohttp.ClientSession,
+    *,
+    attempts: int = 3,
+    backoff: float = 1.5,
+    per_attempt_timeout: int = 300,
+    **post_kwargs,
+) -> dict:
+    last_exc: Exception | None = None
+    for i in range(attempts):
+        try:
+            async with session.post(
+                timeout=aiohttp.ClientTimeout(total=per_attempt_timeout), **post_kwargs
+            ) as r:
+                if r.status in _IMAGE_RETRY_STATUSES and i < attempts - 1:
+                    last_exc = aiohttp.ClientResponseError(
+                        r.request_info,
+                        r.history,
+                        status=r.status,
+                        message=(r.reason or f'HTTP {r.status}'),
+                    )
+                    await asyncio.sleep(backoff * (i + 1))
+                    continue
+                r.raise_for_status()
+                return await r.json(content_type=None)
+        except _IMAGE_RETRY_EXC as e:
+            last_exc = e
+            if i < attempts - 1:
+                await asyncio.sleep(backoff * (i + 1))
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError('image POST retry loop exited without a result')
+
+
 async def image_generations(
     request: Request,
     form_data: CreateImageForm,
@@ -619,14 +672,13 @@ async def image_generations(
             }
 
             session = await get_session()
-            async with session.post(
+            res = await _post_image_json_with_retry(
+                session,
                 url=url,
                 json=data,
                 headers=headers,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
-            ) as r:
-                r.raise_for_status()
-                res = await r.json(content_type=None)
+            )
 
             images = []
 
@@ -805,7 +857,11 @@ async def image_generations(
     except Exception as e:
         error = e
         if isinstance(e, aiohttp.ClientResponseError):
-            error = e.message
+            error = e.message or f'upstream HTTP {e.status}'
+        # asyncio.TimeoutError / ServerDisconnectedError stringify to '' — fall back
+        # to the exception type so the user sees "[ERROR: TimeoutError]" instead of a
+        # mystifying "[ERROR: ]".
+        error = str(error) or type(e).__name__
         raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(error))
 
 
@@ -954,14 +1010,13 @@ async def image_edits(
                 )
 
             session = await get_session()
-            async with session.post(
+            res = await _post_image_json_with_retry(
+                session,
                 url=f'{request.app.state.config.IMAGES_EDIT_OPENAI_API_BASE_URL}/images/edits{url_search_params}',
                 headers=headers,
                 data=form,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
-            ) as r:
-                r.raise_for_status()
-                res = await r.json(content_type=None)
+            )
 
             images = []
             for image in res['data']:
@@ -1120,6 +1175,7 @@ async def image_edits(
     except Exception as e:
         error = e
         if isinstance(e, aiohttp.ClientResponseError):
-            error = e.message
-
+            error = e.message or f'upstream HTTP {e.status}'
+        # Empty-string exceptions (TimeoutError / disconnect) → show the type, not "[ERROR: ]".
+        error = str(error) or type(e).__name__
         raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(error))
