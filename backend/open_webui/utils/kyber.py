@@ -70,8 +70,9 @@ async def kyber_login(base: str, email: str, password: str) -> Optional[dict]:
     existing local accounts (e.g. the admin)."""
     try:
         status_code, data = await _post(base, '/auth/login', {'email': email, 'password': password})
-    except Exception:
-        log.exception('KyberRouter login request failed for %s', email)
+    except Exception as e:
+        # Expected fallback path (KyberRouter unreachable) — concise warning, no stack spam.
+        log.warning('KyberRouter unreachable for login of %s: %s', email, e)
         return None
     if status_code == 200 and data.get('accessToken'):
         return data
@@ -109,8 +110,8 @@ async def kyber_create_api_key(base: str, jwt: str, name: str = 'open-webui') ->
     string (only available at creation time) or None on failure."""
     try:
         status_code, data = await _post(base, '/keys', {'name': name}, jwt=jwt)
-    except Exception:
-        log.exception('KyberRouter create-api-key request failed')
+    except Exception as e:
+        log.warning('KyberRouter create-api-key request failed: %s', e)
         return None
     if status_code in (200, 201):
         key = data.get('key')
