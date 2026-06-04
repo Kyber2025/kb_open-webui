@@ -14,7 +14,9 @@ from sqlalchemy import (
     String,
     Text,
     delete,
+    func,
     select,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +87,23 @@ class SubscriptionUsageDaily(Base):
     updated_at = Column(BigInteger, nullable=False)
 
 
+class GiftCard(Base):
+    __tablename__ = 'subscription_gift_card'
+
+    # canonical code, e.g. 'ABCD-EFGH-JKLM-NPQR' (single-use redemption code)
+    code = Column(String, primary_key=True)
+    tier_id = Column(String, nullable=False)  # tier granted on redemption
+    duration_days = Column(Integer, nullable=False)  # subscription length granted
+    batch_id = Column(String, index=True, nullable=True)  # groups a generated batch
+    note = Column(String, nullable=True)  # admin note
+    enabled = Column(Boolean, nullable=False, default=True)  # False = deactivated
+    redeemed_by = Column(String, index=True, nullable=True)  # user_id, NULL = unredeemed
+    redeemed_at = Column(BigInteger, nullable=True)
+    created_by = Column(String, nullable=True)  # admin user_id who generated it
+    created_at = Column(BigInteger, nullable=False)
+    updated_at = Column(BigInteger, nullable=False)
+
+
 ####################
 # Pydantic models
 ####################
@@ -146,6 +165,22 @@ class SubscriptionOrderModel(BaseModel):
     tx_hash: Optional[str] = None
     activated: bool
     expires_at: Optional[int] = None
+    created_at: int
+    updated_at: int
+
+
+class GiftCardModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    tier_id: str
+    duration_days: int
+    batch_id: Optional[str] = None
+    note: Optional[str] = None
+    enabled: bool = True
+    redeemed_by: Optional[str] = None
+    redeemed_at: Optional[int] = None
+    created_by: Optional[str] = None
     created_at: int
     updated_at: int
 
@@ -415,7 +450,154 @@ class SubscriptionUsageTable:
             return new_count
 
 
+class GiftCardsTable:
+    async def insert_many(
+        self, cards: list[dict], db: Optional[AsyncSession] = None
+    ) -> list[GiftCardModel]:
+        """Bulk-insert pre-generated gift cards in a single transaction. Each dict needs
+        `code`, `tier_id`, `duration_days`; optional `batch_id`, `note`, `created_by`."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            for c in cards:
+                db.add(
+                    GiftCard(
+                        code=c['code'],
+                        tier_id=c['tier_id'],
+                        duration_days=c['duration_days'],
+                        batch_id=c.get('batch_id'),
+                        note=c.get('note'),
+                        enabled=True,
+                        redeemed_by=None,
+                        redeemed_at=None,
+                        created_by=c.get('created_by'),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            await db.commit()
+            # Build models from the same data to avoid touching expired ORM instances.
+            return [
+                GiftCardModel(
+                    code=c['code'],
+                    tier_id=c['tier_id'],
+                    duration_days=c['duration_days'],
+                    batch_id=c.get('batch_id'),
+                    note=c.get('note'),
+                    enabled=True,
+                    redeemed_by=None,
+                    redeemed_at=None,
+                    created_by=c.get('created_by'),
+                    created_at=now,
+                    updated_at=now,
+                )
+                for c in cards
+            ]
+
+    async def existing(self, codes: list[str], db: Optional[AsyncSession] = None) -> set[str]:
+        """Return the subset of `codes` already present (collision guard during generation)."""
+        if not codes:
+            return set()
+        async with get_async_db_context(db) as db:
+            result = await db.execute(select(GiftCard.code).where(GiftCard.code.in_(codes)))
+            return set(result.scalars().all())
+
+    async def get(self, code: str, db: Optional[AsyncSession] = None) -> Optional[GiftCardModel]:
+        async with get_async_db_context(db) as db:
+            row = await db.get(GiftCard, code)
+            return GiftCardModel.model_validate(row) if row else None
+
+    async def claim(
+        self, code: str, user_id: str, db: Optional[AsyncSession] = None
+    ) -> Optional[GiftCardModel]:
+        """Atomically claim an unredeemed, enabled gift card for `user_id`. The conditional
+        UPDATE is the concurrency gate — only one redeemer can flip `redeemed_by` from NULL.
+        Returns the claimed card, or None if it was not claimable (missing/redeemed/disabled)."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            result = await db.execute(
+                update(GiftCard)
+                .where(
+                    GiftCard.code == code,
+                    GiftCard.redeemed_by.is_(None),
+                    GiftCard.enabled.is_(True),
+                )
+                .values(redeemed_by=user_id, redeemed_at=now, updated_at=now)
+            )
+            await db.commit()
+            if not result.rowcount:
+                return None
+            row = await db.get(GiftCard, code)
+            return GiftCardModel.model_validate(row) if row else None
+
+    async def release(self, code: str, db: Optional[AsyncSession] = None) -> None:
+        """Undo a claim (used when granting the subscription fails after claiming)."""
+        async with get_async_db_context(db) as db:
+            await db.execute(
+                update(GiftCard)
+                .where(GiftCard.code == code)
+                .values(redeemed_by=None, redeemed_at=None, updated_at=int(time.time()))
+            )
+            await db.commit()
+
+    async def set_enabled(
+        self, code: str, enabled: bool, db: Optional[AsyncSession] = None
+    ) -> bool:
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                update(GiftCard)
+                .where(GiftCard.code == code)
+                .values(enabled=enabled, updated_at=int(time.time()))
+            )
+            await db.commit()
+            return bool(result.rowcount)
+
+    async def delete(self, code: str, db: Optional[AsyncSession] = None) -> bool:
+        async with get_async_db_context(db) as db:
+            result = await db.execute(delete(GiftCard).where(GiftCard.code == code))
+            await db.commit()
+            return bool(result.rowcount)
+
+    async def list_cards(
+        self,
+        status: Optional[str] = None,
+        batch_id: Optional[str] = None,
+        limit: int = 500,
+        db: Optional[AsyncSession] = None,
+    ) -> list[GiftCardModel]:
+        async with get_async_db_context(db) as db:
+            stmt = select(GiftCard)
+            if batch_id:
+                stmt = stmt.filter_by(batch_id=batch_id)
+            if status == 'redeemed':
+                stmt = stmt.filter(GiftCard.redeemed_by.isnot(None))
+            elif status == 'available':
+                stmt = stmt.filter(GiftCard.redeemed_by.is_(None), GiftCard.enabled.is_(True))
+            elif status == 'disabled':
+                stmt = stmt.filter(GiftCard.enabled.is_(False))
+            stmt = stmt.order_by(GiftCard.created_at.desc()).limit(limit)
+            result = await db.execute(stmt)
+            return [GiftCardModel.model_validate(r) for r in result.scalars().all()]
+
+    async def counts(self, db: Optional[AsyncSession] = None) -> dict:
+        async with get_async_db_context(db) as db:
+            async def _count(*conds) -> int:
+                stmt = select(func.count()).select_from(GiftCard)
+                for c in conds:
+                    stmt = stmt.where(c)
+                return (await db.execute(stmt)).scalar() or 0
+
+            return {
+                'total': await _count(),
+                'redeemed': await _count(GiftCard.redeemed_by.isnot(None)),
+                'available': await _count(
+                    GiftCard.redeemed_by.is_(None), GiftCard.enabled.is_(True)
+                ),
+                'disabled': await _count(GiftCard.enabled.is_(False)),
+            }
+
+
 SubscriptionTiers = SubscriptionTiersTable()
 UserSubscriptions = UserSubscriptionsTable()
 SubscriptionOrders = SubscriptionOrdersTable()
 SubscriptionUsage = SubscriptionUsageTable()
+GiftCards = GiftCardsTable()

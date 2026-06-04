@@ -1,9 +1,11 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from open_webui.models.subscriptions import (
+    GiftCards,
     SubscriptionOrders,
     SubscriptionTierForm,
     SubscriptionTiers,
@@ -12,7 +14,9 @@ from open_webui.models.subscriptions import (
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.subscription import (
     create_subscription_order,
+    generate_gift_cards,
     get_subscription_state,
+    redeem_gift_card,
     seed_default_tiers,
     sync_order,
 )
@@ -25,6 +29,21 @@ router = APIRouter()
 class SubscribeForm(BaseModel):
     tier_id: str
     chain_id: str
+
+
+class RedeemForm(BaseModel):
+    code: str
+
+
+class GiftCardGenerateForm(BaseModel):
+    tier_id: str
+    count: int = 1
+    duration_days: Optional[int] = None
+    note: Optional[str] = None
+
+
+class GiftCardStatusForm(BaseModel):
+    enabled: bool
 
 
 ############################
@@ -66,6 +85,12 @@ async def get_order(request: Request, order_id: str, user=Depends(get_verified_u
 @router.get('/orders')
 async def list_my_orders(user=Depends(get_verified_user)):
     return await SubscriptionOrders.list_for_user(user.id)
+
+
+@router.post('/redeem')
+async def redeem(form_data: RedeemForm, user=Depends(get_verified_user)):
+    """Redeem a gift card / redemption code and activate the granted plan."""
+    return await redeem_gift_card(user, form_data.code)
 
 
 ############################
@@ -110,3 +135,45 @@ async def admin_seed_tiers(user=Depends(get_admin_user)):
 @router.get('/admin/subscriptions')
 async def admin_list_subscriptions(user=Depends(get_admin_user)):
     return await UserSubscriptions.list_all()
+
+
+############################
+# Admin — gift cards
+############################
+
+
+@router.post('/admin/gift-cards')
+async def admin_generate_gift_cards(form_data: GiftCardGenerateForm, user=Depends(get_admin_user)):
+    """Generate a batch of single-use gift cards for a tier. Returns the new codes."""
+    return await generate_gift_cards(
+        user, form_data.tier_id, form_data.count, form_data.duration_days, form_data.note
+    )
+
+
+@router.get('/admin/gift-cards')
+async def admin_list_gift_cards(
+    status_filter: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    user=Depends(get_admin_user),
+):
+    """List gift cards (most recent first, capped) plus summary counts.
+    `status_filter` ∈ all | available | redeemed | disabled."""
+    cards = await GiftCards.list_cards(status=status_filter, batch_id=batch_id)
+    counts = await GiftCards.counts()
+    return {'cards': cards, 'counts': counts}
+
+
+@router.post('/admin/gift-cards/{code}/status')
+async def admin_set_gift_card_status(
+    code: str, form_data: GiftCardStatusForm, user=Depends(get_admin_user)
+):
+    ok = await GiftCards.set_enabled(code, form_data.enabled)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift card not found')
+    return {'success': True, 'enabled': form_data.enabled}
+
+
+@router.delete('/admin/gift-cards/{code}')
+async def admin_delete_gift_card(code: str, user=Depends(get_admin_user)):
+    ok = await GiftCards.delete(code)
+    return {'success': ok}

@@ -2,6 +2,7 @@
 activation and default-tier seeding. See SUBSCRIPTION.md."""
 
 import logging
+import secrets
 import time
 import uuid
 from typing import Optional
@@ -10,6 +11,8 @@ import aiohttp
 from fastapi import HTTPException, Request, status
 
 from open_webui.models.subscriptions import (
+    GiftCardModel,
+    GiftCards,
     SubscriptionOrders,
     SubscriptionTierForm,
     SubscriptionTierModel,
@@ -272,6 +275,160 @@ async def sync_order(request: Request, user, order_id: str) -> dict:
         'status': current_status if not order.activated else 'PAID',
         'tx_hash': tx_hash,
         'activated': activated_now or order.activated,
+        'subscription_state': state,
+    }
+
+
+####################
+# Gift cards / redemption codes
+####################
+
+GIFT_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'  # Crockford-ish: no 0/O/1/I/L
+GIFT_CODE_GROUPS = 4
+GIFT_CODE_GROUP_LEN = 4
+GIFT_CODE_LEN = GIFT_CODE_GROUPS * GIFT_CODE_GROUP_LEN
+MAX_GIFT_CARDS_PER_BATCH = 1000
+
+
+def _generate_gift_code() -> str:
+    parts = [
+        ''.join(secrets.choice(GIFT_CODE_ALPHABET) for _ in range(GIFT_CODE_GROUP_LEN))
+        for _ in range(GIFT_CODE_GROUPS)
+    ]
+    return '-'.join(parts)
+
+
+def normalize_gift_code(raw: str) -> str:
+    """Canonicalize user input (lowercase, spaces, with/without dashes) into the stored
+    'XXXX-XXXX-XXXX-XXXX' form. Returns '' when the input has no usable characters."""
+    cleaned = ''.join(ch for ch in (raw or '').upper() if ch.isalnum())
+    if not cleaned:
+        return ''
+    groups = [
+        cleaned[i : i + GIFT_CODE_GROUP_LEN]
+        for i in range(0, len(cleaned), GIFT_CODE_GROUP_LEN)
+    ]
+    return '-'.join(groups)
+
+
+async def generate_gift_cards(
+    admin_user,
+    tier_id: str,
+    count: int,
+    duration_days: Optional[int] = None,
+    note: Optional[str] = None,
+) -> list[GiftCardModel]:
+    """Generate `count` unique single-use gift cards for `tier_id`. Duration defaults to the
+    tier's configured length. Returns the new GiftCardModel list (codes included, for export)."""
+    tier = await SubscriptionTiers.get_tier(tier_id)
+    if tier is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
+
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        count = 0
+    if count < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Count must be at least 1')
+    if count > MAX_GIFT_CARDS_PER_BATCH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'At most {MAX_GIFT_CARDS_PER_BATCH} gift cards can be generated at once',
+        )
+
+    duration = int(duration_days) if duration_days else 0
+    if duration <= 0:
+        duration = tier.duration_days or 30
+
+    batch_id = f'batch-{uuid.uuid4().hex[:12]}'
+    created_by = getattr(admin_user, 'id', None)
+
+    # Build a set of unique codes, deduped in-memory and against the DB. The code space is
+    # 32^16, so collisions are astronomically rare — round 1 fills the batch in practice.
+    codes: set[str] = set()
+    attempts = 0
+    max_attempts = count * 50 + 100
+    while len(codes) < count and attempts < max_attempts:
+        attempts += 1
+        batch = {_generate_gift_code() for _ in range(count - len(codes))}
+        batch -= codes
+        if batch:
+            batch -= await GiftCards.existing(list(batch))
+        codes |= batch
+
+    if len(codes) < count:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Could not generate unique gift card codes. Please try again.',
+        )
+
+    cards = [
+        {
+            'code': c,
+            'tier_id': tier_id,
+            'duration_days': duration,
+            'batch_id': batch_id,
+            'note': (note or None),
+            'created_by': created_by,
+        }
+        for c in list(codes)[:count]
+    ]
+    return await GiftCards.insert_many(cards)
+
+
+async def redeem_gift_card(user, raw_code: str) -> dict:
+    """Redeem a gift card for `user`: atomically claim the code, then grant/extend the tier.
+    Double-spend is prevented by the atomic claim in GiftCards.claim(); on a grant failure the
+    claim is released so the code stays usable."""
+    code = normalize_gift_code(raw_code)
+    if not code or len(code.replace('-', '')) != GIFT_CODE_LEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Please enter a valid gift card code'
+        )
+
+    claimed = await GiftCards.claim(code, user.id)
+    if claimed is None:
+        existing = await GiftCards.get(code)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Invalid gift card code')
+        if not existing.enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail='This gift card has been deactivated'
+            )
+        if existing.redeemed_by == user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail='You have already redeemed this gift card'
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='This gift card has already been redeemed'
+        )
+
+    tier = await SubscriptionTiers.get_tier(claimed.tier_id)
+    if tier is None:
+        await GiftCards.release(code)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='The plan for this gift card no longer exists'
+        )
+
+    try:
+        sub = await UserSubscriptions.create_or_extend(
+            user.id, claimed.tier_id, claimed.duration_days, order_id=f'gift:{code}'
+        )
+    except Exception:
+        log.exception('gift card grant failed; releasing claim for %s', code)
+        await GiftCards.release(code)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Could not activate your subscription. Please try again.',
+        )
+
+    state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
+    return {
+        'success': True,
+        'tier_id': claimed.tier_id,
+        'tier_name': tier.name,
+        'duration_days': claimed.duration_days,
+        'expires_at': sub.expires_at if sub else None,
         'subscription_state': state,
     }
 

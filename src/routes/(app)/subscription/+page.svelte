@@ -13,13 +13,18 @@
 		getSubscriptionChains,
 		getMySubscription,
 		subscribe,
-		getSubscriptionOrder
+		getSubscriptionOrder,
+		redeemGiftCard
 	} from '$lib/apis/subscriptions';
 
 	let loaded = false;
 	let tiers = [];
 	let chains = [];
 	let me = null;
+
+	// gift card redemption
+	let redeemCode = '';
+	let redeeming = false;
 
 	// checkout state
 	let checkoutTier = null;
@@ -43,6 +48,26 @@
 			getSubscriptionChains(localStorage.token).catch(() => [])
 		]);
 		await loadState();
+	};
+
+	const redeem = async () => {
+		const code = redeemCode.trim();
+		if (!code || redeeming) return;
+		redeeming = true;
+		try {
+			const res = await redeemGiftCard(localStorage.token, code);
+			toast.success(
+				$i18n.t('Gift card redeemed — your {{name}} plan is now active!', {
+					name: res?.tier_name ?? ''
+				})
+			);
+			redeemCode = '';
+			await loadState();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			redeeming = false;
+		}
 	};
 
 	const priceLabel = (tier) =>
@@ -204,6 +229,30 @@
 						</div>
 					</div>
 				{/if}
+
+				<!-- redeem gift card -->
+				<div class="mb-6 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+					<div class="text-sm font-medium mb-1">{$i18n.t('Redeem a gift card')}</div>
+					<div class="text-xs text-gray-500 mb-3">
+						{$i18n.t('Have a redemption code? Enter it below to activate your plan.')}
+					</div>
+					<form class="flex flex-col sm:flex-row gap-2" on:submit|preventDefault={redeem}>
+						<input
+							class="flex-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm font-mono tracking-wider uppercase outline-none placeholder:normal-case"
+							placeholder="XXXX-XXXX-XXXX-XXXX"
+							bind:value={redeemCode}
+							autocomplete="off"
+							spellcheck="false"
+						/>
+						<button
+							type="submit"
+							class="px-4 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 disabled:opacity-50"
+							disabled={redeeming || !redeemCode.trim()}
+						>
+							{redeeming ? $i18n.t('Redeeming…') : $i18n.t('Redeem')}
+						</button>
+					</form>
+				</div>
 
 				<!-- tiers -->
 				<div class="text-sm font-medium text-gray-500 mb-3">{$i18n.t('Available plans')}</div>

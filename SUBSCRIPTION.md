@@ -38,10 +38,11 @@ we gate *which* managed models a user may call and *how many* messages/day.
 
 ## Backend files
 
-- `backend/open_webui/models/subscriptions.py` — 4 tables + Pydantic + CRUD singletons:
-  `SubscriptionTiers`, `UserSubscriptions`, `SubscriptionOrders`, `SubscriptionUsage`.
-- `backend/open_webui/migrations/versions/2a1b3c4d5e6f_add_subscription_tables.py` — down_revision = `461111b60977` (verified head).
-- `backend/open_webui/utils/subscription.py` — tier resolution, enforcement, Java client (aiohttp), activation, seeding.
+- `backend/open_webui/models/subscriptions.py` — 5 tables + Pydantic + CRUD singletons:
+  `SubscriptionTiers`, `UserSubscriptions`, `SubscriptionOrders`, `SubscriptionUsage`, `GiftCards`.
+- `backend/open_webui/migrations/versions/f0a1b2c3d4e5_add_subscription_tables.py` — down_revision = `461111b60977`.
+- `backend/open_webui/migrations/versions/a7b8c9d0e1f2_add_gift_card_table.py` — down_revision = `f0a1b2c3d4e5` (current head).
+- `backend/open_webui/utils/subscription.py` — tier resolution, enforcement, Java client (aiohttp), activation, seeding, **gift card generation + redemption**.
 - `backend/open_webui/routers/subscriptions.py` — `/api/v1/subscriptions/*`.
 - `backend/open_webui/config.py` — `PAYMENT_SERVICE_URL`, `SUBSCRIPTION_ENABLED` ConfigVars.
 - `backend/open_webui/main.py` — import models + router include; seed tiers on startup; **enforcement** in `chat_completion` (after model_info load, ~line 1688); **visible-model filter** in `/api/models` (~line 1481).
@@ -58,14 +59,49 @@ Effective tier = active `user_subscription` (status active & `expires_at > now`,
 - `GET  /me` (verified user) — current tier + today usage + active subscription + expiry.
 - `POST /subscribe` `{tier_id, chain_id}` — creates Java order, returns `{order_id, address, qr_code_image, amount, chain_id, status, expires_at}`.
 - `GET  /order/{order_id}` — polls Java; on PAID activates subscription (idempotent). Returns order + subscription state.
+- `POST /redeem` `{code}` (verified user) — redeem a gift card; grants/extends the card's tier. See **Gift cards** below.
 - `GET  /admin/tiers` / `POST /admin/tiers` / `POST /admin/tiers/{id}` / `DELETE /admin/tiers/{id}` (admin) — tier CRUD.
 - `GET  /admin/subscriptions` (admin) — list user subscriptions (basic).
+- `POST /admin/gift-cards` `{tier_id, count, duration_days?, note?}` (admin) — generate a batch of single-use codes; returns the new `GiftCardModel[]`.
+- `GET  /admin/gift-cards?status_filter=&batch_id=` (admin) — recent cards (capped 500) + `{counts:{total,available,redeemed,disabled}}`.
+- `POST /admin/gift-cards/{code}/status` `{enabled}` (admin) — enable/disable a code.
+- `DELETE /admin/gift-cards/{code}` (admin) — delete a code.
 
 ## Frontend files
 - `src/lib/apis/subscriptions/index.ts` — API client.
-- `src/routes/(app)/subscription/+page.svelte` — tiers, current plan + usage bar, subscribe → QR + address + countdown + status poll.
-- `src/lib/components/admin/Settings/Subscriptions.svelte` (+ register in `Settings.svelte`) — per-tier config (price, daily limit, allowed models multiselect from `$models`, enabled).
+- `src/routes/(app)/subscription/+page.svelte` — tiers, current plan + usage bar, **redeem-a-gift-card box**, subscribe → QR + address + countdown + status poll.
+- `src/lib/components/admin/Subscriptions.svelte` — per-tier config (price, daily limit, allowed models multiselect from `$models`, enabled).
+- `src/lib/components/admin/GiftCards.svelte` — gift card generator + list/manage. Rendered together with `Subscriptions.svelte` from `src/routes/(app)/admin/subscriptions/+page.svelte`.
 - Link to `/subscription` + remaining-quota hint in the user menu.
+
+## Gift cards / redemption codes
+
+Admin-generated **single-use codes** that grant a subscription tier on redemption — no payment.
+Built on the same tier/`user_subscription` machinery (a redeemed card calls the same
+`create_or_extend`, so it extends the same tier or supersedes another, identical to a paid order).
+
+- **Table** `subscription_gift_card` (migration `a7b8c9d0e1f2`, down_revision `f0a1b2c3d4e5`):
+  `code` (PK, canonical `XXXX-XXXX-XXXX-XXXX`), `tier_id`, `duration_days` (snapshot at generation,
+  defaults to tier's), `batch_id`, `note`, `enabled`, `redeemed_by`/`redeemed_at` (NULL = unredeemed),
+  `created_by`, timestamps.
+- **Code format**: 4×4 groups from a no-ambiguous-character alphabet (`ABCDEFGHJKMNPQRSTUVWXYZ23456789`
+  — no `0/O/1/I/L`), generated with `secrets`. `normalize_gift_code()` canonicalizes user input
+  (case, spaces, missing dashes) so redemption is forgiving.
+- **Atomicity / double-spend**: `GiftCards.claim()` is a conditional `UPDATE ... WHERE code=? AND
+  redeemed_by IS NULL AND enabled IS TRUE` — the DB row lock is the gate, so only one concurrent
+  redeemer wins (correct on Postgres prod + SQLite tests). If the subsequent grant throws, the claim
+  is **released** (`order_id` on the granted sub is `gift:<code>` for audit).
+- **Logic**: `utils/subscription.py` → `generate_gift_cards()` (unique-code gen with in-memory + DB
+  collision guard, batch ≤ 1000), `redeem_gift_card()` (claim → grant → release-on-failure, with
+  precise 404/400 errors for invalid/disabled/already-redeemed).
+- **Admin UI**: `/admin/subscriptions` now renders the plans config **and** the gift card section —
+  pick a plan + quantity (+ optional duration/note) → Generate → copy-all / download-CSV the new codes;
+  list with status filter + counts; enable/disable/delete.
+- **User UI**: a "Redeem a gift card" box on `/subscription` (`POST /redeem`); on success the plan
+  activates immediately and the page refreshes the current-plan/usage state.
+- **Notes**: redemption is **not** gated on `ENABLE_SUBSCRIPTIONS` (admins can grant via codes even when
+  the paid flow is off; the grant is harmless when enforcement is off and applies once it's on).
+  No `main.py` change needed — the router was already included and migrations run on boot.
 
 ## Testing without the live Java service
 The Java service is **stopped** (cutover pending — SESSION-HANDOFF §12). Tier enforcement +

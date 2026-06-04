@@ -51,6 +51,9 @@ export const getSubscriptionOrder = (token: string, orderId: string) =>
 
 export const getMyOrders = (token: string) => request(token, '/orders');
 
+export const redeemGiftCard = (token: string, code: string) =>
+	request(token, '/redeem', 'POST', { code });
+
 // ── Admin ────────────────────────────────────────────────────
 
 export const getAdminTiers = (token: string) => request(token, '/admin/tiers');
@@ -64,3 +67,24 @@ export const deleteTier = (token: string, tierId: string) =>
 export const seedTiers = (token: string) => request(token, '/admin/seed', 'POST');
 
 export const getAdminSubscriptions = (token: string) => request(token, '/admin/subscriptions');
+
+// ── Admin: gift cards ────────────────────────────────────────
+
+export const generateGiftCards = (
+	token: string,
+	payload: { tier_id: string; count: number; duration_days?: number | null; note?: string | null }
+) => request(token, '/admin/gift-cards', 'POST', payload);
+
+export const getGiftCards = (token: string, statusFilter = '', batchId = '') => {
+	const params = new URLSearchParams();
+	if (statusFilter && statusFilter !== 'all') params.set('status_filter', statusFilter);
+	if (batchId) params.set('batch_id', batchId);
+	const qs = params.toString();
+	return request(token, `/admin/gift-cards${qs ? `?${qs}` : ''}`);
+};
+
+export const setGiftCardStatus = (token: string, code: string, enabled: boolean) =>
+	request(token, `/admin/gift-cards/${encodeURIComponent(code)}/status`, 'POST', { enabled });
+
+export const deleteGiftCard = (token: string, code: string) =>
+	request(token, `/admin/gift-cards/${encodeURIComponent(code)}`, 'DELETE');
