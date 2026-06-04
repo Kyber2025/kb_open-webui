@@ -16,7 +16,9 @@
 		userSignUp,
 		updateUserTimezone,
 		sendRegisterCode,
-		registerVerify
+		registerVerify,
+		forgotPassword,
+		resetPassword
 	} from '$lib/apis/auths';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
@@ -123,13 +125,34 @@
 		}
 		sendingCode = true;
 		try {
-			const res = await sendRegisterCode(email);
+			const res = mode === 'reset' ? await forgotPassword(email) : await sendRegisterCode(email);
 			toast.success($i18n.t('Verification code sent to {{email}}', { email }));
 			startCooldown(res?.cooldown_sec ?? 60);
 		} catch (e) {
 			toast.error(`${e}`);
 		} finally {
 			sendingCode = false;
+		}
+	};
+
+	// Bridge password reset: verify the email OTP with KyberRouter, set a new password.
+	const resetPasswordHandler = async () => {
+		if (!/^\d{6}$/.test((verificationCode || '').trim())) {
+			toast.error($i18n.t('Please enter the 6-digit verification code from your email.'));
+			return;
+		}
+		if ((password || '').length < 8) {
+			toast.error($i18n.t('Password must be at least 8 characters.'));
+			return;
+		}
+		try {
+			await resetPassword(email, verificationCode, password);
+			toast.success($i18n.t('Password reset. Please sign in with your new password.'));
+			verificationCode = '';
+			password = '';
+			mode = 'signin';
+		} catch (e) {
+			toast.error(`${e}`);
 		}
 	};
 
@@ -171,6 +194,8 @@
 			await ldapSignInHandler();
 		} else if (mode === 'signin') {
 			await signInHandler();
+		} else if (mode === 'reset') {
+			await resetPasswordHandler();
 		} else if (kyberBridge) {
 			await kyberSignUpHandler();
 		} else {
@@ -352,6 +377,8 @@
 											{$i18n.t(`Sign in to {{WEBUI_NAME}} with LDAP`, { WEBUI_NAME: $WEBUI_NAME })}
 										{:else if mode === 'signin'}
 											{$i18n.t(`Sign in to {{WEBUI_NAME}}`, { WEBUI_NAME: $WEBUI_NAME })}
+										{:else if mode === 'reset'}
+											{$i18n.t(`Reset your password`)}
 										{:else}
 											{$i18n.t(`Sign up to {{WEBUI_NAME}}`, { WEBUI_NAME: $WEBUI_NAME })}
 										{/if}
@@ -420,7 +447,7 @@
 											</div>
 										{/if}
 
-										{#if mode === 'signup' && kyberBridge}
+										{#if (mode === 'signup' || mode === 'reset') && kyberBridge}
 											<div class="mb-2">
 												<label for="reg-code" class="text-sm font-medium text-left mb-1 block">{$i18n.t('Verification Code')}</label>
 												<div class="flex gap-2 items-center">
@@ -434,7 +461,7 @@
 
 										<div>
 											<label for="password" class="text-sm font-medium text-left mb-1 block"
-												>{$i18n.t('Password')}</label
+												>{mode === 'reset' ? $i18n.t('New Password') : $i18n.t('Password')}</label
 											>
 											<SensitiveInput
 												bind:value={password}
@@ -450,7 +477,7 @@
 											/>
 										</div>
 
-										{#if mode === 'signup' && kyberBridge}
+										{#if (mode === 'signup' || mode === 'reset') && kyberBridge}
 											<div class="text-xs text-gray-400 mt-1 text-left">{$i18n.t('At least 8 characters')}</div>
 										{/if}
 
@@ -491,15 +518,25 @@
 											>
 												{mode === 'signin'
 													? $i18n.t('Sign in')
+													: mode === 'reset'
+													? $i18n.t('Reset Password')
 													: ($config?.onboarding ?? false)
 														? $i18n.t('Create Admin Account')
 														: $i18n.t('Create Account')}
 											</button>
 
+											{#if mode === 'signin' && kyberBridge}
+												<div class="mt-3 text-sm text-center">
+													<button class="font-medium underline" type="button" on:click={() => { mode = 'reset'; verificationCode = ''; password = ''; }}>{$i18n.t('Forgot password?')}</button>
+												</div>
+											{/if}
+
 											{#if ($config?.features.enable_signup || kyberBridge) && !($config?.onboarding ?? false)}
 												<div class=" mt-4 text-sm text-center">
 													{mode === 'signin'
 														? $i18n.t("Don't have an account?")
+														: mode === 'reset'
+														? $i18n.t('Remembered your password?')
 														: $i18n.t('Already have an account?')}
 
 													<button

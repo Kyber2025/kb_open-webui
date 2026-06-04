@@ -83,8 +83,10 @@ from open_webui.utils.kyber import (
     KyberError,
     ensure_kyber_link,
     kyber_base,
+    kyber_forgot_password,
     kyber_login,
     kyber_register_verify,
+    kyber_reset_password,
     kyber_send_register_code,
 )
 from pydantic import BaseModel
@@ -914,6 +916,63 @@ async def register_verify(
         log.exception('KyberRouter linkage failed for %s', email)
 
     return await create_session_response(request, user, db, response, set_cookie=True)
+
+
+############################
+# Forgot / reset password (KyberRouter bridge)
+############################
+
+
+class ForgotPasswordForm(BaseModel):
+    email: str
+
+
+class ResetPasswordForm(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+
+@router.post('/password/forgot')
+async def password_forgot(
+    request: Request,
+    form_data: ForgotPasswordForm,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Proxy KyberRouter's 'send password-reset code' (account bridge, §12.7)."""
+    if not getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    email = form_data.email.lower().strip()
+    if not validate_email_format(email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
+    try:
+        data = await kyber_forgot_password(kyber_base(request), email)
+    except KyberError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    return {
+        'success': True,
+        'expires_in_sec': data.get('expiresInSec'),
+        'cooldown_sec': data.get('cooldownSec'),
+    }
+
+
+@router.post('/password/reset')
+async def password_reset(
+    request: Request,
+    form_data: ResetPasswordForm,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Verify the reset code with KyberRouter and set the new password (account bridge)."""
+    if not getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    email = form_data.email.lower().strip()
+    try:
+        await kyber_reset_password(
+            kyber_base(request), email, form_data.code.strip(), form_data.new_password
+        )
+    except KyberError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    return {'success': True}
 
 
 @router.post('/signout')

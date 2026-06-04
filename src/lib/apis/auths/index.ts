@@ -338,6 +338,53 @@ export const registerVerify = async (
 	return res;
 };
 
+// KyberRouter account-bridge password reset (email OTP). See SESSION-HANDOFF §12.7.
+export const forgotPassword = async (email: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/password/forgot`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify({ email })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err;
+			return null;
+		});
+
+	if (error) throw error;
+	return res;
+};
+
+export const resetPassword = async (email: string, code: string, new_password: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/password/reset`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify({ email, code, new_password })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err;
+			return null;
+		});
+
+	if (error) throw error;
+	return res;
+};
+
 export const userSignUp = async (
 	name: string,
 	email: string,

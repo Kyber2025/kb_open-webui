@@ -116,6 +116,30 @@ async def kyber_register_verify(
     raise KyberError(_err_message(data, 'Verification failed'), 400)
 
 
+async def kyber_forgot_password(base: str, email: str) -> dict:
+    """Ask KyberRouter to email a password-reset code (anti-enumeration: 200 even if
+    the email is unknown)."""
+    try:
+        status_code, data = await _post(base, '/auth/forgot-password', {'email': email})
+    except Exception as e:
+        raise KyberError('Could not reach the account service. Please try again.', 502) from e
+    if status_code in (200, 201):
+        return data
+    raise KyberError(_err_message(data, 'Could not send the reset code'), 400)
+
+
+async def kyber_reset_password(base: str, email: str, code: str, new_password: str) -> dict:
+    """Complete a password reset against KyberRouter (the account source of truth)."""
+    payload = {'email': email, 'code': code, 'newPassword': new_password}
+    try:
+        status_code, data = await _post(base, '/auth/reset-password', payload)
+    except Exception as e:
+        raise KyberError('Could not reach the account service. Please try again.', 502) from e
+    if status_code in (200, 201):
+        return data
+    raise KyberError(_err_message(data, 'Password reset failed'), 400)
+
+
 async def kyber_create_api_key(base: str, jwt: str, name: str = 'open-webui') -> Optional[str]:
     """Create a personal sk-or- key for the user (auth'd by their JWT). Returns the raw key
     string (only available at creation time) or None on failure."""
