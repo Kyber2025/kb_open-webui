@@ -900,12 +900,31 @@ def handle_responses_streaming_event(
         response_data = data.get('response', {})
         final_output = response_data.get('output')
 
-        # Prefer the upstream's final output, but fall back to the output we
-        # accumulated from the stream when it's empty. The Chat Completions →
-        # Responses conversion (and some upstreams) emit response.completed with
-        # an empty output:[]; trusting it (only `is not None`) would discard the
-        # fully-streamed reply, persisting an empty message that vanishes on sync.
-        new_output = final_output if final_output else current_output
+        # Some upstreams (notably ChatGPT-proxy backends like sub2api) emit
+        # response.completed with an EMPTY or sparse `output`, relying on the
+        # client having accumulated the streamed output_item.done /
+        # output_text.delta events. Blindly adopting that would discard
+        # everything we streamed -> the message saves & renders blank (text
+        # appears while streaming, then vanishes on completion, like a `clear`).
+        # Only adopt the completed event's output when it carries at least as
+        # much message text as what we've already accumulated; otherwise keep
+        # the accumulated output. (The compliant OpenAI Responses API sends the
+        # full final output here, so this still adopts it.)
+        def _message_text_len(items):
+            if not isinstance(items, list):
+                return 0
+            total = 0
+            for it in items:
+                if isinstance(it, dict) and it.get('type') == 'message':
+                    for part in it.get('content', []) or []:
+                        if isinstance(part, dict):
+                            total += len(part.get('text', '') or '')
+            return total
+
+        if final_output and _message_text_len(final_output) >= _message_text_len(current_output):
+            new_output = final_output
+        else:
+            new_output = current_output
 
         # Ensure reasoning items are marked as completed in the final output
         if new_output:
