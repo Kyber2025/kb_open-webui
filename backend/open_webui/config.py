@@ -362,6 +362,12 @@ KYBER_BILLING_BASE_URL = ConfigVar(
     os.getenv('KYBER_BILLING_BASE_URL', 'https://ai.kividas.com/api/v1'),
 )
 
+# Shared secret for KyberRouter's /api/internal/* server-to-server endpoints (P4
+# per-tier rate-limit sync, P5 USDT auto-credit). Must equal KyberRouter's
+# INTERNAL_API_SECRET. Plain env (never DB-persisted or exposed via /api/config).
+# Empty disables the internal calls (sync/credit become no-ops).
+KYBER_INTERNAL_SECRET = os.environ.get('KYBER_INTERNAL_SECRET', '')
+
 ####################################
 # OLLAMA_BASE_URL
 ####################################

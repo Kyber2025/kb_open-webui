@@ -54,6 +54,30 @@ async def get_user_tier(user_id: str) -> tuple[Optional[SubscriptionTierModel], 
     return tier, None
 
 
+async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> None:
+    """P4: push the user's effective tier's 5h/week token limits to KyberRouter as
+    a per-user override, so KyberRouter enforces them on the user's own key.
+    get_user_tier already falls back to the Free tier, so free users get Free's
+    configured limits. Only windows the tier actually sets are sent; others inherit
+    KyberRouter's global defaults. No-op when token billing is off; best-effort
+    (never raises into the subscription/login flow)."""
+    try:
+        if not getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
+            return
+        tier, _ = await get_user_tier(user_id)
+        override: dict = {}
+        if tier is not None:
+            if tier.token_limit_5h is not None:
+                override['tp5h'] = int(tier.token_limit_5h)
+            if tier.token_limit_week is not None:
+                override['tpw'] = int(tier.token_limit_week)
+        from open_webui.utils.kyber import kyber_set_user_rate_limits
+
+        await kyber_set_user_rate_limits(request, user_id, override or None)
+    except Exception:
+        log.exception('Failed to sync rate limits to KyberRouter for %s', user_id)
+
+
 async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
     """State for the /me endpoint: effective tier, today's usage, remaining, expiry."""
     tier, sub = await get_user_tier(user_id)
@@ -271,6 +295,8 @@ async def sync_order(request: Request, user, order_id: str) -> dict:
             duration = tier.duration_days if tier else 30
             await UserSubscriptions.create_or_extend(user.id, order.tier_id, duration, order_id=order_id)
             await SubscriptionOrders.update_status(order_id, 'PAID', tx_hash=tx_hash, activated=True)
+            # P4: push the new tier's rate limits to KyberRouter.
+            await sync_user_rate_limits_to_kyber(request, user.id)
             activated_now = True
 
     state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
@@ -380,7 +406,7 @@ async def generate_gift_cards(
     return await GiftCards.insert_many(cards)
 
 
-async def redeem_gift_card(user, raw_code: str) -> dict:
+async def redeem_gift_card(request: Request, user, raw_code: str) -> dict:
     """Redeem a gift card for `user`: atomically claim the code, then grant/extend the tier.
     Double-spend is prevented by the atomic claim in GiftCards.claim(); on a grant failure the
     claim is released so the code stays usable."""
@@ -425,6 +451,9 @@ async def redeem_gift_card(user, raw_code: str) -> dict:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail='Could not activate your subscription. Please try again.',
         )
+
+    # P4: push the granted tier's rate limits to KyberRouter.
+    await sync_user_rate_limits_to_kyber(request, user.id)
 
     state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
     return {

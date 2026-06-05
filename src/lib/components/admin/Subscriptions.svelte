@@ -19,6 +19,8 @@
 		price_usd: 0,
 		duration_days: 30,
 		daily_message_limit: 10,
+		token_limit_5h: null,
+		token_limit_week: null,
 		allowed_model_ids: [],
 		enabled: true,
 		sort_order: tiers.length,
@@ -73,6 +75,14 @@
 				price_usd: Number(tier.price_usd) || 0,
 				duration_days: Number(tier.duration_days) || 30,
 				daily_message_limit: isUnlimited(tier) ? null : Number(tier.daily_message_limit),
+				token_limit_5h:
+					tier.token_limit_5h === '' || tier.token_limit_5h == null
+						? null
+						: Number(tier.token_limit_5h),
+				token_limit_week:
+					tier.token_limit_week === '' || tier.token_limit_week == null
+						? null
+						: Number(tier.token_limit_week),
 				allowed_model_ids: tier.allowed_model_ids ?? [],
 				enabled: !!tier.enabled,
 				sort_order: Number(tier.sort_order) || 0
@@ -194,6 +204,32 @@
 						<label class="flex items-end gap-1.5 text-xs text-gray-500 select-none pb-1">
 							<input type="checkbox" checked={isUnlimited(tier)} on:change={() => toggleUnlimited(tier)} />
 							{$i18n.t('Unlimited')}
+						</label>
+						<label
+							class="flex flex-col gap-1 text-xs text-gray-500"
+							title={$i18n.t('Token billing: tokens per rolling 5 hours. Empty = inherit global, 0 = unlimited.')}
+						>
+							{$i18n.t('5h token limit')}
+							<input
+								type="number"
+								min="0"
+								placeholder={$i18n.t('Inherit')}
+								class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none"
+								bind:value={tier.token_limit_5h}
+							/>
+						</label>
+						<label
+							class="flex flex-col gap-1 text-xs text-gray-500"
+							title={$i18n.t('Token billing: tokens per rolling 7 days. Empty = inherit global, 0 = unlimited.')}
+						>
+							{$i18n.t('Weekly token limit')}
+							<input
+								type="number"
+								min="0"
+								placeholder={$i18n.t('Inherit')}
+								class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none"
+								bind:value={tier.token_limit_week}
+							/>
 						</label>
 					</div>
 

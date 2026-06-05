@@ -266,3 +266,34 @@ async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
         return data
     log.info('KyberRouter usage summary non-success (%s) for %s', status_code, user_id)
     return None
+
+
+async def kyber_set_user_rate_limits(request: Request, owui_user_id: str, override) -> bool:
+    """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
+    the shared-secret internal endpoint. ``override`` is a dict like
+    {tp5h?, tpw?, ...} (merged over KyberRouter's globals) or None to clear it.
+
+    No-op (returns False) when no internal secret is configured or the user has no
+    linked KyberRouter account — so it never raises into the subscription flow."""
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        return False
+    link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    if not link or not link.kyber_user_id:
+        return False
+    url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/rate-limits'
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.put(
+                url,
+                json={'rateLimits': override},
+                headers={'Content-Type': 'application/json', 'X-Internal-Secret': KYBER_INTERNAL_SECRET},
+            ) as resp:
+                if resp.status == 200:
+                    return True
+                log.warning('KyberRouter set rate-limits non-200 (%s) for %s', resp.status, owui_user_id)
+                return False
+    except Exception as e:
+        log.warning('KyberRouter set rate-limits failed for %s: %s', owui_user_id, e)
+        return False

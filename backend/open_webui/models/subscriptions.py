@@ -36,7 +36,11 @@ class SubscriptionTier(Base):
     description = Column(Text, nullable=True)
     price_usd = Column(Float, nullable=False, default=0.0)  # monthly price, in USDT
     duration_days = Column(Integer, nullable=False, default=30)
-    daily_message_limit = Column(Integer, nullable=True)  # NULL = unlimited
+    daily_message_limit = Column(Integer, nullable=True)  # NULL = unlimited (legacy per-count gate)
+    # P4 per-tier token windows (used when KyberRouter token billing is on): synced
+    # to the user's KyberRouter override so it enforces them. NULL/0 = unlimited.
+    token_limit_5h = Column(Integer, nullable=True)  # tokens per rolling 5h
+    token_limit_week = Column(Integer, nullable=True)  # tokens per rolling 7d
     allowed_model_ids = Column(JSONField, nullable=True)  # [] / NULL = all models allowed
     enabled = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
@@ -118,6 +122,8 @@ class SubscriptionTierModel(BaseModel):
     price_usd: float = 0.0
     duration_days: int = 30
     daily_message_limit: Optional[int] = None
+    token_limit_5h: Optional[int] = None
+    token_limit_week: Optional[int] = None
     allowed_model_ids: Optional[list[str]] = None
     enabled: bool = True
     sort_order: int = 0
@@ -132,6 +138,8 @@ class SubscriptionTierForm(BaseModel):
     price_usd: float = 0.0
     duration_days: int = 30
     daily_message_limit: Optional[int] = None
+    token_limit_5h: Optional[int] = None
+    token_limit_week: Optional[int] = None
     allowed_model_ids: Optional[list[str]] = None
     enabled: bool = True
     sort_order: int = 0

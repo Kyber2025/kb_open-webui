@@ -788,6 +788,15 @@ async def kyber_bridge_signin(request: Request, email: str, password: str, *, db
     except Exception:
         log.exception('KyberRouter linkage failed for %s', email)
 
+    # P4: re-apply the user's current tier rate limits to KyberRouter on every
+    # login (also covers reverting limits after a subscription expires). Best-effort.
+    try:
+        from open_webui.utils.subscription import sync_user_rate_limits_to_kyber
+
+        await sync_user_rate_limits_to_kyber(request, user.id)
+    except Exception:
+        log.exception('KyberRouter rate-limit sync on login failed for %s', email)
+
     return user
 
 
