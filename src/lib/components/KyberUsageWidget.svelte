@@ -6,6 +6,7 @@
 	import { getContext, onMount, onDestroy } from 'svelte';
 	import { config } from '$lib/stores';
 	import { getKyberUsage } from '$lib/apis/kyber';
+	import KyberTopUpModal from '$lib/components/KyberTopUpModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -13,6 +14,7 @@
 	let linked = false;
 	let open = false;
 	let loading = false;
+	let showTopUp = false;
 	let timer: ReturnType<typeof setInterval> | null = null;
 
 	$: enabled = $config?.enable_kyber_token_billing ?? false;
@@ -99,14 +101,20 @@
 					>
 				</div>
 
+				<button
+					on:click={() => (showTopUp = true)}
+					class="mt-2 block w-full text-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 font-medium transition"
+				>
+					{$i18n.t('Top up')}
+				</button>
 				{#if usage.topup_url}
 					<a
 						href={usage.topup_url}
 						target="_blank"
 						rel="noopener noreferrer"
-						class="mt-2 block w-full text-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 font-medium transition"
+						class="mt-1 block w-full text-center text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
 					>
-						{$i18n.t('Top up')}
+						{$i18n.t('Open billing dashboard')}
 					</a>
 				{/if}
 			</div>
@@ -129,3 +137,5 @@
 		</button>
 	</div>
 {/if}
+
+<KyberTopUpModal bind:show={showTopUp} on:credited={refresh} />

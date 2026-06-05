@@ -268,6 +268,31 @@ async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
     return None
 
 
+async def kyber_topup_create(request: Request, user, amount_usd: float, chain_id: str):
+    """P5: create a USDT top-up on KyberRouter for the chat user (proxied with their
+    own sk-or- key, so it credits their wallet). Returns (status, data); data has
+    {id, address, qrCodeImage, usdtAmount, ...} on success."""
+    key = await get_user_kyber_api_key(getattr(user, 'id', None))
+    if not key:
+        return 400, {'error': 'Your account is not linked to a wallet yet'}
+    try:
+        return await _post(kyber_base(request), '/usdt-topup', {'amountUsd': amount_usd, 'chainId': chain_id}, jwt=key)
+    except Exception as e:
+        log.warning('KyberRouter topup create failed for %s: %s', getattr(user, 'id', '?'), e)
+        return 502, {'error': f'Could not reach payment service: {e}'}
+
+
+async def kyber_topup_status(request: Request, user, topup_id: str):
+    """P5: poll a USDT top-up's status (KyberRouter credits the wallet on PAID)."""
+    key = await get_user_kyber_api_key(getattr(user, 'id', None))
+    if not key:
+        return 400, {'error': 'Your account is not linked to a wallet yet'}
+    try:
+        return await _get(kyber_base(request), f'/usdt-topup/{topup_id}', key)
+    except Exception as e:
+        return 502, {'error': str(e)}
+
+
 async def kyber_set_user_rate_limits(request: Request, owui_user_id: str, override) -> bool:
     """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
     the shared-secret internal endpoint. ``override`` is a dict like
