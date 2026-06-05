@@ -234,6 +234,8 @@ class SubscriptionTiersTable:
                     price_usd=form.price_usd,
                     duration_days=form.duration_days,
                     daily_message_limit=form.daily_message_limit,
+                    token_limit_5h=form.token_limit_5h,
+                    token_limit_week=form.token_limit_week,
                     allowed_model_ids=form.allowed_model_ids,
                     enabled=form.enabled,
                     sort_order=form.sort_order,
@@ -247,6 +249,8 @@ class SubscriptionTiersTable:
                 tier.price_usd = form.price_usd
                 tier.duration_days = form.duration_days
                 tier.daily_message_limit = form.daily_message_limit
+                tier.token_limit_5h = form.token_limit_5h
+                tier.token_limit_week = form.token_limit_week
                 tier.allowed_model_ids = form.allowed_model_ids
                 tier.enabled = form.enabled
                 tier.sort_order = form.sort_order
