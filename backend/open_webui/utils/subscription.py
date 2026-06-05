@@ -86,6 +86,10 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
     finite limit applies. Admins and disabled subscriptions are no-ops."""
     if not getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         return
+    # P2: when KyberRouter token billing is on, metering/limits/402 happen natively
+    # in KyberRouter against the user's wallet — skip the per-message-count gate.
+    if getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
+        return
     if getattr(user, 'role', None) == 'admin':
         return
 

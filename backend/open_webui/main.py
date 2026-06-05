@@ -176,6 +176,8 @@ from open_webui.config import (
     SUBSCRIPTION_CHAINS,
     ENABLE_KYBER_AUTH_BRIDGE,
     KYBERROUTER_API_URL,
+    ENABLE_KYBER_TOKEN_BILLING,
+    KYBER_BILLING_BASE_URL,
     ENABLE_EVALUATION_ARENA_MODELS,
     ENABLE_FOLDERS,
     ENABLE_FOLLOW_UP_GENERATION,
@@ -513,6 +515,7 @@ from open_webui.routers import (
     retrieval,
     scim,
     skills,
+    kyber as kyber_router,
     subscriptions,
     tasks,
     terminals,
@@ -871,6 +874,8 @@ app.state.config.PAYMENT_SERVICE_URL = PAYMENT_SERVICE_URL
 app.state.config.SUBSCRIPTION_CHAINS = SUBSCRIPTION_CHAINS
 app.state.config.ENABLE_KYBER_AUTH_BRIDGE = ENABLE_KYBER_AUTH_BRIDGE
 app.state.config.KYBERROUTER_API_URL = KYBERROUTER_API_URL
+app.state.config.ENABLE_KYBER_TOKEN_BILLING = ENABLE_KYBER_TOKEN_BILLING
+app.state.config.KYBER_BILLING_BASE_URL = KYBER_BILLING_BASE_URL
 
 ########################################
 #
@@ -1457,6 +1462,7 @@ app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
 app.include_router(subscriptions.router, prefix='/api/v1/subscriptions', tags=['subscriptions'])
+app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
@@ -1553,7 +1559,13 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
 
     # Subscription tier model allow-list (UX: hide models not in the user's plan).
     # The hard gate is enforced at completion time. Admins see all models.
-    if getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True) and user.role != 'admin':
+    # When KyberRouter token billing is on, model access is governed by KyberRouter
+    # (per-key group), so skip the tier filter and let it be the source of truth.
+    if (
+        getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True)
+        and not getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False)
+        and user.role != 'admin'
+    ):
         tier, _ = await get_user_tier(user.id)
         models = filter_models_by_tier(models, tier)
 
@@ -2458,6 +2470,7 @@ async def get_app_config(request: Request):
             'enable_ldap': app.state.config.ENABLE_LDAP,
             'enable_signup': app.state.config.ENABLE_SIGNUP,
             'enable_kyber_auth_bridge': getattr(app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False),
+            'enable_kyber_token_billing': getattr(app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False),
             'enable_login_form': app.state.config.ENABLE_LOGIN_FORM,
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
             # --- Authenticated: only consumed by logged-in frontend ---

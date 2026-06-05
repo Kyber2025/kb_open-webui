@@ -338,6 +338,30 @@ KYBERROUTER_API_URL = ConfigVar(
     os.getenv('KYBERROUTER_API_URL', 'http://127.0.0.1:18000/api'),
 )
 
+# P2 per-user token billing. When enabled, chat completions to the KyberRouter
+# model API are sent with each user's OWN sk-or- key (provisioned by the auth
+# bridge) instead of the shared connection key, so KyberRouter natively meters
+# tokens against the user's wallet, enforces its rate limits, and returns HTTP
+# 402 when the balance runs out. While on, open-webui's own per-message-count
+# subscription enforcement is skipped (KyberRouter is the billing source of
+# truth). Users with no linked key (e.g. local admins) fall back to the shared
+# connection key, so chat never breaks. Requires the auth bridge. Default OFF.
+ENABLE_KYBER_TOKEN_BILLING = ConfigVar(
+    'ENABLE_KYBER_TOKEN_BILLING',
+    'kyber.token_billing_enable',
+    os.getenv('ENABLE_KYBER_TOKEN_BILLING', 'False').lower() == 'true',
+)
+
+# Model-API base URL that maps to KyberRouter (the public base the model
+# connection already calls, e.g. https://ai.kividas.com/api/v1). Per-user keys
+# are injected only for upstream calls whose host matches this. Empty = match
+# every OpenAI connection (single-upstream deployments). Matched by hostname.
+KYBER_BILLING_BASE_URL = ConfigVar(
+    'KYBER_BILLING_BASE_URL',
+    'kyber.billing_base_url',
+    os.getenv('KYBER_BILLING_BASE_URL', 'https://ai.kividas.com/api/v1'),
+)
+
 ####################################
 # OLLAMA_BASE_URL
 ####################################

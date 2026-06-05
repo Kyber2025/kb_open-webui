@@ -7,6 +7,7 @@ token billing. All functions here are no-ops unless the bridge is enabled by the
 
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 from fastapi import Request
@@ -62,6 +63,19 @@ async def _post(base: str, path: str, payload: dict, jwt: Optional[str] = None):
         headers['Authorization'] = f'Bearer {jwt}'
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
         async with session.post(f'{base}{path}', json=payload, headers=headers) as resp:
+            try:
+                data = await resp.json(content_type=None)
+            except Exception:
+                data = {}
+            return resp.status, (data if isinstance(data, dict) else {})
+
+
+async def _get(base: str, path: str, bearer: str):
+    """GET with a Bearer token. KyberRouter's authenticate middleware accepts both
+    JWTs and sk-or- keys, so a user's stored key works for their own usage/summary."""
+    headers = {'Authorization': f'Bearer {bearer}'}
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+        async with session.get(f'{base}{path}', headers=headers) as resp:
             try:
                 data = await resp.json(content_type=None)
             except Exception:
@@ -198,3 +212,57 @@ async def get_user_kyber_api_key(owui_user_id: str) -> Optional[str]:
     except Exception:
         log.exception('Failed to decrypt KyberRouter api key for %s', owui_user_id)
         return None
+
+
+def _host_matches(url: str, base: str) -> bool:
+    """True when an upstream `url` should be billed via KyberRouter. Empty base
+    matches any OpenAI connection (single-upstream deployment); otherwise compare
+    hostnames so trailing path/slash differences don't matter."""
+    if not base:
+        return True
+    try:
+        return urlparse(url).hostname == urlparse(base).hostname
+    except Exception:
+        return url.rstrip('/').startswith(base.rstrip('/'))
+
+
+async def get_kyber_billing_key(request: Request, user, url: str) -> Optional[str]:
+    """P2: return the user's own sk-or- key for a chat completion to the KyberRouter
+    model API, so usage is metered/limited against their wallet (402 on empty balance).
+
+    Returns None — and the caller keeps the shared connection key, so chat never
+    breaks — when token billing is off, the upstream isn't KyberRouter, or the user
+    has no linked key yet (e.g. local admins, pre-bridge accounts)."""
+    cfg = request.app.state.config
+    if not getattr(cfg, 'ENABLE_KYBER_TOKEN_BILLING', False):
+        return None
+    base = getattr(cfg, 'KYBER_BILLING_BASE_URL', '') or ''
+    if not _host_matches(url, base):
+        return None
+    user_id = getattr(user, 'id', None)
+    if not user_id:
+        return None
+    return await get_user_kyber_api_key(user_id)
+
+
+async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
+    """P3: fetch the user's KyberRouter wallet balance + token usage for the
+    bottom-right widget. Returns KyberRouter's /usage/summary payload
+    ({today, thisMonth, total, credits}) or None when the user has no linked key
+    or KyberRouter is unreachable. Auth'd by the user's own stored sk-or- key."""
+    user_id = getattr(user, 'id', None)
+    if not user_id:
+        return None
+    key = await get_user_kyber_api_key(user_id)
+    if not key:
+        return None
+    base = kyber_base(request)
+    try:
+        status_code, data = await _get(base, '/usage/summary', key)
+    except Exception as e:
+        log.warning('KyberRouter usage summary unreachable for %s: %s', user_id, e)
+        return None
+    if status_code == 200:
+        return data
+    log.info('KyberRouter usage summary non-success (%s) for %s', status_code, user_id)
+    return None
