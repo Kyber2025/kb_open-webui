@@ -293,10 +293,19 @@ async def kyber_topup_status(request: Request, user, topup_id: str):
         return 502, {'error': str(e)}
 
 
-async def kyber_set_user_rate_limits(request: Request, owui_user_id: str, override) -> bool:
+async def kyber_set_user_rate_limits(
+    request: Request,
+    owui_user_id: str,
+    override,
+    subscription_managed: Optional[bool] = None,
+) -> bool:
     """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
     the shared-secret internal endpoint. ``override`` is a dict like
     {tp5h?, tpw?, ...} (merged over KyberRouter's globals) or None to clear it.
+
+    ``subscription_managed`` (when not None) marks the KyberRouter account as managed
+    by an open-webui subscription, so KyberRouter limits the user by the synced token
+    rate caps instead of their wallet balance. Included in the PUT body only when set.
 
     No-op (returns False) when no internal secret is configured or the user has no
     linked KyberRouter account — so it never raises into the subscription flow."""
@@ -308,11 +317,14 @@ async def kyber_set_user_rate_limits(request: Request, owui_user_id: str, overri
     if not link or not link.kyber_user_id:
         return False
     url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/rate-limits'
+    body = {'rateLimits': override}
+    if subscription_managed is not None:
+        body['subscriptionManaged'] = subscription_managed
     try:
         async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
             async with session.put(
                 url,
-                json={'rateLimits': override},
+                json=body,
                 headers={'Content-Type': 'application/json', 'X-Internal-Secret': KYBER_INTERNAL_SECRET},
             ) as resp:
                 if resp.status == 200:

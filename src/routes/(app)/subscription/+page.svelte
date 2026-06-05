@@ -73,10 +73,28 @@
 	const priceLabel = (tier) =>
 		tier.price_usd > 0 ? `${tier.price_usd} USDT` : $i18n.t('Free');
 
-	const limitLabel = (limit) =>
-		limit === null || limit === undefined
-			? $i18n.t('Unlimited messages')
-			: $i18n.t('{{count}} messages / day', { count: limit });
+	// Compact token count: 40000 -> "40K", 3000000 -> "3M".
+	const formatTokens = (n) => {
+		const v = Number(n);
+		if (!isFinite(v)) return `${n}`;
+		if (v >= 1_000_000) {
+			const m = v / 1_000_000;
+			return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+		}
+		if (v >= 1_000) {
+			const k = v / 1_000;
+			return `${Number.isInteger(k) ? k : k.toFixed(1)}K`;
+		}
+		return `${v}`;
+	};
+
+	// A token cap is "unlimited" when null/undefined or 0 (KyberRouter convention).
+	const isUnlimitedCap = (cap) => cap === null || cap === undefined || Number(cap) === 0;
+
+	const tokenQuotaLabel = (cap, period) =>
+		isUnlimitedCap(cap)
+			? $i18n.t('Unlimited tokens / {{period}}', { period })
+			: $i18n.t('{{tokens}} tokens / {{period}}', { tokens: formatTokens(cap), period });
 
 	const stopPolling = () => {
 		if (pollTimer) {
@@ -209,23 +227,23 @@
 							{/if}
 						</div>
 
-						<div class="mt-3">
-							{#if me.usage?.limit === null || me.usage?.limit === undefined}
-								<div class="text-sm text-gray-600 dark:text-gray-300">
-									{$i18n.t('Unlimited messages')}
+						<div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+							<div>
+								<div class="text-xs text-gray-500">{$i18n.t('Token quota (5h)')}</div>
+								<div class="text-sm font-medium text-gray-700 dark:text-gray-200">
+									{isUnlimitedCap(me.tier.token_limit_5h)
+										? $i18n.t('Unlimited')
+										: `${formatTokens(me.tier.token_limit_5h)} ${$i18n.t('tokens')}`}
 								</div>
-							{:else}
-								<div class="flex items-center justify-between text-xs text-gray-500 mb-1">
-									<span>{$i18n.t('Daily messages')}</span>
-									<span>{me.usage.used} / {me.usage.limit}</span>
+							</div>
+							<div>
+								<div class="text-xs text-gray-500">{$i18n.t('Token quota (week)')}</div>
+								<div class="text-sm font-medium text-gray-700 dark:text-gray-200">
+									{isUnlimitedCap(me.tier.token_limit_week)
+										? $i18n.t('Unlimited')
+										: `${formatTokens(me.tier.token_limit_week)} ${$i18n.t('tokens')}`}
 								</div>
-								<div class="w-full h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-									<div
-										class="h-full bg-black dark:bg-white transition-all"
-										style="width: {Math.min(100, (me.usage.used / Math.max(1, me.usage.limit)) * 100)}%"
-									></div>
-								</div>
-							{/if}
+							</div>
 						</div>
 					</div>
 				{/if}
@@ -272,8 +290,9 @@
 							{#if tier.description}
 								<div class="mt-2 text-xs text-gray-500">{tier.description}</div>
 							{/if}
-							<div class="mt-3 text-sm text-gray-600 dark:text-gray-300">
-								{limitLabel(tier.daily_message_limit)}
+							<div class="mt-3 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
+								<div>{tokenQuotaLabel(tier.token_limit_5h, $i18n.t('5h'))}</div>
+								<div>{tokenQuotaLabel(tier.token_limit_week, $i18n.t('week'))}</div>
 							</div>
 
 							<div class="mt-auto pt-4">

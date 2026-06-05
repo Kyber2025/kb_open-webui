@@ -18,7 +18,6 @@
 		description: '',
 		price_usd: 0,
 		duration_days: 30,
-		daily_message_limit: 10,
 		token_limit_5h: null,
 		token_limit_week: null,
 		allowed_model_ids: [],
@@ -45,13 +44,6 @@
 		toast.success($i18n.t('Default plans created'));
 	};
 
-	const isUnlimited = (tier) => tier.daily_message_limit === null || tier.daily_message_limit === undefined;
-
-	const toggleUnlimited = (tier) => {
-		tier.daily_message_limit = isUnlimited(tier) ? 10 : null;
-		tiers = tiers;
-	};
-
 	const toggleModel = (tier, modelId) => {
 		const set = new Set(tier.allowed_model_ids ?? []);
 		if (set.has(modelId)) set.delete(modelId);
@@ -74,7 +66,6 @@
 				description: tier.description ?? '',
 				price_usd: Number(tier.price_usd) || 0,
 				duration_days: Number(tier.duration_days) || 30,
-				daily_message_limit: isUnlimited(tier) ? null : Number(tier.daily_message_limit),
 				token_limit_5h:
 					tier.token_limit_5h === '' || tier.token_limit_5h == null
 						? null
@@ -141,7 +132,7 @@
 	</div>
 	<div class="text-xs text-gray-500 mb-4">
 		{$i18n.t(
-			'Configure price (USDT), duration, daily message limit and allowed models per tier. The model backend is KyberRouter. An empty model list means all models are allowed.'
+			'Configure price (USDT), duration, per-tier token limits (5h / weekly) and allowed models per tier. The model backend is KyberRouter, which enforces the token rate caps. An empty model list means all models are allowed.'
 		)}
 	</div>
 
@@ -190,20 +181,6 @@
 								class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none"
 								bind:value={tier.duration_days}
 							/>
-						</label>
-						<label class="flex flex-col gap-1 text-xs text-gray-500">
-							{$i18n.t('Daily messages')}
-							<input
-								type="number"
-								min="0"
-								class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none disabled:opacity-40"
-								bind:value={tier.daily_message_limit}
-								disabled={isUnlimited(tier)}
-							/>
-						</label>
-						<label class="flex items-end gap-1.5 text-xs text-gray-500 select-none pb-1">
-							<input type="checkbox" checked={isUnlimited(tier)} on:change={() => toggleUnlimited(tier)} />
-							{$i18n.t('Unlimited')}
 						</label>
 						<label
 							class="flex flex-col gap-1 text-xs text-gray-500"
