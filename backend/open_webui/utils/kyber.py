@@ -7,6 +7,7 @@ token billing. All functions here are no-ops unless the bridge is enabled by the
 
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 from fastapi import Request
@@ -62,6 +63,19 @@ async def _post(base: str, path: str, payload: dict, jwt: Optional[str] = None):
         headers['Authorization'] = f'Bearer {jwt}'
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
         async with session.post(f'{base}{path}', json=payload, headers=headers) as resp:
+            try:
+                data = await resp.json(content_type=None)
+            except Exception:
+                data = {}
+            return resp.status, (data if isinstance(data, dict) else {})
+
+
+async def _get(base: str, path: str, bearer: str):
+    """GET with a Bearer token. KyberRouter's authenticate middleware accepts both
+    JWTs and sk-or- keys, so a user's stored key works for their own usage/summary."""
+    headers = {'Authorization': f'Bearer {bearer}'}
+    async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+        async with session.get(f'{base}{path}', headers=headers) as resp:
             try:
                 data = await resp.json(content_type=None)
             except Exception:
@@ -198,3 +212,113 @@ async def get_user_kyber_api_key(owui_user_id: str) -> Optional[str]:
     except Exception:
         log.exception('Failed to decrypt KyberRouter api key for %s', owui_user_id)
         return None
+
+
+def _host_matches(url: str, base: str) -> bool:
+    """True when an upstream `url` should be billed via KyberRouter. Empty base
+    matches any OpenAI connection (single-upstream deployment); otherwise compare
+    hostnames so trailing path/slash differences don't matter."""
+    if not base:
+        return True
+    try:
+        return urlparse(url).hostname == urlparse(base).hostname
+    except Exception:
+        return url.rstrip('/').startswith(base.rstrip('/'))
+
+
+async def get_kyber_billing_key(request: Request, user, url: str) -> Optional[str]:
+    """P2: return the user's own sk-or- key for a chat completion to the KyberRouter
+    model API, so usage is metered/limited against their wallet (402 on empty balance).
+
+    Returns None — and the caller keeps the shared connection key, so chat never
+    breaks — when token billing is off, the upstream isn't KyberRouter, or the user
+    has no linked key yet (e.g. local admins, pre-bridge accounts)."""
+    cfg = request.app.state.config
+    if not getattr(cfg, 'ENABLE_KYBER_TOKEN_BILLING', False):
+        return None
+    base = getattr(cfg, 'KYBER_BILLING_BASE_URL', '') or ''
+    if not _host_matches(url, base):
+        return None
+    user_id = getattr(user, 'id', None)
+    if not user_id:
+        return None
+    return await get_user_kyber_api_key(user_id)
+
+
+async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
+    """P3: fetch the user's KyberRouter wallet balance + token usage for the
+    bottom-right widget. Returns KyberRouter's /usage/summary payload
+    ({today, thisMonth, total, credits}) or None when the user has no linked key
+    or KyberRouter is unreachable. Auth'd by the user's own stored sk-or- key."""
+    user_id = getattr(user, 'id', None)
+    if not user_id:
+        return None
+    key = await get_user_kyber_api_key(user_id)
+    if not key:
+        return None
+    base = kyber_base(request)
+    try:
+        status_code, data = await _get(base, '/usage/summary', key)
+    except Exception as e:
+        log.warning('KyberRouter usage summary unreachable for %s: %s', user_id, e)
+        return None
+    if status_code == 200:
+        return data
+    log.info('KyberRouter usage summary non-success (%s) for %s', status_code, user_id)
+    return None
+
+
+async def kyber_topup_create(request: Request, user, amount_usd: float, chain_id: str):
+    """P5: create a USDT top-up on KyberRouter for the chat user (proxied with their
+    own sk-or- key, so it credits their wallet). Returns (status, data); data has
+    {id, address, qrCodeImage, usdtAmount, ...} on success."""
+    key = await get_user_kyber_api_key(getattr(user, 'id', None))
+    if not key:
+        return 400, {'error': 'Your account is not linked to a wallet yet'}
+    try:
+        return await _post(kyber_base(request), '/usdt-topup', {'amountUsd': amount_usd, 'chainId': chain_id}, jwt=key)
+    except Exception as e:
+        log.warning('KyberRouter topup create failed for %s: %s', getattr(user, 'id', '?'), e)
+        return 502, {'error': f'Could not reach payment service: {e}'}
+
+
+async def kyber_topup_status(request: Request, user, topup_id: str):
+    """P5: poll a USDT top-up's status (KyberRouter credits the wallet on PAID)."""
+    key = await get_user_kyber_api_key(getattr(user, 'id', None))
+    if not key:
+        return 400, {'error': 'Your account is not linked to a wallet yet'}
+    try:
+        return await _get(kyber_base(request), f'/usdt-topup/{topup_id}', key)
+    except Exception as e:
+        return 502, {'error': str(e)}
+
+
+async def kyber_set_user_rate_limits(request: Request, owui_user_id: str, override) -> bool:
+    """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
+    the shared-secret internal endpoint. ``override`` is a dict like
+    {tp5h?, tpw?, ...} (merged over KyberRouter's globals) or None to clear it.
+
+    No-op (returns False) when no internal secret is configured or the user has no
+    linked KyberRouter account — so it never raises into the subscription flow."""
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        return False
+    link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    if not link or not link.kyber_user_id:
+        return False
+    url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/rate-limits'
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.put(
+                url,
+                json={'rateLimits': override},
+                headers={'Content-Type': 'application/json', 'X-Internal-Secret': KYBER_INTERNAL_SECRET},
+            ) as resp:
+                if resp.status == 200:
+                    return True
+                log.warning('KyberRouter set rate-limits non-200 (%s) for %s', resp.status, owui_user_id)
+                return False
+    except Exception as e:
+        log.warning('KyberRouter set rate-limits failed for %s: %s', owui_user_id, e)
+        return False

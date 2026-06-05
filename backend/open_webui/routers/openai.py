@@ -41,6 +41,7 @@ from open_webui.utils.access_control import check_model_access, has_connection_a
 from open_webui.utils.anthropic import get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
+from open_webui.utils.kyber import get_kyber_billing_key
 from open_webui.utils.misc import (
     convert_logit_bias_input_to_json,
     stream_chunks_handler,
@@ -1137,6 +1138,13 @@ async def generate_chat_completion(
 
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
+
+    # P2 per-user token billing: when enabled, bill this completion against the
+    # user's own KyberRouter wallet by swapping in their personal sk-or- key.
+    # Returns None (keep the shared key) for non-billed upstreams or unlinked users.
+    billing_key = await get_kyber_billing_key(request, user, url)
+    if billing_key:
+        key = billing_key
 
     # Check if model is a reasoning model that needs special handling
     if is_openai_new_model(payload['model']):

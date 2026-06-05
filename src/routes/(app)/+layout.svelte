@@ -47,6 +47,7 @@
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import UpdateInfoToast from '$lib/components/layout/UpdateInfoToast.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import KyberUsageWidget from '$lib/components/KyberUsageWidget.svelte';
 	import { Shortcut, shortcuts } from '$lib/shortcuts';
 
 	const i18n = getContext('i18n');
@@ -470,6 +471,8 @@
 			{/if}
 		</div>
 	</div>
+
+	<KyberUsageWidget />
 {/if}
 
 <style>

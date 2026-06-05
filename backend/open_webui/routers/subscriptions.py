@@ -88,9 +88,9 @@ async def list_my_orders(user=Depends(get_verified_user)):
 
 
 @router.post('/redeem')
-async def redeem(form_data: RedeemForm, user=Depends(get_verified_user)):
+async def redeem(request: Request, form_data: RedeemForm, user=Depends(get_verified_user)):
     """Redeem a gift card / redemption code and activate the granted plan."""
-    return await redeem_gift_card(user, form_data.code)
+    return await redeem_gift_card(request, user, form_data.code)
 
 
 ############################
