@@ -20,7 +20,7 @@
 	let showTopUp = false;
 	let timer: ReturnType<typeof setInterval> | null = null;
 
-	$: enabled = $config?.enable_kyber_token_billing ?? false;
+	$: enabled = $config?.features?.enable_kyber_token_billing ?? false;
 
 	const fmtUsd = (n: number) =>
 		`$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
