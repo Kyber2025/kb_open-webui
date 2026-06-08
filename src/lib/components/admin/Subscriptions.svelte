@@ -20,6 +20,7 @@
 		duration_days: 30,
 		token_limit_5h: null,
 		token_limit_week: null,
+		extra_usage_multiplier: 1,
 		allowed_model_ids: [],
 		enabled: true,
 		sort_order: tiers.length,
@@ -74,6 +75,10 @@
 					tier.token_limit_week === '' || tier.token_limit_week == null
 						? null
 						: Number(tier.token_limit_week),
+				extra_usage_multiplier:
+					tier.extra_usage_multiplier === '' || tier.extra_usage_multiplier == null
+						? 1
+						: Number(tier.extra_usage_multiplier),
 				allowed_model_ids: tier.allowed_model_ids ?? [],
 				enabled: !!tier.enabled,
 				sort_order: Number(tier.sort_order) || 0
@@ -209,6 +214,23 @@
 							/>
 						</label>
 					</div>
+
+					<label
+						class="flex flex-col gap-1 text-xs text-gray-500 mb-3"
+						title={$i18n.t(
+							'Extra-usage price multiplier: when a user exceeds their token caps and opts into extra usage, the wallet is billed at model price × this. 1 = standard price.'
+						)}
+					>
+						{$i18n.t('Extra-usage multiplier')}
+						<input
+							type="number"
+							min="0"
+							step="0.1"
+							placeholder="1"
+							class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none"
+							bind:value={tier.extra_usage_multiplier}
+						/>
+					</label>
 
 					<label class="flex flex-col gap-1 text-xs text-gray-500 mb-3">
 						{$i18n.t('Description')}

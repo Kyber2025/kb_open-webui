@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.kyber import (
+    get_user_usage_limits,
     get_user_usage_summary,
     kyber_topup_create,
     kyber_topup_status,
@@ -43,6 +44,19 @@ async def kyber_usage(request: Request, user=Depends(get_verified_user)):
     if summary is None:
         return {'linked': False}
     return {'linked': True, 'topup_url': _topup_url(request), **summary}
+
+
+@router.get('/usage/limits')
+async def kyber_usage_limits(request: Request, user=Depends(get_verified_user)):
+    """The signed-in user's token-window usage vs caps (5h + weekly) plus wallet
+    balance and extra-usage state, for the Settings Usage panel and the bottom-right
+    indicator. ``{linked: false}`` when the user has no KyberRouter key (widget hides);
+    on success ``{linked: true, tp5h, tpw, credits, extraUsageEnabled,
+    extraUsageMultiplier, topup_url}``."""
+    limits = await get_user_usage_limits(request, user)
+    if limits is None:
+        return {'linked': False}
+    return {'linked': True, 'topup_url': _topup_url(request), **limits}
 
 
 class TopUpForm(BaseModel):

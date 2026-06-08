@@ -54,6 +54,10 @@ export const getMyOrders = (token: string) => request(token, '/orders');
 export const redeemGiftCard = (token: string, code: string) =>
 	request(token, '/redeem', 'POST', { code });
 
+// Flip the per-user paid-overflow ("extra usage") opt-in. Returns { enabled }.
+export const setExtraUsage = (token: string, enabled: boolean) =>
+	request(token, '/extra-usage', 'POST', { enabled });
+
 // ── Admin ────────────────────────────────────────────────────
 
 export const getAdminTiers = (token: string) => request(token, '/admin/tiers');

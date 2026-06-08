@@ -12,7 +12,7 @@ from typing import Optional
 
 from open_webui.internal.db import Base, get_async_db_context
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, String, Text, select
+from sqlalchemy import BigInteger, Boolean, Column, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,10 @@ class UserKyberAccount(Base):
     kyber_user_id = Column(String, index=True, nullable=False)  # KyberRouter User.id (cuid)
     kyber_email = Column(String, nullable=False)
     api_key_enc = Column(Text, nullable=True)  # Fernet-encrypted sk-or- key (utils.oauth.encrypt_data)
+    # Per-user opt-in for paid extra-usage (token overflow). When True it is synced
+    # to the user's KyberRouter account so that exceeding a token cap overflows into
+    # the wallet instead of a hard 429. Default False = hard stop at the cap.
+    extra_usage_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(BigInteger, nullable=False)
     updated_at = Column(BigInteger, nullable=False)
 
@@ -46,6 +50,7 @@ class UserKyberAccountModel(BaseModel):
     kyber_user_id: str
     kyber_email: str
     api_key_enc: Optional[str] = None
+    extra_usage_enabled: bool = False
     created_at: int
     updated_at: int
 
@@ -79,10 +84,11 @@ class UserKyberAccountsTable:
         kyber_user_id: str,
         kyber_email: str,
         api_key_enc: Optional[str] = None,
+        extra_usage_enabled: Optional[bool] = None,
         db: Optional[AsyncSession] = None,
     ) -> Optional[UserKyberAccountModel]:
-        """Create or update the link. `api_key_enc` is only overwritten when provided
-        (None leaves an existing stored key untouched)."""
+        """Create or update the link. `api_key_enc` and `extra_usage_enabled` are only
+        overwritten when provided (None leaves the existing value untouched)."""
         async with get_async_db_context(db) as db:
             now = int(time.time())
             row = await db.get(UserKyberAccount, user_id)
@@ -92,6 +98,7 @@ class UserKyberAccountsTable:
                     kyber_user_id=kyber_user_id,
                     kyber_email=kyber_email,
                     api_key_enc=api_key_enc,
+                    extra_usage_enabled=bool(extra_usage_enabled),
                     created_at=now,
                     updated_at=now,
                 )
@@ -101,6 +108,8 @@ class UserKyberAccountsTable:
                 row.kyber_email = kyber_email
                 if api_key_enc is not None:
                     row.api_key_enc = api_key_enc
+                if extra_usage_enabled is not None:
+                    row.extra_usage_enabled = extra_usage_enabled
                 row.updated_at = now
             await db.commit()
             await db.refresh(row)
@@ -114,6 +123,20 @@ class UserKyberAccountsTable:
             if row is None:
                 return False
             row.api_key_enc = api_key_enc
+            row.updated_at = int(time.time())
+            await db.commit()
+            return True
+
+    async def set_extra_usage_enabled(
+        self, user_id: str, enabled: bool, db: Optional[AsyncSession] = None
+    ) -> bool:
+        """Flip the per-user extra-usage opt-in. Returns False when the user has no
+        KyberRouter link yet (the toggle is meaningless without a wallet)."""
+        async with get_async_db_context(db) as db:
+            row = await db.get(UserKyberAccount, user_id)
+            if row is None:
+                return False
+            row.extra_usage_enabled = bool(enabled)
             row.updated_at = int(time.time())
             await db.commit()
             return True

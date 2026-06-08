@@ -100,8 +100,17 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> None
                 'tp4h': 0,
                 'tpd': 0,
             }
+        # Extra-usage (paid overflow): the per-tier multiplier + the user's opt-in
+        # (stored on the kyber link). Synced alongside the caps so KyberRouter can
+        # bill the wallet at `model price * multiplier` when the user overflows.
+        from open_webui.models.kyber_accounts import UserKyberAccounts
+
+        link = await UserKyberAccounts.get_by_user_id(user_id)
+        extra_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
+        multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0)
         await kyber_set_user_rate_limits(
-            request, user_id, override, subscription_managed=True
+            request, user_id, override, subscription_managed=True,
+            extra_usage_enabled=extra_enabled, extra_usage_multiplier=multiplier,
         )
     except Exception:
         log.exception('Failed to sync rate limits to KyberRouter for %s', user_id)
@@ -114,6 +123,13 @@ async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
     used = 0
     if limit is not None:
         used = await SubscriptionUsage.get_count(user_id, utc_date())
+    # Extra-usage (paid overflow) state for the Settings toggle: the per-user opt-in
+    # (kyber link) + the per-tier multiplier (what each extra token costs vs base).
+    from open_webui.models.kyber_accounts import UserKyberAccounts
+
+    link = await UserKyberAccounts.get_by_user_id(user_id)
+    extra_usage_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
+    extra_usage_multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0) if tier else 1.0
     return {
         'tier': tier.model_dump() if tier else None,
         'subscription': sub.model_dump() if sub else None,
@@ -124,6 +140,8 @@ async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
             'limit': limit,
             'remaining': (None if limit is None else max(0, limit - used)),
         },
+        'extra_usage_enabled': extra_usage_enabled,
+        'extra_usage_multiplier': extra_usage_multiplier,
         'is_admin': is_admin,
     }
 

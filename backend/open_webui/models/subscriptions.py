@@ -41,6 +41,11 @@ class SubscriptionTier(Base):
     # to the user's KyberRouter override so it enforces them. NULL/0 = unlimited.
     token_limit_5h = Column(Integer, nullable=True)  # tokens per rolling 5h
     token_limit_week = Column(Integer, nullable=True)  # tokens per rolling 7d
+    # Extra-usage (paid overflow) multiplier: when a subscription-managed user
+    # exceeds their token caps and has opted into extra usage, KyberRouter bills
+    # the wallet at `model price * this`. 1.0 = standard model price. Synced to the
+    # user's KyberRouter account alongside the rate-limit caps.
+    extra_usage_multiplier = Column(Float, nullable=False, default=1.0)
     allowed_model_ids = Column(JSONField, nullable=True)  # [] / NULL = all models allowed
     enabled = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
@@ -124,6 +129,7 @@ class SubscriptionTierModel(BaseModel):
     daily_message_limit: Optional[int] = None
     token_limit_5h: Optional[int] = None
     token_limit_week: Optional[int] = None
+    extra_usage_multiplier: float = 1.0
     allowed_model_ids: Optional[list[str]] = None
     enabled: bool = True
     sort_order: int = 0
@@ -140,6 +146,7 @@ class SubscriptionTierForm(BaseModel):
     daily_message_limit: Optional[int] = None
     token_limit_5h: Optional[int] = None
     token_limit_week: Optional[int] = None
+    extra_usage_multiplier: float = 1.0
     allowed_model_ids: Optional[list[str]] = None
     enabled: bool = True
     sort_order: int = 0
@@ -236,6 +243,7 @@ class SubscriptionTiersTable:
                     daily_message_limit=form.daily_message_limit,
                     token_limit_5h=form.token_limit_5h,
                     token_limit_week=form.token_limit_week,
+                    extra_usage_multiplier=form.extra_usage_multiplier,
                     allowed_model_ids=form.allowed_model_ids,
                     enabled=form.enabled,
                     sort_order=form.sort_order,
@@ -251,6 +259,7 @@ class SubscriptionTiersTable:
                 tier.daily_message_limit = form.daily_message_limit
                 tier.token_limit_5h = form.token_limit_5h
                 tier.token_limit_week = form.token_limit_week
+                tier.extra_usage_multiplier = form.extra_usage_multiplier
                 tier.allowed_model_ids = form.allowed_model_ids
                 tier.enabled = form.enabled
                 tier.sort_order = form.sort_order
