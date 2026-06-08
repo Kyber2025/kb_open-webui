@@ -65,7 +65,7 @@
 	let show = false;
 	let triggerElement: HTMLElement | null = null;
 	let contentElement: HTMLElement | null = null;
-	let dropdownPosition = { top: 0, left: 0, width: 0 };
+	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUp: false };
 
 	const portal = (node: HTMLElement) => {
 		document.body.appendChild(node);
@@ -79,8 +79,16 @@
 	const updatePosition = () => {
 		if (!show || !triggerElement) return;
 		const rect = triggerElement.getBoundingClientRect();
+		// Flip the menu upward when there isn't room below the trigger (the model
+		// selector now sits in the bottom toolbar). When flipping up we anchor by
+		// `bottom` so the menu grows upward regardless of its height.
+		const estHeight = 360;
+		const spaceBelow = window.innerHeight - rect.bottom;
+		const openUp = spaceBelow < estHeight && rect.top > spaceBelow;
 		dropdownPosition = {
+			openUp,
 			top: rect.bottom + 2,
+			bottom: window.innerHeight - rect.top + 2,
 			left: $mobile ? 8 : rect.left,
 			width: $mobile ? window.innerWidth - 16 : 0
 		};
@@ -544,7 +552,9 @@
 		<div
 			use:portal
 			bind:this={contentElement}
-			style="position: fixed; z-index: 9999; top: {dropdownPosition.top}px; left: {dropdownPosition.left}px;{$mobile
+			style="position: fixed; z-index: 9999; {dropdownPosition.openUp
+				? `bottom: ${dropdownPosition.bottom}px;`
+				: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px;{$mobile
 				? ` width: ${dropdownPosition.width}px;`
 				: ''}"
 		>
