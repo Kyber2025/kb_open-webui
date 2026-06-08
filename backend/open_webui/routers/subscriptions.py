@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from open_webui.models.kyber_accounts import UserKyberAccounts
 from open_webui.models.subscriptions import (
     GiftCards,
     SubscriptionOrders,
@@ -19,6 +20,7 @@ from open_webui.utils.subscription import (
     redeem_gift_card,
     seed_default_tiers,
     sync_order,
+    sync_user_rate_limits_to_kyber,
 )
 
 log = logging.getLogger(__name__)
@@ -33,6 +35,10 @@ class SubscribeForm(BaseModel):
 
 class RedeemForm(BaseModel):
     code: str
+
+
+class ExtraUsageForm(BaseModel):
+    enabled: bool
 
 
 class GiftCardGenerateForm(BaseModel):
@@ -66,6 +72,21 @@ async def get_chains(request: Request, user=Depends(get_verified_user)):
 async def get_me(user=Depends(get_verified_user)):
     """Current effective tier + today's usage + active subscription."""
     return await get_subscription_state(user.id, is_admin=(user.role == 'admin'))
+
+
+@router.post('/extra-usage')
+async def set_extra_usage(request: Request, form_data: ExtraUsageForm, user=Depends(get_verified_user)):
+    """Flip the user's paid-overflow opt-in, then re-sync to KyberRouter (one PUT
+    carries the toggle + the tier multiplier + caps + managed flag). Returns the
+    new state. 400 when the account has no KyberRouter wallet link yet."""
+    ok = await UserKyberAccounts.set_extra_usage_enabled(user.id, form_data.enabled)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Your account is not linked to a wallet yet.',
+        )
+    await sync_user_rate_limits_to_kyber(request, user.id)
+    return {'enabled': form_data.enabled}
 
 
 @router.post('/subscribe')

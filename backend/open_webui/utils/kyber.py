@@ -268,6 +268,30 @@ async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
     return None
 
 
+async def get_user_usage_limits(request: Request, user) -> Optional[dict]:
+    """Fetch the user's token-window usage vs caps + wallet/extra-usage state for the
+    Settings Usage panel and the bottom-right widget. Returns KyberRouter's
+    /usage/limits payload ({tp5h, tpw, credits, extraUsageEnabled, extraUsageMultiplier})
+    or None when unlinked / unreachable. Auth'd by the user's own sk-or- key so the
+    numbers match what the rate limiter enforces for that key."""
+    user_id = getattr(user, 'id', None)
+    if not user_id:
+        return None
+    key = await get_user_kyber_api_key(user_id)
+    if not key:
+        return None
+    base = kyber_base(request)
+    try:
+        status_code, data = await _get(base, '/usage/limits', key)
+    except Exception as e:
+        log.warning('KyberRouter usage limits unreachable for %s: %s', user_id, e)
+        return None
+    if status_code == 200:
+        return data
+    log.info('KyberRouter usage limits non-success (%s) for %s', status_code, user_id)
+    return None
+
+
 async def kyber_topup_create(request: Request, user, amount_usd: float, chain_id: str):
     """P5: create a USDT top-up on KyberRouter for the chat user (proxied with their
     own sk-or- key, so it credits their wallet). Returns (status, data); data has
@@ -298,6 +322,8 @@ async def kyber_set_user_rate_limits(
     owui_user_id: str,
     override,
     subscription_managed: Optional[bool] = None,
+    extra_usage_enabled: Optional[bool] = None,
+    extra_usage_multiplier: Optional[float] = None,
 ) -> bool:
     """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
     the shared-secret internal endpoint. ``override`` is a dict like
@@ -320,6 +346,12 @@ async def kyber_set_user_rate_limits(
     body = {'rateLimits': override}
     if subscription_managed is not None:
         body['subscriptionManaged'] = subscription_managed
+    # Extra-usage (paid overflow): the per-user opt-in + the per-tier multiplier.
+    # Included only when set so a rate-limit-only sync never clobbers them.
+    if extra_usage_enabled is not None:
+        body['extraUsageEnabled'] = extra_usage_enabled
+    if extra_usage_multiplier is not None:
+        body['extraUsageMultiplier'] = extra_usage_multiplier
     try:
         async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
             async with session.put(

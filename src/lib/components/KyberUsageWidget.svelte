@@ -1,19 +1,22 @@
 <script lang="ts">
-	// P3 (SESSION-HANDOFF §12.7): bottom-right wallet/usage widget. Shows the
-	// signed-in user's KyberRouter balance (credits) + today/month token usage and
-	// a top-up entry. Renders nothing unless token billing is enabled AND the user
-	// has a linked KyberRouter key, so it's invisible for admins / when billing off.
+	// Bottom-right usage indicator (Claude-style). Shows the signed-in user's
+	// subscription token-cap consumption (5-hour + weekly %), wallet balance, and a
+	// paid "extra usage" (overflow) opt-in + top-up. Renders nothing unless token
+	// billing is enabled AND the user has a linked KyberRouter key, so it's invisible
+	// for admins / when billing is off.
 	import { getContext, onMount, onDestroy } from 'svelte';
 	import { config } from '$lib/stores';
-	import { getKyberUsage } from '$lib/apis/kyber';
+	import { getKyberUsageLimits } from '$lib/apis/kyber';
+	import { setExtraUsage } from '$lib/apis/subscriptions';
 	import KyberTopUpModal from '$lib/components/KyberTopUpModal.svelte';
 
 	const i18n = getContext('i18n');
 
-	let usage: any = null;
+	let limits: any = null;
 	let linked = false;
 	let open = false;
 	let loading = false;
+	let toggling = false;
 	let showTopUp = false;
 	let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -21,19 +24,57 @@
 
 	const fmtUsd = (n: number) =>
 		`$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
-	const fmtNum = (n: number) => (Number(n) || 0).toLocaleString();
+
+	// Percent used of a token window. limit 0/undefined = unlimited → 0%.
+	const pct = (w: any): number => {
+		const limit = Number(w?.limit) || 0;
+		if (limit <= 0) return 0;
+		return Math.min(100, Math.round(((Number(w?.used) || 0) / limit) * 100));
+	};
+	const isUnlimited = (w: any): boolean => !(Number(w?.limit) > 0);
+
+	// Relative "resets in ~X" for a window's resetAt (epoch ms).
+	const fmtReset = (resetAt: number | null): string => {
+		if (!resetAt) return '';
+		const ms = resetAt - Date.now();
+		if (ms <= 0) return $i18n.t('resets soon');
+		const mins = Math.round(ms / 60000);
+		if (mins < 60) return $i18n.t('resets in ~{{n}}m', { n: mins });
+		const hrs = Math.round(mins / 60);
+		if (hrs < 48) return $i18n.t('resets in ~{{n}}h', { n: hrs });
+		return $i18n.t('resets in ~{{n}}d', { n: Math.round(hrs / 24) });
+	};
+
+	// The headline % shown on the collapsed pill = the more-consumed of the two windows.
+	$: headlinePct = limits ? Math.max(pct(limits.tp5h), pct(limits.tpw)) : 0;
+	$: barColor = (p: number) =>
+		p >= 100 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
 
 	const refresh = async () => {
 		if (!enabled || loading) return;
 		loading = true;
 		try {
-			const res = await getKyberUsage(localStorage.token);
+			const res = await getKyberUsageLimits(localStorage.token);
 			linked = !!res?.linked;
-			usage = linked ? res : null;
+			limits = linked ? res : null;
 		} catch (e) {
-			// Non-fatal: keep last known value, just stop showing stale errors.
+			// Non-fatal: keep last known value.
 		} finally {
 			loading = false;
+		}
+	};
+
+	const toggleExtra = async () => {
+		if (toggling || !limits) return;
+		toggling = true;
+		const next = !limits.extraUsageEnabled;
+		try {
+			await setExtraUsage(localStorage.token, next);
+			limits = { ...limits, extraUsageEnabled: next };
+		} catch (e) {
+			// leave state unchanged on failure
+		} finally {
+			toggling = false;
 		}
 	};
 
@@ -49,16 +90,14 @@
 	});
 </script>
 
-{#if enabled && linked && usage}
+{#if enabled && linked && limits}
 	<div class="fixed bottom-2.5 right-2.5 z-40 flex flex-col items-end text-xs select-none">
 		{#if open}
 			<div
-				class="mb-1.5 w-60 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg p-3"
+				class="mb-1.5 w-64 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg p-3"
 			>
 				<div class="flex items-center justify-between mb-2">
-					<span class="font-medium text-gray-700 dark:text-gray-200"
-						>{$i18n.t('Usage & balance')}</span
-					>
+					<span class="font-medium text-gray-700 dark:text-gray-200">{$i18n.t('Usage')}</span>
 					<button
 						class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
 						on:click={refresh}
@@ -80,26 +119,82 @@
 					</button>
 				</div>
 
+				<!-- 5-hour window -->
+				<div class="py-1">
+					<div class="flex items-baseline justify-between">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('5-hour limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">
+							{isUnlimited(limits.tp5h) ? $i18n.t('Unlimited') : `${pct(limits.tp5h)}%`}
+						</span>
+					</div>
+					{#if !isUnlimited(limits.tp5h)}
+						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+							<div class="h-full rounded-full {barColor(pct(limits.tp5h))}" style="width: {pct(limits.tp5h)}%"></div>
+						</div>
+						{#if limits.tp5h?.resetAt}
+							<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tp5h.resetAt)}</div>
+						{/if}
+					{/if}
+				</div>
+
+				<!-- Weekly window -->
+				<div class="py-1">
+					<div class="flex items-baseline justify-between">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Weekly limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">
+							{isUnlimited(limits.tpw) ? $i18n.t('Unlimited') : `${pct(limits.tpw)}%`}
+						</span>
+					</div>
+					{#if !isUnlimited(limits.tpw)}
+						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+							<div class="h-full rounded-full {barColor(pct(limits.tpw))}" style="width: {pct(limits.tpw)}%"></div>
+						</div>
+						{#if limits.tpw?.resetAt}
+							<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tpw.resetAt)}</div>
+						{/if}
+					{/if}
+				</div>
+
+				<div class="my-2 border-t border-gray-100 dark:border-gray-800"></div>
+
+				<!-- Wallet balance -->
 				<div class="flex items-baseline justify-between py-1">
-					<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Balance')}</span>
+					<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Extra-usage balance')}</span>
 					<span
-						class="font-semibold {(usage.credits ?? 0) <= 0
+						class="font-semibold {(limits.credits ?? 0) <= 0
 							? 'text-red-500'
-							: 'text-emerald-600 dark:text-emerald-400'}">{fmtUsd(usage.credits)}</span
+							: 'text-emerald-600 dark:text-emerald-400'}">{fmtUsd(limits.credits)}</span
 					>
 				</div>
-				<div class="flex items-baseline justify-between py-1">
-					<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Today')}</span>
-					<span class="text-gray-700 dark:text-gray-200"
-						>{fmtNum(usage.today?.tokens)} {$i18n.t('tokens')}</span
+
+				<!-- Extra-usage opt-in -->
+				<div class="flex items-center justify-between py-1">
+					<span class="text-gray-500 dark:text-gray-400">
+						{$i18n.t('Use extra usage')}
+						{#if Number(limits.extraUsageMultiplier) && Number(limits.extraUsageMultiplier) !== 1}
+							<span class="text-[10px] text-gray-400">({limits.extraUsageMultiplier}×)</span>
+						{/if}
+					</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={limits.extraUsageEnabled}
+						disabled={toggling}
+						on:click={toggleExtra}
+						class="relative inline-flex h-4 w-7 items-center rounded-full transition {limits.extraUsageEnabled
+							? 'bg-emerald-600'
+							: 'bg-gray-300 dark:bg-gray-700'} {toggling ? 'opacity-60' : ''}"
 					>
+						<span
+							class="inline-block h-3 w-3 transform rounded-full bg-white transition {limits.extraUsageEnabled
+								? 'translate-x-3.5'
+								: 'translate-x-0.5'}"
+						></span>
+					</button>
 				</div>
-				<div class="flex items-baseline justify-between py-1">
-					<span class="text-gray-500 dark:text-gray-400">{$i18n.t('This month')}</span>
-					<span class="text-gray-700 dark:text-gray-200"
-						>{fmtNum(usage.thisMonth?.tokens)} {$i18n.t('tokens')}</span
-					>
-				</div>
+				<p class="text-[10px] text-gray-400 leading-snug">
+					{$i18n.t('When your plan limit is reached, keep going by spending your balance per token.')}
+				</p>
 
 				<button
 					on:click={() => (showTopUp = true)}
@@ -107,9 +202,9 @@
 				>
 					{$i18n.t('Top up')}
 				</button>
-				{#if usage.topup_url}
+				{#if limits.topup_url}
 					<a
-						href={usage.topup_url}
+						href={limits.topup_url}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="mt-1 block w-full text-center text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -121,19 +216,14 @@
 		{/if}
 
 		<button
-			class="rounded-full border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-md px-3 py-1.5 flex items-center gap-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+			class="rounded-full border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-md px-3 py-1.5 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 			on:click={() => (open = !open)}
-			title={$i18n.t('Usage & balance')}
+			title={$i18n.t('Usage')}
 		>
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400">
-				<path d="M1 4.25C1 3.56 1.56 3 2.25 3h11.5c.69 0 1.25.56 1.25 1.25v.5H1v-.5Z" />
-				<path fill-rule="evenodd" d="M1 6.25v5.5C1 12.44 1.56 13 2.25 13h11.5c.69 0 1.25-.56 1.25-1.25v-5.5H1Zm9.5 3a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" />
-			</svg>
-			<span
-				class="font-semibold {(usage.credits ?? 0) <= 0
-					? 'text-red-500'
-					: 'text-gray-700 dark:text-gray-200'}">{fmtUsd(usage.credits)}</span
-			>
+			<div class="h-1.5 w-10 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+				<div class="h-full rounded-full {barColor(headlinePct)}" style="width: {headlinePct}%"></div>
+			</div>
+			<span class="font-semibold text-gray-700 dark:text-gray-200">{headlinePct}%</span>
 		</button>
 	</div>
 {/if}

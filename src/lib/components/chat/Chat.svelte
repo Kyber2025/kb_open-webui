@@ -103,6 +103,7 @@
 	import MessageInput from '$lib/components/chat/MessageInput.svelte';
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
+	import ModelSelector from '$lib/components/chat/ModelSelector.svelte';
 	import ChatControls from './ChatControls.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import DeleteConfirmDialog from '../common/ConfirmDialog.svelte';
@@ -3042,6 +3043,7 @@
 						title={$chatTitle}
 						bind:selectedModels
 						shareEnabled={!!history.currentId}
+						showModelSelector={false}
 						{initNewChat}
 						scrollToTop={!isNearTop ? scrollToTop : null}
 						{archiveChatHandler}
@@ -3127,6 +3129,10 @@
 							</div>
 
 							<div class=" pb-2 {dragged ? 'z-0' : 'z-10'}">
+								<!-- Model selector moved below the conversation, above the input box -->
+								<div class="flex justify-start w-full max-w-6xl mx-auto px-2.5 mb-1">
+									<ModelSelector bind:selectedModels showSetDefault={true} />
+								</div>
 								<MessageInput
 									bind:this={messageInput}
 									{history}

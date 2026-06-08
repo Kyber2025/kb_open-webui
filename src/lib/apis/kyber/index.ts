@@ -29,6 +29,36 @@ export const getKyberUsage = async (token: string) => {
 	return res;
 };
 
+// Token-window usage vs caps (5h + weekly) + wallet balance + extra-usage state,
+// for the Settings Usage panel and the bottom-right indicator. Returns
+// { linked: false } when unlinked, else { linked: true, tp5h, tpw, credits,
+// extraUsageEnabled, extraUsageMultiplier, topup_url }.
+export const getKyberUsageLimits = async (token: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/kyber/usage/limits`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 // P5: create a USDT top-up. Returns { id, address, qrCodeImage, usdtAmount, chainId, status }.
 export const createKyberTopUp = async (token: string, amountUsd: number, chainId: string) => {
 	let error = null;
