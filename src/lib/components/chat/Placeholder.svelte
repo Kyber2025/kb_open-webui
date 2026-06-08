@@ -28,6 +28,7 @@
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
 	import MessageInput from './MessageInput.svelte';
 	import ModelSelector from './ModelSelector.svelte';
+	import UsageIndicator from '$lib/components/UsageIndicator.svelte';
 	import FolderPlaceholder from './Placeholder/FolderPlaceholder.svelte';
 	import FolderTitle from './Placeholder/FolderTitle.svelte';
 
@@ -211,10 +212,6 @@
 			{/if}
 
 			<div class="text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel ? 'mt-2' : ''}">
-				<!-- Model selector below the conversation / near the input box -->
-				<div class="flex justify-center w-full mb-1">
-					<ModelSelector bind:selectedModels showSetDefault={true} />
-				</div>
 				<MessageInput
 					bind:this={messageInput}
 					{history}
@@ -242,6 +239,11 @@
 						dispatch('submit', e.detail);
 					}}
 				/>
+				<!-- Bottom toolbar: model selector (left) + usage indicator (right) -->
+				<div class="flex items-center justify-between gap-2 mt-1.5 px-1">
+					<ModelSelector bind:selectedModels showSetDefault={true} />
+					<UsageIndicator />
+				</div>
 			</div>
 		</div>
 	</div>
