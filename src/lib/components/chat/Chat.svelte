@@ -104,6 +104,7 @@
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
 	import ModelSelector from '$lib/components/chat/ModelSelector.svelte';
+	import UsageIndicator from '$lib/components/UsageIndicator.svelte';
 	import ChatControls from './ChatControls.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import DeleteConfirmDialog from '../common/ConfirmDialog.svelte';
@@ -3129,10 +3130,6 @@
 							</div>
 
 							<div class=" pb-2 {dragged ? 'z-0' : 'z-10'}">
-								<!-- Model selector moved below the conversation, above the input box -->
-								<div class="flex justify-start w-full max-w-6xl mx-auto px-2.5 mb-1">
-									<ModelSelector bind:selectedModels showSetDefault={true} />
-								</div>
 								<MessageInput
 									bind:this={messageInput}
 									{history}
@@ -3207,6 +3204,11 @@
 										}
 									}}
 								/>
+								<!-- Bottom toolbar: model selector (left) + usage indicator (right) -->
+								<div class="flex items-center justify-between gap-2 mt-1.5 w-full max-w-6xl mx-auto px-2.5">
+									<ModelSelector bind:selectedModels showSetDefault={true} />
+									<UsageIndicator />
+								</div>
 
 								<div
 									class="absolute bottom-1 text-xs text-gray-500 text-center line-clamp-1 right-0 left-0"
