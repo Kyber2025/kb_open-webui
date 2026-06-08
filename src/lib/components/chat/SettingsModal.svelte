@@ -529,8 +529,9 @@
 
 			if (tab.id === 'usage') {
 				// Subscription/extra-usage panel — only meaningful when KyberRouter
-				// token billing is enabled for this deployment.
-				return $config?.enable_kyber_token_billing ?? false;
+				// token billing is enabled for this deployment. The flag lives under
+				// `features` in /api/config (same as enable_direct_connections above).
+				return $config?.features?.enable_kyber_token_billing ?? false;
 			}
 
 			return true;
