@@ -619,7 +619,7 @@ log = logging.getLogger(__name__)
 class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except (HTTPException, StarletteHTTPException) as ex:
             if ex.status_code == 404:
                 if path.endswith('.js'):
@@ -629,6 +629,14 @@ class SPAStaticFiles(StaticFiles):
                     return await super().get_response('index.html', scope)
             else:
                 raise ex
+
+        # SvelteKit's /_app/immutable/* assets are content-hashed, so they can be
+        # cached forever. Without this header the browser revalidates every chunk
+        # (conditional GET -> 304) on each load — dozens of round-trips that are
+        # very slow on high-latency connections. `immutable` skips revalidation.
+        if 'immutable/' in path:
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
 
 
 if LOG_FORMAT != 'json':
