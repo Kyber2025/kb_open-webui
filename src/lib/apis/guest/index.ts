@@ -1,5 +1,9 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 
+// The shared anonymous account every guest session authenticates as.
+export const GUEST_EMAIL = 'guest@guest.local';
+export const isGuestUser = (user: any): boolean => user?.email === GUEST_EMAIL;
+
 // Stable per-browser device id (one half of the IP+device guest limit).
 export const getGuestDeviceId = (): string => {
 	try {
