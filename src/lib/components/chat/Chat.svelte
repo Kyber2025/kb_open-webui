@@ -159,7 +159,7 @@
 	let pendingOAuthTools = [];
 
 	let imageGenerationEnabled = false;
-	let webSearchEnabled = false;
+	let webSearchEnabled = true;
 	let codeInterpreterEnabled = false;
 
 	let showCommands = false;
@@ -214,7 +214,7 @@
 		selectedToolIds = [];
 		selectedSkillIds = [];
 		selectedFilterIds = [];
-		webSearchEnabled = false;
+		webSearchEnabled = true;
 		imageGenerationEnabled = false;
 
 		const storageChatInput = sessionStorage.getItem(
@@ -312,7 +312,7 @@
 		selectedSkillIds = [];
 		selectedFilterIds = [];
 		pendingOAuthTools = [];
-		webSearchEnabled = false;
+		webSearchEnabled = true;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -855,7 +855,7 @@
 				selectedToolIds = [];
 				selectedSkillIds = [];
 				selectedFilterIds = [];
-				webSearchEnabled = false;
+				webSearchEnabled = true;
 				imageGenerationEnabled = false;
 				codeInterpreterEnabled = false;
 

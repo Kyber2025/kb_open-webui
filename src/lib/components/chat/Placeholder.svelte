@@ -57,7 +57,7 @@
 
 	export let imageGenerationEnabled = false;
 	export let codeInterpreterEnabled = false;
-	export let webSearchEnabled = false;
+	export let webSearchEnabled = true;
 
 	export let onUpload: Function = (e) => {};
 	export let onSelect = (e) => {};
