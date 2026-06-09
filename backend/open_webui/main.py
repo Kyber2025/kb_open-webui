@@ -172,6 +172,10 @@ from open_webui.config import (
     # Direct Connections
     ENABLE_DIRECT_CONNECTIONS,
     ENABLE_SUBSCRIPTIONS,
+    ENABLE_GUEST_ACCESS,
+    GUEST_DAILY_LIMIT,
+    GUEST_ALLOWED_MODEL_IDS,
+    GUEST_BLOCKED_MODEL_IDS,
     PAYMENT_SERVICE_URL,
     SUBSCRIPTION_CHAINS,
     ENABLE_KYBER_AUTH_BRIDGE,
@@ -489,6 +493,7 @@ from open_webui.utils.subscription import (
     filter_models_by_tier,
     get_user_tier,
 )
+from open_webui.utils.guest import enforce_guest_access, is_guest_user
 from open_webui.routers import (
     analytics,
     audio,
@@ -517,6 +522,7 @@ from open_webui.routers import (
     skills,
     kyber as kyber_router,
     subscriptions,
+    guest as guest_router,
     tasks,
     terminals,
     tools,
@@ -870,6 +876,10 @@ app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
 ########################################
 
 app.state.config.ENABLE_SUBSCRIPTIONS = ENABLE_SUBSCRIPTIONS
+app.state.config.ENABLE_GUEST_ACCESS = ENABLE_GUEST_ACCESS
+app.state.config.GUEST_DAILY_LIMIT = GUEST_DAILY_LIMIT
+app.state.config.GUEST_ALLOWED_MODEL_IDS = GUEST_ALLOWED_MODEL_IDS
+app.state.config.GUEST_BLOCKED_MODEL_IDS = GUEST_BLOCKED_MODEL_IDS
 app.state.config.PAYMENT_SERVICE_URL = PAYMENT_SERVICE_URL
 app.state.config.SUBSCRIPTION_CHAINS = SUBSCRIPTION_CHAINS
 app.state.config.ENABLE_KYBER_AUTH_BRIDGE = ENABLE_KYBER_AUTH_BRIDGE
@@ -1462,6 +1472,7 @@ app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
 app.include_router(subscriptions.router, prefix='/api/v1/subscriptions', tags=['subscriptions'])
+app.include_router(guest_router.router, prefix='/api/v1/guest', tags=['guest'])
 app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
 
 
@@ -1742,6 +1753,10 @@ async def chat_completion(
             # completions (title/tag generation) use the tasks router, so they are
             # not counted against the user's quota here.
             await enforce_subscription_access(request, user, model_id)
+
+            # Guest (anonymous) access: IP blacklist + per-IP/device daily cap +
+            # allowed-model gate. No-op for real users. Raises 403/429 on limit.
+            await enforce_guest_access(request, user, model_id)
 
             # Check if user has access to the model
             if not BYPASS_MODEL_ACCESS_CONTROL and (user.role != 'admin' or not BYPASS_ADMIN_ACCESS_CONTROL):
@@ -2471,6 +2486,7 @@ async def get_app_config(request: Request):
             'enable_signup': app.state.config.ENABLE_SIGNUP,
             'enable_kyber_auth_bridge': getattr(app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False),
             'enable_kyber_token_billing': getattr(app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False),
+            'enable_guest_access': getattr(app.state.config, 'ENABLE_GUEST_ACCESS', False),
             'enable_login_form': app.state.config.ENABLE_LOGIN_FORM,
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
             # --- Authenticated: only consumed by logged-in frontend ---

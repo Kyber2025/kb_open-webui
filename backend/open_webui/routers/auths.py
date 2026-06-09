@@ -59,7 +59,9 @@ from open_webui.models.users import (
     Users,
     UserStatus,
 )
+from open_webui.models.guest import GuestBlacklist
 from open_webui.utils.access_control import get_permissions, has_permission
+from open_webui.utils.guest import ensure_guest_user, get_client_ip
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
@@ -693,6 +695,34 @@ async def signin(
         return await create_session_response(request, user, db, response, set_cookie=True)
     else:
         raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+
+
+############################
+# Guest (anonymous) sign-in
+############################
+
+
+@router.post('/guest', response_model=SessionUserResponse)
+async def guest_signin(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Mint a short-lived session for the shared guest account so logged-out
+    visitors can try the chat. Each message is then rate-limited per IP/device
+    by enforce_guest_access(). The only unauthenticated entry point."""
+    if not getattr(request.app.state.config, 'ENABLE_GUEST_ACCESS', False):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+
+    ip = get_client_ip(request)
+    if ip and await GuestBlacklist.is_blacklisted(ip):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+
+    user = await ensure_guest_user(db=db)
+    if not user:
+        raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+
+    return await create_session_response(request, user, db, response, set_cookie=True)
 
 
 ############################

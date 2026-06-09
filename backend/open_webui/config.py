@@ -294,6 +294,42 @@ ENABLE_SUBSCRIPTIONS = ConfigVar(
     os.getenv('ENABLE_SUBSCRIPTIONS', 'True').lower() == 'true',
 )
 
+####################################
+# Guest (anonymous) access
+####################################
+
+# Master switch: when True, logged-out visitors can chat a limited number of
+# times per day (by IP AND device) before being asked to log in.
+ENABLE_GUEST_ACCESS = ConfigVar(
+    'ENABLE_GUEST_ACCESS',
+    'guest.enable',
+    os.getenv('ENABLE_GUEST_ACCESS', 'False').lower() == 'true',
+)
+
+# Per-day message cap for a guest, applied to BOTH the IP and the device id —
+# whichever hits the cap first triggers the "please log in" prompt.
+GUEST_DAILY_LIMIT = ConfigVar(
+    'GUEST_DAILY_LIMIT',
+    'guest.daily_limit',
+    int(os.getenv('GUEST_DAILY_LIMIT', '5')),
+)
+
+# Allow-list of model ids guests may use. Empty/None = all models allowed
+# EXCEPT those in GUEST_BLOCKED_MODEL_IDS. When non-empty, ONLY these are allowed.
+GUEST_ALLOWED_MODEL_IDS = ConfigVar(
+    'GUEST_ALLOWED_MODEL_IDS',
+    'guest.allowed_model_ids',
+    [],
+)
+
+# Block-list of model ids guests may NOT use (applied when the allow-list is
+# empty). Defaults to the premium models.
+GUEST_BLOCKED_MODEL_IDS = ConfigVar(
+    'GUEST_BLOCKED_MODEL_IDS',
+    'guest.blocked_model_ids',
+    ['gpt-5.5', 'claude-opus-4-8'],
+)
+
 # Base URL of the Java payment_service (context-path /api). Reachable from the app
 # nodes at the payment node's private IP; see SESSION-HANDOFF §12.
 PAYMENT_SERVICE_URL = ConfigVar(
