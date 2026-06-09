@@ -55,6 +55,7 @@
 
 	import ArchivedChatsModal from './ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
+	import { getMySubscription } from '$lib/apis/subscriptions';
 	import ChatItem from './Sidebar/ChatItem.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -77,6 +78,16 @@
 
 	const BREAKPOINT = 768;
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
+
+	// Current subscription tier (free/pro/max/ultra), shown next to the username.
+	let subTier = '';
+	let subTierFetched = false;
+	$: if ($user && !subTierFetched) {
+		subTierFetched = true;
+		getMySubscription(localStorage.token)
+			.then((r) => (subTier = r?.tier?.name || r?.tier?.id || ''))
+			.catch(() => {});
+	}
 
 	let scrollTop = 0;
 
@@ -1635,7 +1646,15 @@
 										</div>
 									{/if}
 								</div>
-								<div class=" self-center font-medium truncate">{$user?.name}</div>
+								<div class=" self-center font-medium truncate flex items-center gap-1.5">
+									<span class="truncate">{$user?.name}</span>
+									{#if subTier}
+										<span
+											class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+											>{subTier}</span
+										>
+									{/if}
+								</div>
 							</button>
 						</UserMenu>
 					{/if}
