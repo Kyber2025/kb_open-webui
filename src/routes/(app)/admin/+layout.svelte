@@ -103,6 +103,14 @@
 
 						<a
 							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/gift-cards')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/gift-cards">{$i18n.t('Gift Cards')}</a
+						>
+
+						<a
+							draggable="false"
 							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/guest')
 								? ''
 								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
