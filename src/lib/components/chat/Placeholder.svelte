@@ -242,7 +242,7 @@
 				<!-- Bottom toolbar: model selector (left) + usage indicator (right) -->
 				<div class="flex items-center gap-2 mt-1.5 px-1">
 					<div class="flex-1 min-w-0 overflow-hidden">
-						<ModelSelector bind:selectedModels showSetDefault={true} />
+						<ModelSelector bind:selectedModels showSetDefault={false} />
 					</div>
 					<UsageIndicator />
 				</div>

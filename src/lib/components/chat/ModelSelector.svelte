@@ -50,10 +50,10 @@
 	}
 </script>
 
-<div class="flex flex-col w-full items-start">
+<div class="flex flex-row flex-wrap items-center gap-y-1 w-full">
 	{#each selectedModels as selectedModel, selectedModelIdx}
-		<div class="flex w-full max-w-fit">
-			<div class="overflow-hidden w-full">
+		<div class="flex items-center">
+			<div class="overflow-hidden">
 				<div class="max-w-full {($settings?.highContrastMode ?? false) ? 'm-1' : 'mr-1'}">
 					<Selector
 						id={`${selectedModelIdx}`}
