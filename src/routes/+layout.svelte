@@ -52,7 +52,8 @@
 	import 'tippy.js/dist/tippy.css';
 
 	import { executeToolServer, getBackendConfig, getModels, getVersion } from '$lib/apis';
-	import { getSessionUser, updateUserTimezone, userSignOut } from '$lib/apis/auths';
+	import { getSessionUser, guestSignin, updateUserTimezone, userSignOut } from '$lib/apis/auths';
+	import { getGuestDeviceId } from '$lib/apis/guest';
 	import { getAllTags, getChatList } from '$lib/apis/chats';
 	import { chatCompletion } from '$lib/apis/openai';
 	import {
@@ -1056,6 +1057,37 @@
 				const currentUrl = `${window.location.pathname}${window.location.search}`;
 				const encodedUrl = encodeURIComponent(currentUrl);
 
+				// When there's no valid session, drop the visitor straight into a
+				// guest session (if guest access is enabled) so they can use the
+				// chat without logging in — only the per-IP/device daily cap will
+				// later prompt them to log in. Falls back to /auth otherwise.
+				const enterAsGuestOrRedirect = async () => {
+					if ($config?.features?.enable_guest_access && $page.url.pathname !== '/auth') {
+						try {
+							const res = await guestSignin(getGuestDeviceId());
+							if (res?.token) {
+								localStorage.token = res.token;
+								const guestUser = await getSessionUser(res.token).catch(() => null);
+								if (guestUser) {
+									await user.set(guestUser);
+									try {
+										await config.set(await getBackendConfig());
+									} catch (error) {
+										console.error('Error refreshing backend config:', error);
+									}
+									return true;
+								}
+							}
+						} catch (error) {
+							console.error('Guest sign-in failed:', error);
+						}
+					}
+					if ($page.url.pathname !== '/auth') {
+						await goto(`/auth?redirect=${encodedUrl}`);
+					}
+					return false;
+				};
+
 				if (localStorage.token) {
 					// Get Session User Info
 					const sessionUser = await getSessionUser(localStorage.token).catch((error) => {
@@ -1087,16 +1119,15 @@
 								.catch(() => {});
 						}
 					} else {
-						// Redirect Invalid Session User to /auth Page
+						// Invalid/expired session → clear it and try guest access.
 						localStorage.removeItem('token');
-						await goto(`/auth?redirect=${encodedUrl}`);
+						await enterAsGuestOrRedirect();
 					}
 				} else {
-					// Don't redirect if we're already on the auth page
-					// Needed because we pass in tokens from OAuth logins via URL fragments
-					if ($page.url.pathname !== '/auth') {
-						await goto(`/auth?redirect=${encodedUrl}`);
-					}
+					// No token: enter as guest if enabled, else go to /auth.
+					// (Don't redirect if we're already on the auth page — needed
+					// because OAuth logins pass tokens via URL fragments.)
+					await enterAsGuestOrRedirect();
 				}
 			}
 		} else {

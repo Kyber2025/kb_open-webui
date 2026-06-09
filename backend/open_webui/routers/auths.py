@@ -61,7 +61,7 @@ from open_webui.models.users import (
 )
 from open_webui.models.guest import GuestBlacklist
 from open_webui.utils.access_control import get_permissions, has_permission
-from open_webui.utils.guest import ensure_guest_user, get_client_ip
+from open_webui.utils.guest import ensure_guest_user, get_client_ip, is_guest_user
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
@@ -104,7 +104,12 @@ signin_rate_limiter = RateLimiter(redis_client=get_redis_client(), limit=5 * 3, 
 
 
 async def create_session_response(
-    request: Request, user, db, response: Response = None, set_cookie: bool = False
+    request: Request,
+    user,
+    db,
+    response: Response = None,
+    set_cookie: bool = False,
+    extra_claims: dict | None = None,
 ) -> dict:
     """
     Create JWT token and build session response for a user.
@@ -116,6 +121,7 @@ async def create_session_response(
         db: Database session
         response: FastAPI response object (required if set_cookie is True)
         set_cookie: Whether to set the auth cookie on the response
+        extra_claims: optional extra JWT claims (e.g. {'guest_device': ...})
     """
     expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
     expires_at = None
@@ -123,7 +129,7 @@ async def create_session_response(
         expires_at = int(time.time()) + int(expires_delta.total_seconds())
 
     token = create_token(
-        data={'id': user.id},
+        data={'id': user.id, **(extra_claims or {})},
         expires_delta=expires_delta,
     )
 
@@ -214,6 +220,16 @@ async def get_session_user(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
+
+    # Guests get ephemeral chats only: force temporary chat so nothing is
+    # persisted under the shared guest account (no cross-guest history leak).
+    if is_guest_user(user):
+        perms = dict(user_permissions or {})
+        chat_perms = dict(perms.get('chat') or {})
+        chat_perms['temporary'] = True
+        chat_perms['temporary_enforced'] = True
+        perms['chat'] = chat_perms
+        user_permissions = perms
 
     response_data = {
         'token': token,
@@ -702,15 +718,23 @@ async def signin(
 ############################
 
 
+class GuestSigninForm(BaseModel):
+    device_id: Optional[str] = None
+
+
 @router.post('/guest', response_model=SessionUserResponse)
 async def guest_signin(
     request: Request,
     response: Response,
+    form_data: GuestSigninForm = None,
     db: AsyncSession = Depends(get_async_session),
 ):
     """Mint a short-lived session for the shared guest account so logged-out
-    visitors can try the chat. Each message is then rate-limited per IP/device
-    by enforce_guest_access(). The only unauthenticated entry point."""
+    visitors can use the chat directly. Each message is then rate-limited per
+    IP/device by enforce_guest_access(). The only unauthenticated entry point.
+
+    The client's device id is baked into the JWT (`guest_device` claim) so the
+    limiter can read it without per-request header plumbing."""
     if not getattr(request.app.state.config, 'ENABLE_GUEST_ACCESS', False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
 
@@ -722,7 +746,12 @@ async def guest_signin(
     if not user:
         raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
 
-    return await create_session_response(request, user, db, response, set_cookie=True)
+    device_id = (form_data.device_id if form_data else None) or ''
+    extra_claims = {'guest_device': device_id.strip()} if device_id.strip() else None
+
+    return await create_session_response(
+        request, user, db, response, set_cookie=True, extra_claims=extra_claims
+    )
 
 
 ############################

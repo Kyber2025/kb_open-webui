@@ -36,6 +36,30 @@ def is_guest_user(user) -> bool:
     return bool(user) and getattr(user, 'email', None) == GUEST_EMAIL
 
 
+def _bearer_token(request: Request) -> str:
+    auth = request.headers.get('authorization') or ''
+    if auth.lower().startswith('bearer '):
+        return auth[7:].strip()
+    return request.cookies.get('token') or ''
+
+
+def get_guest_device_id(request: Request) -> str:
+    """The device id the frontend baked into the guest JWT at sign-in
+    (`guest_device` claim). Falls back to the X-Guest-Device-Id header."""
+    from open_webui.utils.auth import decode_token
+
+    token = _bearer_token(request)
+    if token:
+        try:
+            data = decode_token(token) or {}
+            dev = str(data.get('guest_device') or '').strip()
+            if dev:
+                return dev
+        except Exception:
+            pass
+    return (request.headers.get(GUEST_DEVICE_HEADER) or '').strip()
+
+
 def _utc_date() -> str:
     return time.strftime('%Y-%m-%d', time.gmtime())
 
@@ -98,7 +122,7 @@ async def guest_usage_status(request: Request, user) -> dict:
     config = request.app.state.config
     limit = int(getattr(config, 'GUEST_DAILY_LIMIT', 5) or 0)
     ip = get_client_ip(request)
-    device = (request.headers.get(GUEST_DEVICE_HEADER) or '').strip()
+    device = get_guest_device_id(request)
     date = _utc_date()
     ip_used = await GuestUsage.get_count('ip', ip, date) if ip else 0
     dev_used = await GuestUsage.get_count('device', device, date) if device else 0
@@ -127,7 +151,7 @@ async def enforce_guest_access(request: Request, user, model_id: str) -> None:
         )
 
     ip = get_client_ip(request)
-    device = (request.headers.get(GUEST_DEVICE_HEADER) or '').strip()
+    device = get_guest_device_id(request)
 
     if ip and await GuestBlacklist.is_blacklisted(ip):
         raise HTTPException(

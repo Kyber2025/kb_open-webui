@@ -2575,6 +2575,21 @@
 		}
 
 		console.error(innerError);
+		if ('detail' in innerError && innerError.detail === 'guest_limit_reached') {
+			// Guest hit the daily free cap → prompt sign-in instead of a raw error.
+			errorMessage = $i18n.t('You have reached the free guest limit for today. Please sign in or create an account to continue.');
+			toast.error(errorMessage, {
+				action: {
+					label: $i18n.t('Sign in'),
+					onClick: () => goto('/auth')
+				},
+				duration: 8000
+			});
+			responseMessage.error = { content: errorMessage };
+			responseMessage.done = true;
+			history.messages[responseMessage.id] = responseMessage;
+			return;
+		}
 		if ('detail' in innerError) {
 			// FastAPI error
 			toast.error(innerError.detail);
