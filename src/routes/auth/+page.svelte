@@ -20,6 +20,7 @@
 		forgotPassword,
 		resetPassword
 	} from '$lib/apis/auths';
+	import { isGuestUser } from '$lib/apis/guest';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
@@ -257,7 +258,11 @@
 
 	onMount(async () => {
 		const redirectPath = $page.url.searchParams.get('redirect');
-		if ($user !== undefined) {
+		// A guest is authenticated as the shared guest account, so $user is set —
+		// but they must still be able to open this page to sign in. Treat guests as
+		// logged-out here; otherwise the sign-in buttons goto('/auth') and bounce
+		// straight back to '/'.
+		if ($user !== undefined && !isGuestUser($user)) {
 			goto(redirectPath || '/');
 		} else {
 			if (redirectPath) {
