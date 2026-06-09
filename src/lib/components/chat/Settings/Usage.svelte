@@ -28,7 +28,8 @@
 	};
 	const isUnlimited = (w: any): boolean => !(Number(w?.limit) > 0);
 	const fmtNum = (n: number) => (Number(n) || 0).toLocaleString();
-	const barColor = (p: number) => (p >= 100 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-emerald-500');
+	// Claude-style thresholds: <80% blue, 80–90% yellow, ≥90% red.
+	const barColor = (p: number) => (p >= 90 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-blue-500');
 
 	const fmtReset = (resetAt: number | null): string => {
 		if (!resetAt) return '';

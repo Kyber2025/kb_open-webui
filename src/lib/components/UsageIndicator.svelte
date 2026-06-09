@@ -46,7 +46,10 @@
 
 	$: allUnlimited = limits ? isUnlimited(limits.tp5h) && isUnlimited(limits.tpw) : true;
 	$: headlinePct = limits ? Math.max(pct(limits.tp5h), pct(limits.tpw)) : 0;
-	const barColor = (p: number) => (p >= 100 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-emerald-500');
+	// Claude-style thresholds: <80% blue, 80–90% yellow, ≥90% red.
+	const barColor = (p: number) => (p >= 90 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-blue-500');
+	const ringColor = (p: number) => (p >= 90 ? '#ef4444' : p >= 80 ? '#f59e0b' : '#3b82f6');
+	const RING_C = 2 * Math.PI * 15; // ring circumference for r=15
 
 	const refresh = async () => {
 		if (!enabled || loading) return;
@@ -105,9 +108,19 @@
 				</svg>
 				<span>{$i18n.t('Usage')}</span>
 			{:else}
-				<div class="h-1.5 w-8 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-					<div class="h-full rounded-full {barColor(headlinePct)}" style="width: {headlinePct}%"></div>
-				</div>
+				<svg viewBox="0 0 36 36" class="w-4 h-4 -rotate-90">
+					<circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" stroke-width="5" class="text-gray-200 dark:text-gray-700" />
+					<circle
+						cx="18"
+						cy="18"
+						r="15"
+						fill="none"
+						stroke-width="5"
+						stroke-linecap="round"
+						stroke={ringColor(headlinePct)}
+						stroke-dasharray="{(headlinePct / 100) * RING_C} {RING_C}"
+					/>
+				</svg>
 				<span class="font-medium">{headlinePct}%</span>
 			{/if}
 		</button>
