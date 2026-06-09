@@ -4,7 +4,7 @@
 	// popup with the 5-hour + weekly progress bars, wallet balance, the paid
 	// extra-usage opt-in, and a top-up button. Renders nothing unless token billing
 	// is enabled AND the user has a linked KyberRouter key.
-	import { getContext, onMount, onDestroy } from 'svelte';
+	import { getContext, onDestroy } from 'svelte';
 	import { config } from '$lib/stores';
 	import { getKyberUsageLimits } from '$lib/apis/kyber';
 	import { setExtraUsage } from '$lib/apis/subscriptions';
@@ -76,12 +76,15 @@
 		}
 	};
 
-	onMount(() => {
-		if (enabled) {
-			refresh();
-			timer = setInterval(refresh, 60000);
-		}
-	});
+	// Start as soon as `enabled` becomes true (reactively), not gated on mount —
+	// $config may not be loaded yet when this mounts, which would otherwise leave
+	// the indicator permanently hidden.
+	let started = false;
+	$: if (enabled && !started) {
+		started = true;
+		refresh();
+		timer = setInterval(refresh, 60000);
+	}
 	onDestroy(() => {
 		if (timer) clearInterval(timer);
 	});
