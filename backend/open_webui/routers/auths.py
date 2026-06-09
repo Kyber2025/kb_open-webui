@@ -816,6 +816,23 @@ async def signup_handler(
         db=db,
     )
 
+    # ── Kyber 來源歸因（落地頁 cookie sid/utm/gclid）— 失敗永不阻礙注冊 ──
+    try:
+        _raw = request.cookies.get('kyber_attr')
+        if _raw:
+            import json as _json
+            import urllib.parse as _up
+            _attr = _json.loads(_up.unquote(_raw))
+            if isinstance(_attr, dict):
+                _allowed = ('sid', 'utm_source', 'utm_medium', 'utm_campaign',
+                            'utm_term', 'utm_content', 'gclid', '_ts', '_lp')
+                _clean = {k: str(_attr[k])[:256] for k in _allowed if _attr.get(k)}
+                if _clean:
+                    _clean['captured_at'] = int(time.time())
+                    await Users.update_user_by_id(user.id, {'info': {'attribution': _clean}}, db=db)
+    except Exception:
+        log.exception('kyber attribution capture failed (non-fatal)')
+
     return user
 
 
