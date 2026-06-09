@@ -157,6 +157,12 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
     finite limit applies. Admins and disabled subscriptions are no-ops."""
     if not getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         return
+    # Guests are gated separately (per-IP/device, not per-user) by
+    # enforce_guest_access — don't apply the shared guest account's tier here.
+    from open_webui.utils.guest import is_guest_user
+
+    if is_guest_user(user):
+        return
     # P2: when KyberRouter token billing is on, metering/limits/402 happen natively
     # in KyberRouter against the user's wallet — skip the per-message-count gate.
     if getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
