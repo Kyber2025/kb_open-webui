@@ -3205,8 +3205,10 @@
 									}}
 								/>
 								<!-- Bottom toolbar: model selector (left) + usage indicator (right) -->
-								<div class="flex items-center justify-between gap-2 mt-1.5 w-full max-w-6xl mx-auto px-2.5">
-									<ModelSelector bind:selectedModels showSetDefault={true} />
+								<div class="flex items-center gap-2 mt-1.5 w-full max-w-6xl mx-auto px-2.5">
+									<div class="flex-1 min-w-0 overflow-hidden">
+										<ModelSelector bind:selectedModels showSetDefault={true} />
+									</div>
 									<UsageIndicator />
 								</div>
 
