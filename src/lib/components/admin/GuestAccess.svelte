@@ -105,7 +105,7 @@
 </script>
 
 {#if loaded}
-	<div class="flex flex-col gap-5 w-full">
+	<div class="px-4 md:px-8 py-6 max-w-4xl mx-auto w-full flex flex-col gap-5">
 		<div>
 			<div class="text-lg font-medium">{$i18n.t('Guest Access')}</div>
 			<div class="text-xs text-gray-500">

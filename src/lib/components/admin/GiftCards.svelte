@@ -4,6 +4,8 @@
 
 	const i18n = getContext('i18n');
 
+	import * as XLSX from 'xlsx';
+
 	import {
 		getAdminTiers,
 		generateGiftCards,
@@ -19,6 +21,17 @@
 	let cards = [];
 	let counts = { total: 0, available: 0, redeemed: 0, disabled: 0 };
 	let statusFilter = 'all';
+	let tierFilter = 'all';
+	let daysFilter = 'all';
+
+	// Tier + days are filtered client-side over the loaded list (status goes to the
+	// backend). The list is capped at 500 most-recent server-side.
+	$: distinctDurations = [...new Set(cards.map((c) => c.duration_days))].sort((a, b) => a - b);
+	$: filteredCards = cards.filter(
+		(c) =>
+			(tierFilter === 'all' || c.tier_id === tierFilter) &&
+			(daysFilter === 'all' || String(c.duration_days) === String(daysFilter))
+	);
 
 	// generation form
 	let genTierId = '';
@@ -105,6 +118,30 @@
 		URL.revokeObjectURL(url);
 	};
 
+	// Export the currently filtered list to a real .xlsx file.
+	const exportXlsx = () => {
+		const list = filteredCards;
+		if (!list.length) {
+			toast.error($i18n.t('Nothing to export'));
+			return;
+		}
+		const data = list.map((c) => ({
+			[$i18n.t('Code')]: c.code,
+			[$i18n.t('Plan')]: tierName(c.tier_id),
+			[$i18n.t('Tier')]: c.tier_id,
+			[$i18n.t('Days')]: c.duration_days,
+			[$i18n.t('Status')]: $i18n.t(cardState(c)),
+			[$i18n.t('Redeemed By')]: c.redeemed_by ?? '',
+			[$i18n.t('Redeemed At')]: c.redeemed_at ? new Date(c.redeemed_at * 1000).toLocaleString() : '',
+			[$i18n.t('Note')]: c.note ?? '',
+			[$i18n.t('Created At')]: c.created_at ? new Date(c.created_at * 1000).toLocaleString() : ''
+		}));
+		const ws = XLSX.utils.json_to_sheet(data);
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, 'Gift Cards');
+		XLSX.writeFile(wb, `gift-cards-${new Date().toISOString().slice(0, 10)}.xlsx`);
+	};
+
 	const toggleEnabled = async (card) => {
 		try {
 			await setGiftCardStatus(localStorage.token, card.code, !card.enabled);
@@ -140,7 +177,7 @@
 	onMount(reload);
 </script>
 
-<div class="px-4 md:px-8 py-6 max-w-4xl mx-auto w-full border-t border-gray-100 dark:border-gray-800">
+<div class="px-4 md:px-8 py-6 max-w-4xl mx-auto w-full">
 	<div class="text-lg font-medium mb-1">{$i18n.t('Gift Cards')}</div>
 	<div class="text-xs text-gray-500 mb-4">
 		{$i18n.t(
@@ -243,7 +280,7 @@
 		</div>
 	{/if}
 
-	<!-- summary + filter -->
+	<!-- summary + filters + export -->
 	<div class="flex items-center justify-between mb-2 flex-wrap gap-2">
 		<div class="flex gap-3 text-xs text-gray-500">
 			<span>{$i18n.t('Total')}: <span class="font-semibold text-black dark:text-white">{counts.total}</span></span>
@@ -251,16 +288,46 @@
 			<span>{$i18n.t('Redeemed')}: <span class="font-semibold text-black dark:text-white">{counts.redeemed}</span></span>
 			<span>{$i18n.t('Disabled')}: <span class="font-semibold text-black dark:text-white">{counts.disabled}</span></span>
 		</div>
-		<select
-			class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs outline-none"
-			bind:value={statusFilter}
-			on:change={loadCards}
-		>
-			<option value="all">{$i18n.t('All')}</option>
-			<option value="available">{$i18n.t('Available')}</option>
-			<option value="redeemed">{$i18n.t('Redeemed')}</option>
-			<option value="disabled">{$i18n.t('Disabled')}</option>
-		</select>
+		<div class="flex items-center gap-2 flex-wrap">
+			<select
+				class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs outline-none"
+				bind:value={statusFilter}
+				on:change={loadCards}
+				title={$i18n.t('Status')}
+			>
+				<option value="all">{$i18n.t('All statuses')}</option>
+				<option value="available">{$i18n.t('Available')}</option>
+				<option value="redeemed">{$i18n.t('Redeemed')}</option>
+				<option value="disabled">{$i18n.t('Disabled')}</option>
+			</select>
+			<select
+				class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs outline-none"
+				bind:value={tierFilter}
+				title={$i18n.t('Tier')}
+			>
+				<option value="all">{$i18n.t('All tiers')}</option>
+				{#each tiers as t (t.id)}
+					<option value={t.id}>{t.name}</option>
+				{/each}
+			</select>
+			<select
+				class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs outline-none"
+				bind:value={daysFilter}
+				title={$i18n.t('Duration (days)')}
+			>
+				<option value="all">{$i18n.t('All durations')}</option>
+				{#each distinctDurations as d}
+					<option value={d}>{$i18n.t('{{days}} days', { days: d })}</option>
+				{/each}
+			</select>
+			<button
+				class="px-3 py-1 rounded-md bg-black text-white dark:bg-white dark:text-black text-xs font-medium disabled:opacity-50"
+				on:click={exportXlsx}
+				disabled={filteredCards.length === 0}
+			>
+				{$i18n.t('Export Excel')}
+			</button>
+		</div>
 	</div>
 
 	<!-- list -->
@@ -270,9 +337,14 @@
 		<div class="text-center text-sm text-gray-500 py-10">
 			{$i18n.t('No gift cards yet. Generate a batch above.')}
 		</div>
+	{:else if filteredCards.length === 0}
+		<div class="text-center text-sm text-gray-500 py-10">
+			{$i18n.t('No gift cards match the selected filters.')}
+		</div>
 	{:else}
+		<div class="text-xs text-gray-400 mb-1">{$i18n.t('Showing {{count}} of {{total}}', { count: filteredCards.length, total: cards.length })}</div>
 		<div class="rounded-2xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
-			{#each cards as card (card.code)}
+			{#each filteredCards as card (card.code)}
 				{@const st = cardState(card)}
 				<div class="flex items-center justify-between gap-2 p-3 text-sm">
 					<div class="min-w-0">
