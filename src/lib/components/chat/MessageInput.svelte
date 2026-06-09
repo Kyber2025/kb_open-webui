@@ -1851,7 +1851,7 @@
 											{/if}
 										{/each}
 
-										{#if webSearchEnabled}
+										{#if $config?.features?.enable_web_search && ($_user?.role === 'admin' || ($_user?.permissions?.features?.web_search ?? true))}
 											<Tooltip content={$i18n.t('Web Search')} placement="top">
 												<button
 													on:click|preventDefault={() => (webSearchEnabled = !webSearchEnabled)}
@@ -1862,9 +1862,6 @@
 														: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
 												>
 													<GlobeAlt className="size-4" strokeWidth="1.75" />
-													<div class="hidden group-hover:block">
-														<XMark className="size-4" strokeWidth="1.75" />
-													</div>
 												</button>
 											</Tooltip>
 										{/if}
