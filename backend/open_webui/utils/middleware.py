@@ -1517,16 +1517,6 @@ async def chat_memory_handler(request: Request, form_data: dict, extra_params: d
 
 async def chat_web_search_handler(request: Request, form_data: dict, extra_params: dict, user):
     event_emitter = extra_params['__event_emitter__']
-    await event_emitter(
-        {
-            'type': 'status',
-            'data': {
-                'action': 'web_search',
-                'description': 'Searching the web',
-                'done': False,
-            },
-        }
-    )
 
     messages = form_data['messages']
     user_message = get_last_user_message(messages)
@@ -1583,19 +1573,24 @@ async def chat_web_search_handler(request: Request, form_data: dict, extra_param
     if len(queries) == 1 and queries[0].strip() == '':
         queries = [user_message or '']
 
-    # Check if queries are not found
+    # No search needed — the query generator returned no queries.
+    # Return silently without emitting any web_search status so the UI
+    # shows nothing ("Searching the web" / "No search query generated")
+    # for messages that don't require a web search.
     if len(queries) == 0:
-        await event_emitter(
-            {
-                'type': 'status',
-                'data': {
-                    'action': 'web_search',
-                    'description': 'No search query generated',
-                    'done': True,
-                },
-            }
-        )
         return form_data
+
+    # A search will actually run — only now surface the "searching" indicator.
+    await event_emitter(
+        {
+            'type': 'status',
+            'data': {
+                'action': 'web_search',
+                'description': 'Searching the web',
+                'done': False,
+            },
+        }
+    )
 
     await event_emitter(
         {
