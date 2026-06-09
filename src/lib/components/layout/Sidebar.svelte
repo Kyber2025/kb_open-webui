@@ -56,6 +56,7 @@
 	import ArchivedChatsModal from './ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
 	import { getMySubscription } from '$lib/apis/subscriptions';
+	import { isGuestUser } from '$lib/apis/guest';
 	import ChatItem from './Sidebar/ChatItem.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -82,7 +83,7 @@
 	// Current subscription tier (free/pro/max/ultra), shown next to the username.
 	let subTier = '';
 	let subTierFetched = false;
-	$: if ($user && !subTierFetched) {
+	$: if ($user && !isGuestUser($user) && !subTierFetched) {
 		subTierFetched = true;
 		getMySubscription(localStorage.token)
 			.then((r) => (subTier = r?.tier?.name || r?.tier?.id || ''))
@@ -948,7 +949,7 @@
 		<div>
 			<div>
 				<div class=" py-2 flex justify-center items-center">
-					{#if $user !== undefined && $user !== null}
+					{#if $user && !isGuestUser($user)}
 						<UserMenu
 							role={$user?.role}
 							profile={$config?.features?.enable_user_status ?? true}
@@ -986,6 +987,29 @@
 								</div>
 							</button>
 						</UserMenu>
+					{:else if $user}
+						<button
+							type="button"
+							class="cursor-pointer flex rounded-xl p-1.5 hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+							aria-label={$i18n.t('Sign in')}
+							title={$i18n.t('Sign in')}
+							on:click={() => goto('/auth')}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="1.8"
+								stroke="currentColor"
+								class="size-5"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"
+								/>
+							</svg>
+						</button>
 					{/if}
 				</div>
 			</div>
@@ -1609,7 +1633,7 @@
 					class=" sidebar-bg-gradient-to-t bg-linear-to-t from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mt-6"
 				></div>
 				<div class="flex flex-col font-primary">
-					{#if $user !== undefined && $user !== null}
+					{#if $user && !isGuestUser($user)}
 						<UserMenu
 							role={$user?.role}
 							profile={$config?.features?.enable_user_status ?? true}
@@ -1657,6 +1681,28 @@
 								</div>
 							</button>
 						</UserMenu>
+					{:else if $user}
+						<button
+							type="button"
+							class="flex items-center justify-center gap-2 rounded-2xl py-2.5 px-1.5 w-full bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 transition"
+							on:click={() => goto('/auth')}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="1.8"
+								stroke="currentColor"
+								class="size-4"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"
+								/>
+							</svg>
+							{$i18n.t('Sign in')}
+						</button>
 					{/if}
 				</div>
 			</div>

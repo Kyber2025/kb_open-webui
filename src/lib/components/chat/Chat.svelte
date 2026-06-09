@@ -2501,6 +2501,22 @@
 		).catch(async (error) => {
 			console.log(error);
 
+			// Guest hit the daily free cap → friendly sign-in prompt.
+			if (error === 'guest_limit_reached' || error?.detail === 'guest_limit_reached') {
+				const msg = $i18n.t(
+					'You have reached the free guest limit for today. Please sign in or create an account to continue.'
+				);
+				toast.error(msg, {
+					action: { label: $i18n.t('Sign in'), onClick: () => goto('/auth') },
+					duration: 8000
+				});
+				responseMessage.error = { content: msg };
+				responseMessage.done = true;
+				history.messages[responseMessageId] = responseMessage;
+				history.currentId = responseMessageId;
+				return null;
+			}
+
 			let errorMessage = error;
 			if (error?.error?.message) {
 				errorMessage = error.error.message;

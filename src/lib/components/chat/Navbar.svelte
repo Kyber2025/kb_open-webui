@@ -25,6 +25,7 @@
 	import Tooltip from '../common/Tooltip.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
+	import { isGuestUser } from '$lib/apis/guest';
 	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
@@ -242,7 +243,7 @@
 						</Tooltip>
 					{/if}
 
-					{#if $user !== undefined && $user !== null}
+					{#if $user && !isGuestUser($user)}
 						<UserMenu
 							className="w-[240px]"
 							role={$user?.role}
@@ -268,6 +269,14 @@
 								</div>
 							</button>
 						</UserMenu>
+					{:else if $user}
+						<button
+							type="button"
+							class="select-none flex items-center gap-1.5 rounded-xl px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 transition"
+							on:click={() => goto('/auth')}
+						>
+							{$i18n.t('Sign in')}
+						</button>
 					{/if}
 				</div>
 			</div>
