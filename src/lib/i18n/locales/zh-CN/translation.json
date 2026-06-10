@@ -445,6 +445,7 @@
 	"Continue Response": "继续生成",
 	"Continue with {{provider}}": "使用 {{provider}} 继续",
 	"Continue with Email": "使用邮箱登录",
+	"Contact Support": "联系客服",
 	"Continue with LDAP": "使用 LDAP 登录",
 	"Control how message text is split for TTS requests. 'Punctuation' splits into sentences, 'paragraphs' splits into paragraphs, and 'none' keeps the message as a single string.": "设置消息文本拆分方法，用于 TTS 请求。“Punctuation”拆分为句子，“paragraphs”拆分为段落，“none”将消息保留为单个字符串。",
 	"Control the repetition of token sequences in the generated text. A higher value (e.g., 1.5) will penalize repetitions more strongly, while a lower value (e.g., 1.1) will be more lenient. At 1, it is disabled.": "设置生成文本中标记序列的重复度。较高的值（例如 1.5）表示严厉惩罚重复，而较低的值（例如 1.1）则表示相对宽松。当值为 1 时，此功能将被禁用。",
