@@ -15,7 +15,8 @@ from typing import Optional
 
 from open_webui.internal.db import Base, get_async_db_context
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, Integer, String, delete, select
+from sqlalchemy import BigInteger, Column, Integer, String, delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
@@ -81,22 +82,44 @@ class GuestUsageTable:
     async def increment(
         self, scope: str, key: str, date: str, db: Optional[AsyncSession] = None
     ) -> int:
+        """Atomic server-side increment. The old read-modify-write could lose
+        counts under concurrent messages (two readers see N, both write N+1);
+        a single `UPDATE ... SET count = count + 1 RETURNING` can't, and is one
+        round trip on the common path. INSERT races on the first message of the
+        day collapse into a retry of the atomic UPDATE."""
         async with get_async_db_context(db) as db:
             _id = self._id(scope, key, date)
-            row = await db.get(GuestUsageDaily, _id)
             now = int(time.time())
-            if row is None:
-                row = GuestUsageDaily(
-                    id=_id, scope=scope, key=key, date=date, count=1, updated_at=now
+
+            async def _bump() -> Optional[int]:
+                result = await db.execute(
+                    update(GuestUsageDaily)
+                    .where(GuestUsageDaily.id == _id)
+                    .values(count=GuestUsageDaily.count + 1, updated_at=now)
+                    .returning(GuestUsageDaily.count)
                 )
-                db.add(row)
-                new_count = 1
-            else:
-                row.count = row.count + 1
-                row.updated_at = now
-                new_count = row.count
-            await db.commit()
-            return new_count
+                value = result.scalar_one_or_none()
+                if value is not None:
+                    await db.commit()
+                return value
+
+            new_count = await _bump()
+            if new_count is not None:
+                return new_count
+
+            try:
+                db.add(
+                    GuestUsageDaily(
+                        id=_id, scope=scope, key=key, date=date, count=1, updated_at=now
+                    )
+                )
+                await db.commit()
+                return 1
+            except IntegrityError:
+                # Lost the first-row race to a concurrent request — bump instead.
+                await db.rollback()
+                new_count = await _bump()
+                return new_count if new_count is not None else 1
 
 
 class GuestBlacklistTable:
