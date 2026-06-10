@@ -57,7 +57,7 @@
 	import { collectFolderEntries, entriesFromFileList } from '$lib/utils/folder-bundle';
 	import { mountFolderFromEntries, buildFolderContext } from '$lib/utils/folder-context';
 	import { uploadFile } from '$lib/apis/files';
-	import { generateAutoCompletion } from '$lib/apis';
+	import { generateAutoCompletion, generateQueries } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
 	import { getChatById } from '$lib/apis/chats';
 	import { getSessionUser } from '$lib/apis/auths';
@@ -494,20 +494,67 @@
 	// Called right before submit: grep the mounted folder with the question's
 	// keywords and attach the matching snippets as a text item — the backend
 	// injects its content verbatim (get_sources_from_items text fallback).
-	const injectFolderContext = () => {
+	// Parse owui's query-generation response ({queries} or a completion whose
+	// content is JSON like {"queries": [...]}).
+	const parseGeneratedQueries = (res): string[] => {
+		try {
+			if (Array.isArray(res?.queries)) return res.queries.filter((q) => typeof q === 'string');
+			const content = res?.choices?.[0]?.message?.content ?? '';
+			const start = content.indexOf('{');
+			const end = content.lastIndexOf('}');
+			if (start === -1 || end <= start) return [];
+			const obj = JSON.parse(content.slice(start, end + 1));
+			return Array.isArray(obj?.queries) ? obj.queries.filter((q) => typeof q === 'string') : [];
+		} catch (e) {
+			return [];
+		}
+	};
+
+	// Two-stage search: literal question terms first (fast path, zero latency).
+	// If nothing hits (typical for Chinese questions over English code), ask the
+	// task model to GENERATE search queries — the same mechanism owui uses for
+	// web-search/RAG query generation — and grep again with the model's terms,
+	// so the model effectively drives the folder search.
+	const injectFolderContext = async () => {
 		if (!$mountedFolder || prompt.trim() === '') {
 			return;
 		}
-		const ctx = buildFolderContext($mountedFolder, prompt);
+		const folder = $mountedFolder;
+		let result = buildFolderContext(folder, prompt);
+
+		if (result.hits === 0 && selectedModels?.[0]) {
+			try {
+				const res = await Promise.race([
+					generateQueries(
+						localStorage.token,
+						selectedModels[0],
+						[{ role: 'user', content: prompt }],
+						prompt,
+						'retrieval'
+					),
+					new Promise((resolve) => setTimeout(() => resolve(null), 8000))
+				]);
+				const queries = parseGeneratedQueries(res);
+				if (queries.length > 0) {
+					const retry = buildFolderContext(folder, prompt, queries);
+					if (retry.hits > 0) {
+						result = retry;
+					}
+				}
+			} catch (e) {
+				// query generation unavailable (disabled / guest-limited) — keep stage-1 result
+			}
+		}
+
 		files = [
 			...files,
 			{
 				type: 'text',
-				name: `${$mountedFolder.name} (folder search)`,
-				content: ctx,
+				name: `${folder.name} (folder search)`,
+				content: result.content,
 				context: 'full',
 				status: 'uploaded',
-				size: ctx.length,
+				size: result.content.length,
 				id: uuidv4(),
 				itemId: uuidv4()
 			}
@@ -1351,7 +1398,7 @@
 								document.getElementById('chat-input')?.focus();
 
 								if ($settings?.speechAutoSend ?? false) {
-									injectFolderContext();
+									await injectFolderContext();
 									dispatch('submit', prompt);
 								}
 							}}
@@ -1359,9 +1406,9 @@
 					</div>
 					<form
 						class="w-full flex flex-col gap-1.5 {recording ? 'hidden' : ''}"
-						on:submit|preventDefault={() => {
+						on:submit|preventDefault={async () => {
 							// check if selectedModels support image input
-							injectFolderContext();
+							await injectFolderContext();
 							dispatch('submit', prompt);
 						}}
 					>
@@ -1422,7 +1469,6 @@
 											/>
 										</svg>
 										<span class="font-medium max-w-40 truncate">{$mountedFolder.name}</span>
-										<span class="opacity-70">· {$mountedFolder.fileCount}</span>
 										<button
 											type="button"
 											class="ml-0.5 hover:opacity-60 transition"
@@ -1728,7 +1774,7 @@
 																if (enterPressed) {
 																	e.preventDefault();
 																	if (prompt !== '' || files.length > 0) {
-																		injectFolderContext();
+																		await injectFolderContext();
 																		dispatch('submit', prompt);
 																	}
 																}
