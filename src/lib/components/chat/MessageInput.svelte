@@ -53,6 +53,7 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
+	import { bundleFolder } from '$lib/utils/folder-bundle';
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
@@ -462,6 +463,49 @@
 	let commandsElement;
 
 	let inputFiles;
+
+	// Folder attach (Claude Code-style): directory picker → client-side filter →
+	// one bundled .txt through the normal upload/RAG pipeline (see folder-bundle.ts).
+	let folderInputElement;
+	let folderLoading = false;
+
+	const folderInputHandler = async () => {
+		const folderFiles = Array.from(folderInputElement?.files ?? []);
+		folderInputElement.value = '';
+		if (folderFiles.length === 0) {
+			return;
+		}
+		folderLoading = true;
+		try {
+			// Temporary chats (e.g. guests) inject file content verbatim into the
+			// context — no RAG chunking — so cap the bundle much lower there.
+			const res = await bundleFolder(
+				folderFiles,
+				$temporaryChatEnabled ? 300 * 1024 : undefined
+			);
+			if (!res) {
+				toast.error($i18n.t('No readable code or text files found in the folder.'));
+				return;
+			}
+			if (res.truncated) {
+				toast.warning(
+					$i18n.t('Folder is large — only part of its content was included.')
+				);
+			}
+			await uploadFileHandler(res.file);
+			toast.success(
+				$i18n.t('Folder "{{name}}" attached: {{kept}} files bundled ({{skipped}} skipped).', {
+					name: res.folderName,
+					kept: res.kept,
+					skipped: res.skipped
+				})
+			);
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			folderLoading = false;
+		}
+	};
 
 	let showInputModal = false;
 
@@ -1230,6 +1274,14 @@
 						}}
 					/>
 
+					<input
+						bind:this={folderInputElement}
+						type="file"
+						webkitdirectory
+						hidden
+						on:change={folderInputHandler}
+					/>
+
 					<div class={recording ? '' : 'hidden'}>
 						<VoiceRecording
 							bind:recording
@@ -1290,6 +1342,39 @@
 										onDelete={onQueueDelete}
 									/>
 								{/each}
+							</div>
+						{/if}
+
+						{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.file_upload ?? true)}
+							<!-- Folder attach (Claude Code-style): pick a local folder; its code/text
+							     files are bundled and attached so the chat can search/read them. -->
+							<div class="flex items-center mb-1.5 px-1">
+								<button
+									type="button"
+									class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs text-gray-500 dark:text-gray-400 border border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+									disabled={folderLoading}
+									on:click={() => folderInputElement?.click()}
+								>
+									{#if folderLoading}
+										<Spinner className="size-3.5" />
+									{:else}
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="1.8"
+											stroke="currentColor"
+											class="size-3.5"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+											/>
+										</svg>
+									{/if}
+									{folderLoading ? $i18n.t('Reading folder...') : $i18n.t('Attach Folder')}
+								</button>
 							</div>
 						{/if}
 
