@@ -18,6 +18,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
@@ -455,20 +456,37 @@ class SubscriptionUsageTable:
             return row.count if row else 0
 
     async def increment(self, user_id: str, date: str, db: Optional[AsyncSession] = None) -> int:
+        """Atomic server-side increment (same rationale as GuestUsageTable.increment:
+        the old read-modify-write lost counts under concurrent messages)."""
         async with get_async_db_context(db) as db:
             _id = self._id(user_id, date)
-            row = await db.get(SubscriptionUsageDaily, _id)
             now = int(time.time())
-            if row is None:
-                row = SubscriptionUsageDaily(id=_id, user_id=user_id, date=date, count=1, updated_at=now)
-                db.add(row)
-                new_count = 1
-            else:
-                row.count = row.count + 1
-                row.updated_at = now
-                new_count = row.count
-            await db.commit()
-            return new_count
+
+            async def _bump() -> Optional[int]:
+                result = await db.execute(
+                    update(SubscriptionUsageDaily)
+                    .where(SubscriptionUsageDaily.id == _id)
+                    .values(count=SubscriptionUsageDaily.count + 1, updated_at=now)
+                    .returning(SubscriptionUsageDaily.count)
+                )
+                value = result.scalar_one_or_none()
+                if value is not None:
+                    await db.commit()
+                return value
+
+            new_count = await _bump()
+            if new_count is not None:
+                return new_count
+
+            try:
+                db.add(SubscriptionUsageDaily(id=_id, user_id=user_id, date=date, count=1, updated_at=now))
+                await db.commit()
+                return 1
+            except IntegrityError:
+                # Lost the first-row race to a concurrent request — bump instead.
+                await db.rollback()
+                new_count = await _bump()
+                return new_count if new_count is not None else 1
 
 
 class GiftCardsTable:
