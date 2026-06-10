@@ -184,28 +184,119 @@ const fileTree = (folder: MountedFolder, maxPaths = 300, maxChars = 8000): strin
 	return omitted > 0 ? `${tree}\n... (+${omitted} more files)` : tree;
 };
 
+// Entry-point files worth attaching whole when a structural question has no
+// keyword hits in (mostly English) code — e.g. "这个项目的架构是怎样的".
+const KEY_BASENAMES = new Set([
+	'readme.md', 'readme.rst', 'readme.txt', 'package.json', 'pyproject.toml',
+	'requirements.txt', 'go.mod', 'cargo.toml', 'pom.xml', 'build.gradle',
+	'composer.json', 'docker-compose.yml', 'docker-compose.yaml', 'dockerfile',
+	'main.py', 'app.py', 'manage.py', 'main.ts', 'main.js', 'index.ts',
+	'index.js', 'config.py', 'settings.py', 'svelte.config.js', 'vite.config.ts',
+	'next.config.js', 'makefile', 'architecture.md', 'claude.md'
+]);
+
+const pickKeyFiles = (folder: MountedFolder, max = 5): MountedFile[] => {
+	const matches = folder.files.filter((f) =>
+		KEY_BASENAMES.has((f.path.split('/').pop() ?? '').toLowerCase())
+	);
+	// Shallow paths first — root README/package.json beat deep vendored ones.
+	matches.sort(
+		(a, b) => a.path.split('/').length - b.path.split('/').length || a.path.localeCompare(b.path)
+	);
+	return matches.slice(0, max);
+};
+
+// Files explicitly named in the question ("看下 main.py 和 config.py") get
+// attached WHOLE — this also closes the loop when the model asks the user for
+// specific files: mentioning the names in the next message is enough.
+const findNamedFiles = (folder: MountedFolder, terms: string[], max = 4): MountedFile[] => {
+	// Only specific-looking terms: filename-ish (contains a dot) or length >= 6.
+	const specific = terms.filter((t) => t.includes('.') || t.length >= 6);
+	if (specific.length === 0) return [];
+
+	const scored: { f: MountedFile; s: number }[] = [];
+	for (const f of folder.files) {
+		const pathLower = f.path.toLowerCase();
+		const base = pathLower.split('/').pop() ?? '';
+		let best = 0;
+		for (const t of specific) {
+			if (!pathLower.includes(t)) continue;
+			let s = t.length;
+			if (base === t) s += 100;
+			else if (base.includes(t)) s += 50;
+			best = Math.max(best, s);
+		}
+		if (best > 0) {
+			scored.push({ f, s: best - pathLower.split('/').length });
+		}
+	}
+	scored.sort((a, b) => b.s - a.s);
+	return scored.slice(0, max).map((x) => x.f);
+};
+
+const FULL_FILE_CHAR_CAP = 12000; // per whole-file cap
+const FULL_FILES_TOTAL_CAP = 30000;
+
+const renderFullFiles = (files: MountedFile[], label: string): string => {
+	const parts: string[] = [];
+	let total = 0;
+	for (const f of files) {
+		let text = f.content;
+		let note = '';
+		if (text.length > FULL_FILE_CHAR_CAP) {
+			text = text.slice(0, FULL_FILE_CHAR_CAP);
+			note = '\n... (truncated)';
+		}
+		if (total + text.length > FULL_FILES_TOTAL_CAP) break;
+		total += text.length;
+		parts.push(`===== ${f.path} (full file) =====\n${text}${note}`);
+	}
+	return parts.length ? `\n${label}:\n${parts.join('\n\n')}\n` : '';
+};
+
 /**
- * Build the per-message context block: file tree + snippets matching the
- * question. Always returns something — with no keyword hits the model still
- * gets the tree, so structural questions ("这个项目的架构是怎样的") work.
+ * Build the per-message context block: file tree + whole files named in the
+ * question + keyword-matched excerpts. With no hits at all (e.g. a Chinese
+ * structural question against English code), key entry-point files are
+ * attached instead — the model always gets something substantive.
  */
 export const buildFolderContext = (folder: MountedFolder, query: string): string => {
-	const { snippets, terms } = searchFolder(folder, query);
+	const terms = extractTerms(query);
+	let named = findNamedFiles(folder, terms);
+	const namedPaths = new Set(named.map((f) => f.path));
+
+	let { snippets } = searchFolder(folder, query, {
+		// Leave room for whole files when some were named.
+		maxChars: named.length > 0 ? 14000 : 24000
+	});
+	snippets = snippets.filter((sn) => !namedPaths.has(sn.path));
+
+	let fullLabel = 'FILES NAMED IN THE QUESTION (full content)';
+	if (named.length === 0 && snippets.length === 0) {
+		named = pickKeyFiles(folder);
+		fullLabel = 'KEY PROJECT FILES (no keyword match — showing entry points)';
+	}
 
 	const header =
-		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files. ` +
-		`Below: the file tree, plus file excerpts auto-searched with keywords from the ` +
-		`user's question${terms.length ? ` (${terms.slice(0, 10).join(', ')})` : ''}. ` +
-		`If you need a file that is not excerpted, ask the user to attach it.]\n\n` +
+		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files, ` +
+		`searched client-side with keywords from the user's question` +
+		`${terms.length ? ` (${terms.slice(0, 10).join(', ')})` : ''}. ` +
+		`To inspect another file, just mention its file name or path in the next ` +
+		`message (e.g. "看下 main.py") and its full content will be attached ` +
+		`automatically — no need for the user to paste it.]\n\n` +
 		`FILE TREE:\n${fileTree(folder)}\n`;
 
-	if (snippets.length === 0) {
+	const fullBlock = renderFullFiles(named, fullLabel);
+
+	const excerptBlock = snippets.length
+		? `\nMATCHED EXCERPTS:\n${snippets
+				.map((sn) => `===== ${sn.path} (lines ${sn.startLine}-${sn.endLine}) =====\n${sn.text}`)
+				.join('\n\n')}`
+		: '';
+
+	if (!fullBlock && !excerptBlock) {
 		return `${header}\n(No file content matched the question's keywords.)`;
 	}
 
-	const body = snippets
-		.map((sn) => `===== ${sn.path} (lines ${sn.startLine}-${sn.endLine}) =====\n${sn.text}`)
-		.join('\n\n');
-
-	return `${header}\nMATCHED EXCERPTS:\n${body}`;
+	return `${header}${fullBlock}${excerptBlock}`;
 };
