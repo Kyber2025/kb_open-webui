@@ -53,7 +53,11 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
-	import { bundleFolder } from '$lib/utils/folder-bundle';
+	import {
+		bundleFolder,
+		collectFolderEntries,
+		entriesFromFileList
+	} from '$lib/utils/folder-bundle';
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
@@ -469,6 +473,53 @@
 	let folderInputElement;
 	let folderLoading = false;
 
+	const bundleAndAttachFolder = async (entries) => {
+		// Temporary chats (e.g. guests) inject file content verbatim into the
+		// context — no RAG chunking — so cap the bundle much lower there.
+		const res = await bundleFolder(entries, $temporaryChatEnabled ? 300 * 1024 : undefined);
+		if (!res) {
+			toast.error($i18n.t('No readable code or text files found in the folder.'));
+			return;
+		}
+		if (res.truncated) {
+			toast.warning($i18n.t('Folder is large — only part of its content was included.'));
+		}
+		await uploadFileHandler(res.file);
+		toast.success(
+			$i18n.t('Folder "{{name}}" attached: {{kept}} files bundled ({{skipped}} skipped).', {
+				name: res.folderName,
+				kept: res.kept,
+				skipped: res.skipped
+			})
+		);
+	};
+
+	const attachFolderHandler = async () => {
+		// Preferred: File System Access API (Chrome/Edge). We traverse the picked
+		// directory ourselves, pruning node_modules/.git/etc. during the walk — no
+		// scary "upload N files?" dialog and no enumeration of huge dep trees.
+		if (typeof (window as any).showDirectoryPicker === 'function') {
+			let dirHandle = null;
+			try {
+				dirHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
+			} catch (e) {
+				return; // user cancelled the picker
+			}
+			folderLoading = true;
+			try {
+				const entries = await collectFolderEntries(dirHandle);
+				await bundleAndAttachFolder(entries);
+			} catch (e) {
+				toast.error(`${e}`);
+			} finally {
+				folderLoading = false;
+			}
+		} else {
+			// Fallback: webkitdirectory input (Firefox/Safari).
+			folderInputElement?.click();
+		}
+	};
+
 	const folderInputHandler = async () => {
 		const folderFiles = Array.from(folderInputElement?.files ?? []);
 		folderInputElement.value = '';
@@ -477,29 +528,7 @@
 		}
 		folderLoading = true;
 		try {
-			// Temporary chats (e.g. guests) inject file content verbatim into the
-			// context — no RAG chunking — so cap the bundle much lower there.
-			const res = await bundleFolder(
-				folderFiles,
-				$temporaryChatEnabled ? 300 * 1024 : undefined
-			);
-			if (!res) {
-				toast.error($i18n.t('No readable code or text files found in the folder.'));
-				return;
-			}
-			if (res.truncated) {
-				toast.warning(
-					$i18n.t('Folder is large — only part of its content was included.')
-				);
-			}
-			await uploadFileHandler(res.file);
-			toast.success(
-				$i18n.t('Folder "{{name}}" attached: {{kept}} files bundled ({{skipped}} skipped).', {
-					name: res.folderName,
-					kept: res.kept,
-					skipped: res.skipped
-				})
-			);
+			await bundleAndAttachFolder(entriesFromFileList(folderFiles));
 		} catch (e) {
 			toast.error(`${e}`);
 		} finally {
@@ -1353,7 +1382,7 @@
 									type="button"
 									class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs text-gray-500 dark:text-gray-400 border border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
 									disabled={folderLoading}
-									on:click={() => folderInputElement?.click()}
+									on:click={attachFolderHandler}
 								>
 									{#if folderLoading}
 										<Spinner className="size-3.5" />
