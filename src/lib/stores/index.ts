@@ -114,6 +114,12 @@ export const embed = writable(null);
 
 export const temporaryChatEnabled = writable(false);
 
+// Claude Code-style folder mount (see $lib/utils/folder-context.ts): folder
+// content lives in browser memory; relevant snippets are attached per-message.
+// Survives chat switches; cleared by the ✕ on the mount chip.
+export const mountedFolder: Writable<import('$lib/utils/folder-context').MountedFolder | null> =
+	writable(null);
+
 // Transient one-shot event from the desktop shell (Spotlight, drag-and-drop, etc.).
 // Set by +layout.svelte, consumed and cleared by Chat.svelte.
 export type DesktopEventFile = { name: string; mimeType: string; dataUrl: string };

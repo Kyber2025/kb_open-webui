@@ -35,7 +35,8 @@
 		showSettings,
 		selectedTerminalId,
 		TTSWorker,
-		temporaryChatEnabled
+		temporaryChatEnabled,
+		mountedFolder
 	} from '$lib/stores';
 
 	import {
@@ -53,11 +54,8 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
-	import {
-		bundleFolder,
-		collectFolderEntries,
-		entriesFromFileList
-	} from '$lib/utils/folder-bundle';
+	import { collectFolderEntries, entriesFromFileList } from '$lib/utils/folder-bundle';
+	import { mountFolderFromEntries, buildFolderContext } from '$lib/utils/folder-context';
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
@@ -468,30 +466,52 @@
 
 	let inputFiles;
 
-	// Folder attach (Claude Code-style): directory picker → client-side filter →
-	// one bundled .txt through the normal upload/RAG pipeline (see folder-bundle.ts).
+	// Folder mount (Claude Code-style): picking a folder reads its code/text
+	// files into BROWSER MEMORY — nothing is uploaded at mount time. When a
+	// message is sent, injectFolderContext() greps the mounted files with the
+	// question's keywords and attaches only the matching snippets.
 	let folderInputElement;
 	let folderLoading = false;
 
-	const bundleAndAttachFolder = async (entries) => {
-		// Temporary chats (e.g. guests) inject file content verbatim into the
-		// context — no RAG chunking — so cap the bundle much lower there.
-		const res = await bundleFolder(entries, $temporaryChatEnabled ? 300 * 1024 : undefined);
-		if (!res) {
+	const mountFolderEntries = async (entries) => {
+		const folder = await mountFolderFromEntries(entries);
+		if (!folder) {
 			toast.error($i18n.t('No readable code or text files found in the folder.'));
 			return;
 		}
-		if (res.truncated) {
+		if (folder.truncated) {
 			toast.warning($i18n.t('Folder is large — only part of its content was included.'));
 		}
-		await uploadFileHandler(res.file);
+		mountedFolder.set(folder);
 		toast.success(
-			$i18n.t('Folder "{{name}}" attached: {{kept}} files bundled ({{skipped}} skipped).', {
-				name: res.folderName,
-				kept: res.kept,
-				skipped: res.skipped
-			})
+			$i18n.t(
+				'Folder "{{name}}" mounted ({{count}} files). Relevant content is searched and attached when you send a message.',
+				{ name: folder.name, count: folder.fileCount }
+			)
 		);
+	};
+
+	// Called right before submit: grep the mounted folder with the question's
+	// keywords and attach the matching snippets as a text item — the backend
+	// injects its content verbatim (get_sources_from_items text fallback).
+	const injectFolderContext = () => {
+		if (!$mountedFolder || prompt.trim() === '') {
+			return;
+		}
+		const ctx = buildFolderContext($mountedFolder, prompt);
+		files = [
+			...files,
+			{
+				type: 'text',
+				name: `${$mountedFolder.name} (folder search)`,
+				content: ctx,
+				context: 'full',
+				status: 'uploaded',
+				size: ctx.length,
+				id: uuidv4(),
+				itemId: uuidv4()
+			}
+		];
 	};
 
 	const attachFolderHandler = async () => {
@@ -508,7 +528,7 @@
 			folderLoading = true;
 			try {
 				const entries = await collectFolderEntries(dirHandle);
-				await bundleAndAttachFolder(entries);
+				await mountFolderEntries(entries);
 			} catch (e) {
 				toast.error(`${e}`);
 			} finally {
@@ -528,7 +548,7 @@
 		}
 		folderLoading = true;
 		try {
-			await bundleAndAttachFolder(entriesFromFileList(folderFiles));
+			await mountFolderEntries(entriesFromFileList(folderFiles));
 		} catch (e) {
 			toast.error(`${e}`);
 		} finally {
@@ -1331,6 +1351,7 @@
 								document.getElementById('chat-input')?.focus();
 
 								if ($settings?.speechAutoSend ?? false) {
+									injectFolderContext();
 									dispatch('submit', prompt);
 								}
 							}}
@@ -1340,6 +1361,7 @@
 						class="w-full flex flex-col gap-1.5 {recording ? 'hidden' : ''}"
 						on:submit|preventDefault={() => {
 							// check if selectedModels support image input
+							injectFolderContext();
 							dispatch('submit', prompt);
 						}}
 					>
@@ -1375,18 +1397,16 @@
 						{/if}
 
 						{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.file_upload ?? true)}
-							<!-- Folder attach (Claude Code-style): pick a local folder; its code/text
-							     files are bundled and attached so the chat can search/read them. -->
+							<!-- Folder mount (Claude Code-style): content stays in browser memory;
+							     matching snippets are searched & attached per message. -->
 							<div class="flex items-center mb-1.5 px-1">
-								<button
-									type="button"
-									class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs text-gray-500 dark:text-gray-400 border border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-									disabled={folderLoading}
-									on:click={attachFolderHandler}
-								>
-									{#if folderLoading}
-										<Spinner className="size-3.5" />
-									{:else}
+								{#if $mountedFolder}
+									<div
+										class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs border border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+										title={$i18n.t(
+											'Relevant content is searched and attached when you send a message.'
+										)}
+									>
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
@@ -1401,9 +1421,45 @@
 												d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
 											/>
 										</svg>
-									{/if}
-									{folderLoading ? $i18n.t('Reading folder...') : $i18n.t('Attach Folder')}
-								</button>
+										<span class="font-medium max-w-40 truncate">{$mountedFolder.name}</span>
+										<span class="opacity-70">· {$mountedFolder.fileCount}</span>
+										<button
+											type="button"
+											class="ml-0.5 hover:opacity-60 transition"
+											aria-label={$i18n.t('Remove')}
+											on:click={() => mountedFolder.set(null)}
+										>
+											✕
+										</button>
+									</div>
+								{:else}
+									<button
+										type="button"
+										class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs text-gray-500 dark:text-gray-400 border border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+										disabled={folderLoading}
+										on:click={attachFolderHandler}
+									>
+										{#if folderLoading}
+											<Spinner className="size-3.5" />
+										{:else}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												fill="none"
+												viewBox="0 0 24 24"
+												stroke-width="1.8"
+												stroke="currentColor"
+												class="size-3.5"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+												/>
+											</svg>
+										{/if}
+										{folderLoading ? $i18n.t('Reading folder...') : $i18n.t('Attach Folder')}
+									</button>
+								{/if}
 							</div>
 						{/if}
 
@@ -1672,6 +1728,7 @@
 																if (enterPressed) {
 																	e.preventDefault();
 																	if (prompt !== '' || files.length > 0) {
+																		injectFolderContext();
 																		dispatch('submit', prompt);
 																	}
 																}
