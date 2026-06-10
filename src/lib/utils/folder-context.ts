@@ -254,33 +254,50 @@ const renderFullFiles = (files: MountedFile[], label: string): string => {
 	return parts.length ? `\n${label}:\n${parts.join('\n\n')}\n` : '';
 };
 
+export interface FolderContextResult {
+	content: string;
+	/** named-file + excerpt hits — 0 means only tree/fallback content. */
+	hits: number;
+}
+
 /**
  * Build the per-message context block: file tree + whole files named in the
- * question + keyword-matched excerpts. With no hits at all (e.g. a Chinese
- * structural question against English code), key entry-point files are
- * attached instead — the model always gets something substantive.
+ * question + keyword-matched excerpts. `extraQueries` are model-generated
+ * search queries (owui task `retrieval` query generation) — they bridge the
+ * Chinese-question-vs-English-code gap by letting the MODEL pick the grep
+ * terms when the literal question text matches nothing. With no hits at all,
+ * key entry-point files are attached as a last resort.
  */
-export const buildFolderContext = (folder: MountedFolder, query: string): string => {
-	const terms = extractTerms(query);
+export const buildFolderContext = (
+	folder: MountedFolder,
+	query: string,
+	extraQueries: string[] = []
+): FolderContextResult => {
+	const combined = [query, ...extraQueries].join('\n');
+	const terms = extractTerms(combined);
 	let named = findNamedFiles(folder, terms);
 	const namedPaths = new Set(named.map((f) => f.path));
 
-	let { snippets } = searchFolder(folder, query, {
+	let { snippets } = searchFolder(folder, combined, {
 		// Leave room for whole files when some were named.
 		maxChars: named.length > 0 ? 14000 : 24000
 	});
 	snippets = snippets.filter((sn) => !namedPaths.has(sn.path));
 
+	const hits = named.length + snippets.length;
+
 	let fullLabel = 'FILES NAMED IN THE QUESTION (full content)';
-	if (named.length === 0 && snippets.length === 0) {
+	if (hits === 0) {
 		named = pickKeyFiles(folder);
 		fullLabel = 'KEY PROJECT FILES (no keyword match — showing entry points)';
 	}
 
+	const searchedWith = terms.slice(0, 10).join(', ');
 	const header =
 		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files, ` +
 		`searched client-side with keywords from the user's question` +
-		`${terms.length ? ` (${terms.slice(0, 10).join(', ')})` : ''}. ` +
+		`${extraQueries.length ? ' plus model-generated search queries' : ''}` +
+		`${searchedWith ? ` (${searchedWith})` : ''}. ` +
 		`To inspect another file, just mention its file name or path in the next ` +
 		`message (e.g. "看下 main.py") and its full content will be attached ` +
 		`automatically — no need for the user to paste it.]\n\n` +
@@ -295,8 +312,8 @@ export const buildFolderContext = (folder: MountedFolder, query: string): string
 		: '';
 
 	if (!fullBlock && !excerptBlock) {
-		return `${header}\n(No file content matched the question's keywords.)`;
+		return { content: `${header}\n(No file content matched the question's keywords.)`, hits };
 	}
 
-	return `${header}${fullBlock}${excerptBlock}`;
+	return { content: `${header}${fullBlock}${excerptBlock}`, hits };
 };
