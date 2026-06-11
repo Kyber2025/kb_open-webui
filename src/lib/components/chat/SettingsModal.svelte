@@ -992,7 +992,11 @@
 				{:else if selectedTab === 'data_controls'}
 					<DataControls {saveSettings} />
 				{:else if selectedTab === 'usage'}
-					<Usage />
+					<Usage
+						on:close={() => {
+							show = false;
+						}}
+					/>
 				{:else if selectedTab === 'account'}
 					<Account
 						{saveSettings}

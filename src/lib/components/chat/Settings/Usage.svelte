@@ -3,8 +3,10 @@
 	// consumption (5-hour + weekly), the paid extra-usage opt-in + balance, and entry
 	// points to top up or upgrade. Data: /subscriptions/me (plan) + /kyber/usage/limits
 	// (live caps/usage/wallet/extra-usage state).
-	import { getContext, onMount } from 'svelte';
+	import { createEventDispatcher, getContext, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+
+	const dispatch = createEventDispatcher();
 
 	import { getMySubscription, setExtraUsage } from '$lib/apis/subscriptions';
 	import { getKyberUsageLimits } from '$lib/apis/kyber';
@@ -96,7 +98,10 @@
 				</div>
 				<button
 					class="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-					on:click={() => goto('/subscription')}
+					on:click={async () => {
+						await goto('/subscription');
+						dispatch('close');
+					}}
 				>
 					{$i18n.t('Manage plan')}
 				</button>
