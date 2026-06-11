@@ -454,7 +454,11 @@
 					</div>
 				{/if}
 
-				<Sidebar />
+				<!-- Code mode is its own surface with its own session list; the chat
+				     sidebar (chat history) stays out of it entirely. -->
+				{#if !$page.url.pathname.startsWith('/code')}
+					<Sidebar />
+				{/if}
 
 				{#if loaded}
 					<slot />

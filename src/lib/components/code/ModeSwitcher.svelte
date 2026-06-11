@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 
-	// Labels are intentionally literal (not i18n): the zh locale maps "Code" to
-	// the gift-card term "兑换码" and "Chat" to "对话", which is wrong for this
-	// top-bar toggle. Keep them as "Chat" / "Code" like the reference UI.
+	const i18n: any = getContext('i18n');
+
+	// The "Code" i18n key is taken by the gift-card term ("兑换码" in zh), so this
+	// toggle uses the dedicated "Coding" key (en: "Code", zh: "编码").
 
 	// `chat` highlights on the chat surfaces (/, /c/...); `code` on /code.
 	$: active = $page.url.pathname.startsWith('/code') ? 'code' : 'chat';
@@ -26,7 +28,7 @@
 				clip-rule="evenodd"
 			/>
 		</svg>
-		Chat
+		{$i18n.t('Chat')}
 	</button>
 	<button
 		class="px-3 py-1 rounded-full transition flex items-center gap-1.5 {active === 'code'
@@ -41,6 +43,6 @@
 				clip-rule="evenodd"
 			/>
 		</svg>
-		Code
+		{$i18n.t('Coding')}
 	</button>
 </div>
