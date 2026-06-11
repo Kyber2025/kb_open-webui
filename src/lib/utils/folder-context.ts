@@ -1,10 +1,17 @@
 // Claude Code-style folder mount: picking a folder reads its code/text files
 // into BROWSER MEMORY only — nothing is uploaded at mount time. When the user
-// sends a message, we grep the mounted files with keywords extracted from the
-// question and attach just the matching snippets (with paths + line numbers)
-// to that message as a `type:'text'` item, which the backend injects verbatim
-// (retrieval/utils.py get_sources_from_items, text fallback). So the model
-// "searches the folder" per question instead of ingesting everything upfront.
+// sends a message, the folder is searched and the results are attached as a
+// `type:'text'` item, which the backend injects verbatim
+// (retrieval/utils.py get_sources_from_items, text fallback).
+//
+// Search is model-driven, like Claude Code navigating a repository:
+// - Small folders skip search entirely — every file is attached in full.
+// - Larger folders go through a planning loop (MessageInput.injectFolderContext):
+//   the task model sees the question + file tree + a summary of the literal
+//   keyword round, and answers with ENGLISH grep keywords plus exact files to
+//   read whole ($lib/apis generateFolderSearch → /api/v1/tasks/folder_search).
+//   We execute its plan locally (runFolderSearch) and optionally hand the hit
+//   summary back for a second round of file picks (grep → read).
 
 import type { FolderEntry } from './folder-bundle';
 
@@ -176,13 +183,26 @@ export const searchFolder = (
 	return { snippets, terms };
 };
 
-const fileTree = (folder: MountedFolder, maxPaths = 300, maxChars = 8000): string => {
-	const paths = folder.files.slice(0, maxPaths).map((f) => f.path);
-	let tree = paths.join('\n');
-	if (tree.length > maxChars) tree = tree.slice(0, maxChars);
-	const omitted = folder.fileCount - paths.length;
+const formatSize = (chars: number): string =>
+	chars < 1024 ? `${chars}B` : `${Math.round((chars / 1024) * 10) / 10}KB`;
+
+/** File tree text — one path per line, optionally annotated with sizes (for the planner). */
+export const buildFileTree = (
+	folder: MountedFolder,
+	maxPaths = 400,
+	maxChars = 12000,
+	sizes = true
+): string => {
+	const lines = folder.files
+		.slice(0, maxPaths)
+		.map((f) => (sizes ? `${f.path} (${formatSize(f.content.length)})` : f.path));
+	let tree = lines.join('\n');
+	if (tree.length > maxChars) tree = `${tree.slice(0, maxChars)}\n... (tree truncated)`;
+	const omitted = folder.fileCount - Math.min(folder.fileCount, maxPaths);
 	return omitted > 0 ? `${tree}\n... (+${omitted} more files)` : tree;
 };
+
+const fileTree = (folder: MountedFolder): string => buildFileTree(folder, 300, 8000, false);
 
 // Entry-point files worth attaching whole when a structural question has no
 // keyword hits in (mostly English) code — e.g. "这个项目的架构是怎样的".
@@ -235,7 +255,7 @@ const findNamedFiles = (folder: MountedFolder, terms: string[], max = 4): Mounte
 };
 
 const FULL_FILE_CHAR_CAP = 12000; // per whole-file cap
-const FULL_FILES_TOTAL_CAP = 30000;
+const FULL_FILES_TOTAL_CAP = 36000; // planner may pick up to 6 files
 
 const renderFullFiles = (files: MountedFile[], label: string): string => {
 	const parts: string[] = [];
@@ -260,43 +280,140 @@ export interface FolderContextResult {
 	hits: number;
 }
 
+// Folders at or below this size skip search entirely — everything fits in
+// context, the way Claude Code would simply read all of a tiny repo.
+// totalBytes counts characters of decoded text, so this is ~12k tokens.
+export const SMALL_FOLDER_FULL_CHARS = 48_000;
+
+/** Whole-folder context for small mounts — no search, every file in full. */
+export const buildFullFolderContext = (folder: MountedFolder): FolderContextResult => {
+	const sections = folder.files.map((f) => `===== ${f.path} =====\n${f.content}`);
+	const header =
+		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files, ` +
+		`small enough to include in full. The COMPLETE contents of every file follow.]\n\n` +
+		`FILE TREE:\n${fileTree(folder)}\n`;
+	return { content: `${header}\nFULL CONTENTS:\n${sections.join('\n\n')}`, hits: folder.fileCount };
+};
+
+export interface FolderSearchOutcome {
+	/** files to attach whole — planner picks first, then question-named files */
+	named: MountedFile[];
+	snippets: FolderSnippet[];
+	terms: string[];
+	/** true when a model plan (keywords/files) contributed to this round */
+	planned: boolean;
+}
+
+/** Resolve planner-returned paths against mounted files (exact → suffix → basename). */
+const resolvePlanFiles = (folder: MountedFolder, paths: string[], max = 6): MountedFile[] => {
+	const out: MountedFile[] = [];
+	for (const raw of paths) {
+		if (out.length >= max) break;
+		const p = raw.trim().replace(/^\.\//, '').toLowerCase();
+		if (!p) continue;
+		const base = p.split('/').pop() ?? '';
+		const match =
+			folder.files.find((f) => f.path.toLowerCase() === p) ??
+			folder.files.find((f) => f.path.toLowerCase().endsWith(`/${p}`)) ??
+			folder.files.find((f) => (f.path.split('/').pop() ?? '').toLowerCase() === base);
+		if (match && !out.includes(match)) out.push(match);
+	}
+	return out;
+};
+
 /**
- * Build the per-message context block: file tree + whole files named in the
- * question + keyword-matched excerpts. `extraQueries` are model-generated
- * search queries (owui task `retrieval` query generation) — they bridge the
- * Chinese-question-vs-English-code gap by letting the MODEL pick the grep
- * terms when the literal question text matches nothing. With no hits at all,
- * key entry-point files are attached as a last resort.
+ * One search round: grep the mounted files with terms from the question plus
+ * planner keywords, and resolve the files to read whole (planner picks +
+ * files named in the question).
  */
-export const buildFolderContext = (
+export const runFolderSearch = (
 	folder: MountedFolder,
 	query: string,
-	extraQueries: string[] = []
-): FolderContextResult => {
-	const combined = [query, ...extraQueries].join('\n');
+	planKeywords: string[] = [],
+	planFiles: string[] = []
+): FolderSearchOutcome => {
+	const combined = [query, ...planKeywords].join('\n');
 	const terms = extractTerms(combined);
-	let named = findNamedFiles(folder, terms);
+
+	const named = resolvePlanFiles(folder, planFiles);
+	for (const f of findNamedFiles(folder, terms)) {
+		if (named.length >= 8) break;
+		if (!named.includes(f)) named.push(f);
+	}
 	const namedPaths = new Set(named.map((f) => f.path));
 
 	let { snippets } = searchFolder(folder, combined, {
-		// Leave room for whole files when some were named.
+		// Leave room for whole files when some are being attached.
 		maxChars: named.length > 0 ? 14000 : 24000
 	});
 	snippets = snippets.filter((sn) => !namedPaths.has(sn.path));
 
+	return {
+		named,
+		snippets,
+		terms,
+		planned: planKeywords.length > 0 || planFiles.length > 0
+	};
+};
+
+/**
+ * Compact, model-readable summary of a search round — what was read whole and
+ * where the grep hits landed — fed back to the planner so it can refine its
+ * next picks (the "look at grep output, then decide what to read" step).
+ */
+export const summarizeSearchResults = (outcome: FolderSearchOutcome, maxChars = 4000): string => {
+	const lines: string[] = [];
+	if (outcome.named.length) {
+		lines.push(`Read in full: ${outcome.named.map((f) => f.path).join(', ')}`);
+	}
+
+	const byPath = new Map<string, FolderSnippet[]>();
+	for (const sn of outcome.snippets) {
+		const arr = byPath.get(sn.path) ?? [];
+		arr.push(sn);
+		byPath.set(sn.path, arr);
+	}
+	for (const [path, sns] of byPath) {
+		const first = sns[0];
+		const firstLine = (first.text.split('\n').find((l) => l.trim()) ?? '').trim().slice(0, 120);
+		lines.push(
+			`${path} — ${sns.length} match window(s), e.g. lines ${first.startLine}-${first.endLine}: ${firstLine}`
+		);
+	}
+
+	if (lines.length === 0) return 'No matches in this round.';
+	const out = lines.join('\n');
+	return out.length > maxChars ? out.slice(0, maxChars) : out;
+};
+
+/**
+ * Render the per-message context block: file tree + whole files + matched
+ * excerpts. With no hits at all, key entry-point files are attached as a last
+ * resort.
+ */
+export const renderFolderContext = (
+	folder: MountedFolder,
+	outcome: FolderSearchOutcome
+): FolderContextResult => {
+	let named = outcome.named;
+	let snippets = outcome.snippets;
 	const hits = named.length + snippets.length;
 
-	let fullLabel = 'FILES NAMED IN THE QUESTION (full content)';
+	let fullLabel = outcome.planned
+		? 'FILES READ IN FULL (search-planner picks + files named in the question)'
+		: 'FILES NAMED IN THE QUESTION (full content)';
 	if (hits === 0) {
 		named = pickKeyFiles(folder);
+		snippets = [];
 		fullLabel = 'KEY PROJECT FILES (no keyword match — showing entry points)';
 	}
 
-	const searchedWith = terms.slice(0, 10).join(', ');
+	const searchedWith = outcome.terms.slice(0, 10).join(', ');
 	const header =
 		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files, ` +
-		`searched client-side with keywords from the user's question` +
-		`${extraQueries.length ? ' plus model-generated search queries' : ''}` +
+		(outcome.planned
+			? `searched Claude-Code style: a planning model saw the file tree and chose the grep keywords and the files to read in full`
+			: `searched client-side with keywords from the user's question`) +
 		`${searchedWith ? ` (${searchedWith})` : ''}. ` +
 		`To inspect another file, just mention its file name or path in the next ` +
 		`message (e.g. "看下 main.py") and its full content will be attached ` +
@@ -317,3 +434,16 @@ export const buildFolderContext = (
 
 	return { content: `${header}${fullBlock}${excerptBlock}`, hits };
 };
+
+/**
+ * Single-shot search + render. `extraQueries` are model-generated search
+ * queries — they bridge the Chinese-question-vs-English-code gap by letting
+ * the MODEL pick the grep terms. Kept as the simple entry point; the
+ * planner-driven loop in MessageInput calls runFolderSearch/renderFolderContext
+ * directly.
+ */
+export const buildFolderContext = (
+	folder: MountedFolder,
+	query: string,
+	extraQueries: string[] = []
+): FolderContextResult => renderFolderContext(folder, runFolderSearch(folder, query, extraQueries));

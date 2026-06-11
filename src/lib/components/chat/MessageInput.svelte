@@ -55,9 +55,17 @@
 		getWeekday
 	} from '$lib/utils';
 	import { collectFolderEntries, entriesFromFileList } from '$lib/utils/folder-bundle';
-	import { mountFolderFromEntries, buildFolderContext } from '$lib/utils/folder-context';
+	import {
+		mountFolderFromEntries,
+		buildFullFolderContext,
+		buildFileTree,
+		runFolderSearch,
+		renderFolderContext,
+		summarizeSearchResults,
+		SMALL_FOLDER_FULL_CHARS
+	} from '$lib/utils/folder-context';
 	import { uploadFile } from '$lib/apis/files';
-	import { generateAutoCompletion, generateQueries } from '$lib/apis';
+	import { generateAutoCompletion, generateFolderSearch } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
 	import { getChatById } from '$lib/apis/chats';
 	import { getSessionUser } from '$lib/apis/auths';
@@ -468,8 +476,8 @@
 
 	// Folder mount (Claude Code-style): picking a folder reads its code/text
 	// files into BROWSER MEMORY — nothing is uploaded at mount time. When a
-	// message is sent, injectFolderContext() greps the mounted files with the
-	// question's keywords and attaches only the matching snippets.
+	// message is sent, injectFolderContext() attaches small folders whole and
+	// searches larger ones with a model-planned grep/read loop.
 	let folderInputElement;
 	let folderLoading = false;
 
@@ -491,59 +499,78 @@
 		);
 	};
 
-	// Called right before submit: grep the mounted folder with the question's
-	// keywords and attach the matching snippets as a text item — the backend
-	// injects its content verbatim (get_sources_from_items text fallback).
-	// Parse owui's query-generation response ({queries} or a completion whose
-	// content is JSON like {"queries": [...]}).
-	const parseGeneratedQueries = (res): string[] => {
-		try {
-			if (Array.isArray(res?.queries)) return res.queries.filter((q) => typeof q === 'string');
-			const content = res?.choices?.[0]?.message?.content ?? '';
-			const start = content.indexOf('{');
-			const end = content.lastIndexOf('}');
-			if (start === -1 || end <= start) return [];
-			const obj = JSON.parse(content.slice(start, end + 1));
-			return Array.isArray(obj?.queries) ? obj.queries.filter((q) => typeof q === 'string') : [];
-		} catch (e) {
-			return [];
-		}
-	};
-
-	// Two-stage search: literal question terms first (fast path, zero latency).
-	// If nothing hits (typical for Chinese questions over English code), ask the
-	// task model to GENERATE search queries — the same mechanism owui uses for
-	// web-search/RAG query generation — and grep again with the model's terms,
-	// so the model effectively drives the folder search.
+	// Called right before submit: search the mounted folder and attach the
+	// results as a text item — the backend injects its content verbatim
+	// (get_sources_from_items text fallback).
+	//
+	// Claude Code-style navigation: small folders are attached WHOLE (no
+	// search). Larger ones go through a planning loop — the task model sees
+	// the question + file tree + a summary of the literal-keyword round and
+	// answers with ENGLISH grep keywords plus files to read in full; we
+	// execute its plan locally. If its keywords hit but few files were read
+	// whole, a second round lets it re-pick files after seeing where the
+	// matches landed (grep → read). Every model step degrades gracefully to
+	// the literal-keyword result on timeout/failure.
 	const injectFolderContext = async () => {
 		if (!$mountedFolder || prompt.trim() === '') {
 			return;
 		}
 		const folder = $mountedFolder;
-		let result = buildFolderContext(folder, prompt);
+		let result;
 
-		if (result.hits === 0 && selectedModels?.[0]) {
-			try {
-				const res = await Promise.race([
-					generateQueries(
-						localStorage.token,
-						selectedModels[0],
-						[{ role: 'user', content: prompt }],
-						prompt,
-						'retrieval'
-					),
-					new Promise((resolve) => setTimeout(() => resolve(null), 8000))
-				]);
-				const queries = parseGeneratedQueries(res);
-				if (queries.length > 0) {
-					const retry = buildFolderContext(folder, prompt, queries);
-					if (retry.hits > 0) {
-						result = retry;
+		if (folder.totalBytes <= SMALL_FOLDER_FULL_CHARS) {
+			result = buildFullFolderContext(folder);
+		} else {
+			let outcome = runFolderSearch(folder, prompt);
+
+			if (selectedModels?.[0]) {
+				const tree = buildFileTree(folder);
+				const withTimeout = (p: Promise<any>, ms: number): Promise<any> =>
+					Promise.race([p, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+
+				try {
+					const plan = await withTimeout(
+						generateFolderSearch(
+							localStorage.token,
+							selectedModels[0],
+							prompt,
+							tree,
+							summarizeSearchResults(outcome)
+						),
+						10000
+					);
+					if (plan) {
+						outcome = runFolderSearch(folder, prompt, plan.keywords, plan.files);
+
+						// Round 2: the planner re-picks files to read whole after
+						// seeing where its keywords actually hit.
+						if (outcome.snippets.length > 0 && outcome.named.length < 2) {
+							const plan2 = await withTimeout(
+								generateFolderSearch(
+									localStorage.token,
+									selectedModels[0],
+									prompt,
+									tree,
+									summarizeSearchResults(outcome)
+								),
+								8000
+							);
+							if (plan2) {
+								outcome = runFolderSearch(
+									folder,
+									prompt,
+									[...plan.keywords, ...plan2.keywords],
+									[...plan.files, ...plan2.files]
+								);
+							}
+						}
 					}
+				} catch (e) {
+					// planning unavailable (disabled / guest-limited) — keep the literal-keyword outcome
 				}
-			} catch (e) {
-				// query generation unavailable (disabled / guest-limited) — keep stage-1 result
 			}
+
+			result = renderFolderContext(folder, outcome);
 		}
 
 		files = [
