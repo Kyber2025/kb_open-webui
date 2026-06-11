@@ -6,11 +6,13 @@ import {
 	buildFolderContext,
 	buildFullFolderContext,
 	extractTerms,
+	mountFolderFromEntries,
 	renderFolderContext,
 	runFolderSearch,
 	summarizeSearchResults,
 	type MountedFolder
 } from './folder-context';
+import type { FolderEntry } from './folder-bundle';
 
 const mkFolder = (files: Record<string, string>): MountedFolder => {
 	const fs = Object.entries(files).map(([path, content]) => ({
@@ -69,6 +71,41 @@ describe('buildFileTree', () => {
 		const tree = buildFileTree(folder);
 		expect(tree).toContain('repo/a.ts (2KB)');
 		expect(tree).toContain('repo/b.ts (1B)');
+	});
+
+	it('summarizes files beyond the window per directory', () => {
+		const files: Record<string, string> = { 'repo/README.md': '# top' };
+		for (let i = 0; i < 30; i++) files[`repo/vendored/sub/f${i}.ts`] = 'x';
+		const folder = mkFolder(files);
+
+		const tree = buildFileTree(folder, 5);
+		expect(tree).toContain('repo/README.md');
+		expect(tree).toContain('plus 26 more files under:');
+		expect(tree).toContain('repo/vendored/ (+26)');
+	});
+});
+
+describe('mountFolderFromEntries', () => {
+	it('mounts shallow files first so root docs survive downstream caps', async () => {
+		const mkEntry = (path: string): FolderEntry =>
+			({ path, file: { text: async () => `content of ${path}` } }) as unknown as FolderEntry;
+
+		// Deliberately deep-first input — simulates a DFS walk that visited a
+		// vendored repo before the root-level docs.
+		const folder = await mountFolderFromEntries([
+			mkEntry('repo/vendored/src/deep/a.ts'),
+			mkEntry('repo/vendored/b.ts'),
+			mkEntry('repo/SESSION-HANDOFF.md'),
+			mkEntry('repo/ARCHITECTURE.md')
+		]);
+
+		expect(folder).not.toBeNull();
+		expect(folder!.files.map((f) => f.path)).toEqual([
+			'repo/ARCHITECTURE.md',
+			'repo/SESSION-HANDOFF.md',
+			'repo/vendored/b.ts',
+			'repo/vendored/src/deep/a.ts'
+		]);
 	});
 });
 

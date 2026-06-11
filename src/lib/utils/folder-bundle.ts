@@ -202,31 +202,48 @@ export const collectFolderEntries = async (dirHandle: any): Promise<FolderEntry[
 	const out: FolderEntry[] = [];
 	let scanned = 0;
 
-	const walk = async (handle: any, prefix: string, depth: number): Promise<void> => {
-		if (depth > SCAN_MAX_DEPTH || out.length >= SCAN_MAX_CANDIDATES) return;
-		for await (const [name, child] of handle.entries()) {
-			if (++scanned > SCAN_MAX_FILES || out.length >= SCAN_MAX_CANDIDATES) return;
-			if (child.kind === 'directory') {
-				// Hidden dirs and dependency/build/VCS dirs are pruned here, so we
-				// never descend into them at all.
-				if (SKIP_DIRS.has(name) || name.startsWith('.')) continue;
-				await walk(child, `${prefix}${name}/`, depth + 1);
-			} else if (child.kind === 'file') {
-				const path = `${prefix}${name}`;
-				if (!isProbablyTextPath(path)) continue;
-				try {
-					const file = await child.getFile();
-					if (file.size > 0 && file.size <= FOLDER_MAX_FILE_BYTES) {
-						out.push({ file, path });
+	// Breadth-first: every file at depth N is collected before descending to
+	// depth N+1, so one huge subtree (a vendored repo, a docs dump) can never
+	// burn the candidate cap before the root-level files are even seen — the
+	// same reason a code agent lists the root of a folder before diving in.
+	let level: { handle: any; prefix: string }[] = [
+		{ handle: dirHandle, prefix: `${dirHandle.name}/` }
+	];
+
+	for (let depth = 0; depth <= SCAN_MAX_DEPTH && level.length > 0; depth++) {
+		const next: { handle: any; prefix: string }[] = [];
+		for (const { handle, prefix } of level) {
+			if (scanned > SCAN_MAX_FILES || out.length >= SCAN_MAX_CANDIDATES) {
+				return out;
+			}
+			try {
+				for await (const [name, child] of handle.entries()) {
+					if (++scanned > SCAN_MAX_FILES || out.length >= SCAN_MAX_CANDIDATES) break;
+					if (child.kind === 'directory') {
+						// Hidden dirs and dependency/build/VCS dirs are pruned here, so
+						// we never descend into them at all.
+						if (SKIP_DIRS.has(name) || name.startsWith('.')) continue;
+						next.push({ handle: child, prefix: `${prefix}${name}/` });
+					} else if (child.kind === 'file') {
+						const path = `${prefix}${name}`;
+						if (!isProbablyTextPath(path)) continue;
+						try {
+							const file = await child.getFile();
+							if (file.size > 0 && file.size <= FOLDER_MAX_FILE_BYTES) {
+								out.push({ file, path });
+							}
+						} catch (e) {
+							// unreadable entry (permission/transient) — skip
+						}
 					}
-				} catch (e) {
-					// unreadable entry (permission/transient) — skip
 				}
+			} catch (e) {
+				// unreadable directory (permission/transient) — skip it
 			}
 		}
-	};
+		level = next;
+	}
 
-	await walk(dirHandle, `${dirHandle.name}/`, 0);
 	return out;
 };
 

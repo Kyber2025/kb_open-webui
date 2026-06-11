@@ -36,7 +36,13 @@ const MOUNT_MAX_TOTAL_BYTES = 48 * 1024 * 1024;
 export const mountFolderFromEntries = async (
 	entries: FolderEntry[]
 ): Promise<MountedFolder | null> => {
-	const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
+	// Shallow-first: root-level docs (READMEs, plans, runbooks) must survive
+	// every downstream cap — the byte cap here, the planner's tree window, the
+	// full-attach order — even when a subfolder holds an entire vendored repo.
+	const depthOf = (p: string) => p.split('/').length;
+	const sorted = [...entries].sort(
+		(a, b) => depthOf(a.path) - depthOf(b.path) || a.path.localeCompare(b.path)
+	);
 	const files: MountedFile[] = [];
 	let total = 0;
 	let truncated = false;
@@ -198,8 +204,24 @@ export const buildFileTree = (
 		.map((f) => (sizes ? `${f.path} (${formatSize(f.content.length)})` : f.path));
 	let tree = lines.join('\n');
 	if (tree.length > maxChars) tree = `${tree.slice(0, maxChars)}\n... (tree truncated)`;
-	const omitted = folder.fileCount - Math.min(folder.fileCount, maxPaths);
-	return omitted > 0 ? `${tree}\n... (+${omitted} more files)` : tree;
+
+	// Files beyond the window are summarized per directory instead of silently
+	// dropped — the planner can still grep into them or name them outright.
+	const omitted = folder.files.slice(maxPaths);
+	if (omitted.length === 0) return tree;
+
+	const dirCounts = new Map<string, number>();
+	for (const f of omitted) {
+		const segs = f.path.split('/');
+		const dir = segs.slice(0, Math.min(2, segs.length - 1)).join('/');
+		dirCounts.set(dir, (dirCounts.get(dir) ?? 0) + 1);
+	}
+	const summary = [...dirCounts.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 12)
+		.map(([dir, n]) => `${dir}/ (+${n})`)
+		.join(', ');
+	return `${tree}\n... plus ${omitted.length} more files under: ${summary}`;
 };
 
 const fileTree = (folder: MountedFolder): string => buildFileTree(folder, 300, 8000, false);
