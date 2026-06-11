@@ -15,6 +15,8 @@
 		sendPrompt,
 		abortSession,
 		subscribeEvents,
+		uploadProject,
+		downloadProject,
 		type CodeModel
 	} from '$lib/apis/code';
 
@@ -39,6 +41,35 @@
 	let busy = false; // an assistant turn is in flight
 	let input = '';
 	let msgCounter = 0;
+
+	let fileInput: HTMLInputElement;
+	let transferring = false;
+
+	const onUploadPick = async (e: Event) => {
+		const f = (e.target as HTMLInputElement).files?.[0];
+		(e.target as HTMLInputElement).value = '';
+		if (!f) return;
+		transferring = true;
+		try {
+			const r = await uploadProject(localStorage.token, f);
+			toast.success($i18n.t('Uploaded {{count}} files', { count: r?.files ?? 0 }));
+		} catch (err: any) {
+			toast.error(err?.detail || $i18n.t('Upload failed'));
+		} finally {
+			transferring = false;
+		}
+	};
+
+	const onDownload = async () => {
+		transferring = true;
+		try {
+			await downloadProject(localStorage.token);
+		} catch (err: any) {
+			toast.error(err?.detail || $i18n.t('Download failed'));
+		} finally {
+			transferring = false;
+		}
+	};
 
 	let evController: AbortController | null = null;
 	let scrollEl: HTMLDivElement;
@@ -273,6 +304,32 @@
 					>
 						+ {$i18n.t('New project')}
 					</button>
+					<!-- project zip upload / download (workspace-level) -->
+					<input
+						type="file"
+						accept=".zip,application/zip"
+						class="hidden"
+						bind:this={fileInput}
+						on:change={onUploadPick}
+					/>
+					<div class="flex gap-1 mb-1">
+						<button
+							class="flex-1 px-2 py-1.5 rounded-lg text-xs bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
+							on:click={() => fileInput?.click()}
+							disabled={transferring}
+							title={$i18n.t('Upload a .zip into the workspace')}
+						>
+							↑ {$i18n.t('Upload')}
+						</button>
+						<button
+							class="flex-1 px-2 py-1.5 rounded-lg text-xs bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
+							on:click={onDownload}
+							disabled={transferring}
+							title={$i18n.t('Download the workspace as a .zip')}
+						>
+							↓ {$i18n.t('Download')}
+						</button>
+					</div>
 					{#each sessions as s (s.id)}
 						<div
 							class="group flex items-center rounded-lg text-sm {activeSession === s.id
