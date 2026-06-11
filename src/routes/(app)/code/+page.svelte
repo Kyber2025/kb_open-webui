@@ -45,6 +45,10 @@
 	let fileInput: HTMLInputElement;
 	let transferring = false;
 
+	$: greeting = $i18n.t("What's up next, {{name}}?", {
+		name: ($user?.name || '').trim().split(' ')[0] || $i18n.t('there')
+	});
+
 	const onUploadPick = async (e: Event) => {
 		const f = (e.target as HTMLInputElement).files?.[0];
 		(e.target as HTMLInputElement).value = '';
@@ -296,40 +300,33 @@
 			<div class="flex-1 flex min-h-0">
 				<!-- session list -->
 				<div
-					class="hidden md:flex flex-col w-56 flex-none border-r border-gray-50 dark:border-gray-850 p-2 gap-1 overflow-y-auto"
+					class="hidden md:flex flex-col w-60 flex-none border-r border-gray-50 dark:border-gray-850 px-2.5 py-3 gap-0.5 overflow-y-auto"
 				>
 					<button
-						class="w-full mb-1 px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-850 hover:bg-gray-200 dark:hover:bg-gray-800 transition"
-						on:click={newSession}
+						class="w-full flex items-center gap-2 px-3 py-2 mb-3 rounded-lg text-sm font-medium {activeSession ===
+						null
+							? 'bg-gray-100 dark:bg-gray-850'
+							: 'hover:bg-gray-100 dark:hover:bg-gray-850'} transition"
+						on:click={() => {
+							activeSession = null;
+							messageMap = new Map();
+							rebuild();
+						}}
 					>
-						+ {$i18n.t('New project')}
+						<svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+							<path d="M10 4.5v11M4.5 10h11" stroke-linecap="round" />
+						</svg>
+						{$i18n.t('New session')}
 					</button>
-					<!-- project zip upload / download (workspace-level) -->
-					<input
-						type="file"
-						accept=".zip,application/zip"
-						class="hidden"
-						bind:this={fileInput}
-						on:change={onUploadPick}
-					/>
-					<div class="flex gap-1 mb-1">
-						<button
-							class="flex-1 px-2 py-1.5 rounded-lg text-xs bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
-							on:click={() => fileInput?.click()}
-							disabled={transferring}
-							title={$i18n.t('Upload a .zip into the workspace')}
-						>
-							↑ {$i18n.t('Upload')}
-						</button>
-						<button
-							class="flex-1 px-2 py-1.5 rounded-lg text-xs bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
-							on:click={onDownload}
-							disabled={transferring}
-							title={$i18n.t('Download the workspace as a .zip')}
-						>
-							↓ {$i18n.t('Download')}
-						</button>
+
+					<div class="px-2 pb-1 text-xs font-medium text-gray-400 dark:text-gray-500">
+						{$i18n.t('Recents')}
 					</div>
+					{#if sessions.length === 0}
+						<div class="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-600">
+							{$i18n.t('No projects yet')}
+						</div>
+					{/if}
 					{#each sessions as s (s.id)}
 						<div
 							class="group flex items-center rounded-lg text-sm {activeSession === s.id
@@ -337,10 +334,15 @@
 								: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
 						>
 							<button
-								class="flex-1 text-left px-3 py-2 truncate"
+								class="flex-1 flex items-center gap-2 text-left px-3 py-2 truncate"
 								on:click={() => openSession(s.id)}
 							>
-								{s.title || $i18n.t('Untitled')}
+								<span
+									class="size-1.5 rounded-full flex-none {activeSession === s.id
+										? 'bg-gray-500'
+										: 'bg-gray-300 dark:bg-gray-700'}"
+								/>
+								<span class="truncate">{s.title || $i18n.t('Untitled')}</span>
 							</button>
 							<button
 								class="opacity-0 group-hover:opacity-100 px-2 text-gray-400 hover:text-red-500 transition"
@@ -351,90 +353,175 @@
 					{/each}
 				</div>
 
-				<!-- conversation -->
+				<!-- main -->
 				<div class="flex-1 flex flex-col min-w-0">
-					<div bind:this={scrollEl} class="flex-1 overflow-y-auto px-4 md:px-8 py-4">
-						<div class="max-w-3xl mx-auto flex flex-col gap-4">
-							{#if !activeSession}
-								<div class="text-center text-gray-500 mt-20">
-									<div class="text-lg font-medium mb-1">{$i18n.t('Start coding')}</div>
-									<div class="text-sm">
-										{$i18n.t('Describe what you want to build and the agent edits files for you.')}
+					<div bind:this={scrollEl} class="flex-1 overflow-y-auto">
+						{#if !activeSession}
+							<!-- home / empty state -->
+							<div class="h-full flex flex-col items-center justify-center px-6 text-center">
+								<svg
+									class="size-7 text-gray-800 dark:text-gray-200 mb-3"
+									viewBox="0 0 24 24"
+									fill="currentColor"
+								>
+									<path
+										d="M12 2c.3 3.6 1.4 5.6 3 7.2 1.6 1.6 3.6 2.7 7.2 3-3.6.3-5.6 1.4-7.2 3-1.6 1.6-2.7 3.6-3 7.2-.3-3.6-1.4-5.6-3-7.2-1.6-1.6-3.6-2.7-7.2-3 3.6-.3 5.6-1.4 7.2-3C10.6 7.6 11.7 5.6 12 2z"
+									/>
+								</svg>
+								<h1 class="text-2xl md:text-[28px] font-semibold text-gray-800 dark:text-gray-100">
+									{greeting}
+								</h1>
+								<p class="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-md">
+									{$i18n.t(
+										'Describe a task and the agent reads, writes and edits files in your sandbox workspace.'
+									)}
+								</p>
+							</div>
+						{:else}
+							<div class="max-w-3xl mx-auto px-4 md:px-8 py-6 flex flex-col gap-4">
+								{#each renderList as m (m.id)}
+									<div
+										class="flex flex-col gap-1.5 {m.role === 'user' ? 'items-end' : 'items-start'}"
+									>
+										{#each [...m.parts.values()] as part (part.id)}
+											{#if part.type === 'text' && part.text}
+												<div
+													class="rounded-2xl px-4 py-2.5 max-w-[90%] {m.role === 'user'
+														? 'bg-gray-100 dark:bg-gray-850'
+														: ''} prose prose-sm dark:prose-invert break-words"
+												>
+													{@html md(part.text)}
+												</div>
+											{:else if part.type === 'tool'}
+												{@const tl = toolLabel(part)}
+												<div
+													class="text-xs font-mono flex items-center gap-2 text-gray-500 px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-850"
+												>
+													<span
+														class="inline-block w-1.5 h-1.5 rounded-full {tl.st === 'completed'
+															? 'bg-green-500'
+															: tl.st === 'error'
+																? 'bg-red-500'
+																: 'bg-yellow-400 animate-pulse'}"
+													/>
+													<span class="font-semibold">{tl.name}</span>
+													{#if tl.arg}<span class="truncate text-gray-400">{tl.arg}</span>{/if}
+												</div>
+											{/if}
+										{/each}
 									</div>
-								</div>
-							{/if}
-							{#each renderList as m (m.id)}
-								<div class="flex flex-col gap-1.5 {m.role === 'user' ? 'items-end' : 'items-start'}">
-									{#each [...m.parts.values()] as part (part.id)}
-										{#if part.type === 'text' && part.text}
-											<div
-												class="rounded-2xl px-4 py-2 max-w-[90%] {m.role === 'user'
-													? 'bg-gray-100 dark:bg-gray-850'
-													: ''} prose prose-sm dark:prose-invert break-words"
-											>
-												{@html md(part.text)}
-											</div>
-										{:else if part.type === 'tool'}
-											{@const tl = toolLabel(part)}
-											<div
-												class="text-xs font-mono flex items-center gap-2 text-gray-500 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-900"
-											>
-												<span
-													class="inline-block w-1.5 h-1.5 rounded-full {tl.st === 'completed'
-														? 'bg-green-500'
-														: tl.st === 'error'
-															? 'bg-red-500'
-															: 'bg-yellow-400 animate-pulse'}"
-												/>
-												<span class="font-semibold">{tl.name}</span>
-												{#if tl.arg}<span class="truncate text-gray-400">{tl.arg}</span>{/if}
-											</div>
-										{/if}
-									{/each}
-								</div>
-							{/each}
-							{#if busy}
-								<div class="text-xs text-gray-400 flex items-center gap-2 px-2">
-									<span class="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-									{$i18n.t('Working…')}
-								</div>
-							{/if}
-						</div>
+								{/each}
+								{#if busy}
+									<div class="text-xs text-gray-400 flex items-center gap-2 px-2">
+										<span class="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+										{$i18n.t('Working…')}
+									</div>
+								{/if}
+							</div>
+						{/if}
 					</div>
 
 					<!-- composer -->
-					<div class="px-4 md:px-8 pb-4">
+					<div class="px-4 md:px-8 pb-5 pt-2">
 						<div class="max-w-3xl mx-auto">
+							<input
+								type="file"
+								accept=".zip,application/zip"
+								class="hidden"
+								bind:this={fileInput}
+								on:change={onUploadPick}
+							/>
 							<div
-								class="flex items-end gap-2 rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 py-2"
+								class="rounded-[26px] border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm focus-within:border-gray-300 dark:focus-within:border-gray-700 transition"
 							>
-								<select
-									bind:value={selectedModel}
-									class="flex-none text-xs bg-transparent outline-none text-gray-500 max-w-[8rem]"
-								>
-									{#each models as mdl}
-										<option value={mdl.id}>{mdl.name}</option>
-									{/each}
-								</select>
+								<!-- context chips -->
+								<div class="flex items-center gap-1.5 px-3 pt-2.5 text-xs text-gray-500 dark:text-gray-400">
+									<span
+										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-850"
+									>
+										<svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+											<rect x="2" y="3" width="12" height="9" rx="1.5" /><path d="M6 14h4" stroke-linecap="round" />
+										</svg>
+										{$i18n.t('Sandbox')}
+									</span>
+									<button
+										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
+										on:click={() => fileInput?.click()}
+										disabled={transferring}
+										title={$i18n.t('Upload a .zip into the workspace')}
+									>
+										↑ {$i18n.t('Upload')}
+									</button>
+									<button
+										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
+										on:click={onDownload}
+										disabled={transferring}
+										title={$i18n.t('Download the workspace as a .zip')}
+									>
+										↓ {$i18n.t('Download')}
+									</button>
+									{#if transferring}
+										<span class="text-gray-400">…</span>
+									{/if}
+								</div>
+
 								<textarea
 									bind:value={input}
 									on:keydown={onKeydown}
 									rows="1"
-									placeholder={$i18n.t('Ask the coding agent…')}
-									class="flex-1 resize-none bg-transparent outline-none text-sm py-1 max-h-40"
+									placeholder={$i18n.t('Describe a task or ask a question')}
+									class="w-full resize-none bg-transparent outline-none text-sm px-4 py-3 max-h-48"
 								/>
-								{#if busy}
-									<button
-										class="flex-none px-3 py-1.5 rounded-xl bg-gray-200 dark:bg-gray-800 text-sm"
-										on:click={stop}>{$i18n.t('Stop')}</button
+
+								<!-- bottom row: model + send -->
+								<div class="flex items-center gap-2 px-3 pb-2.5">
+									<div
+										class="relative inline-flex items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 									>
-								{:else}
-									<button
-										class="flex-none px-3 py-1.5 rounded-xl bg-black text-white dark:bg-white dark:text-black text-sm disabled:opacity-40"
-										disabled={!input.trim()}
-										on:click={submit}>{$i18n.t('Send')}</button
-									>
-								{/if}
+										<select
+											bind:value={selectedModel}
+											class="appearance-none bg-transparent outline-none text-xs text-gray-600 dark:text-gray-300 pl-2.5 pr-6 py-1.5 cursor-pointer"
+										>
+											{#each models as mdl}
+												<option value={mdl.id}>{mdl.name}</option>
+											{/each}
+										</select>
+										<svg
+											class="size-3 text-gray-400 absolute right-2 pointer-events-none"
+											viewBox="0 0 12 12"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.4"
+										>
+											<path d="M3 4.5 6 7.5l3-3" stroke-linecap="round" stroke-linejoin="round" />
+										</svg>
+									</div>
+
+									<div class="flex-1" />
+
+									{#if busy}
+										<button
+											class="flex-none size-8 flex items-center justify-center rounded-full bg-gray-200 dark:bg-gray-800 hover:opacity-90 transition"
+											title={$i18n.t('Stop')}
+											on:click={stop}
+										>
+											<svg class="size-3.5" viewBox="0 0 14 14" fill="currentColor">
+												<rect x="3" y="3" width="8" height="8" rx="1.5" />
+											</svg>
+										</button>
+									{:else}
+										<button
+											class="flex-none size-8 flex items-center justify-center rounded-full bg-black text-white dark:bg-white dark:text-black disabled:opacity-30 transition"
+											title={$i18n.t('Send')}
+											disabled={!input.trim()}
+											on:click={submit}
+										>
+											<svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+												<path d="M10 15.5v-11M5 9.5l5-5 5 5" stroke-linecap="round" stroke-linejoin="round" />
+											</svg>
+										</button>
+									{/if}
+								</div>
 							</div>
 						</div>
 					</div>
