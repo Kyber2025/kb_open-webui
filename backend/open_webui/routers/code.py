@@ -25,7 +25,7 @@ import logging
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from open_webui.config import CODE_SANDBOX_SECRET
 from open_webui.utils.auth import get_verified_user
@@ -120,6 +120,65 @@ async def code_config(request: Request, user=Depends(get_verified_user)):
         code_models = filter_models_by_tier(code_models, tier)
 
     return {'enabled': True, 'models': code_models, 'provider': 'kyberrouter'}
+
+
+@router.post('/fs/upload')
+async def code_fs_upload(request: Request, user=Depends(get_verified_user)):
+    """Upload a project zip into the user's sandbox workspace. The raw request
+    body is the zip; the manager validates entries (no traversal), enforces the
+    quota, and unzips into the workspace root."""
+    base, secret, key = await _require_access(request, user)
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail='Empty upload')
+    headers = {
+        'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key,
+        'content-type': 'application/zip',
+    }
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('POST', f'{base}/fs/upload', headers=headers, data=body)
+        text = await resp.text()
+        return Response(content=text, status_code=resp.status, media_type='application/json')
+    except aiohttp.ClientError as e:
+        log.warning('Code upload unreachable for %s: %s', user.id, e)
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    finally:
+        await session.close()
+
+
+@router.get('/fs/download')
+async def code_fs_download(request: Request, user=Depends(get_verified_user)):
+    """Stream the user's sandbox workspace back as a zip (opencode state dirs and
+    node_modules/.git excluded by the manager)."""
+    base, secret, key = await _require_access(request, user)
+    headers = {'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key}
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('GET', f'{base}/fs/download', headers=headers)
+    except aiohttp.ClientError as e:
+        await session.close()
+        log.warning('Code download unreachable for %s: %s', user.id, e)
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    if resp.status != 200:
+        text = await resp.text()
+        await session.close()
+        raise HTTPException(status_code=resp.status, detail=(text[:200] or 'download failed'))
+
+    async def stream():
+        try:
+            async for chunk in resp.content.iter_any():
+                yield chunk
+        finally:
+            resp.release()
+            await session.close()
+
+    return StreamingResponse(
+        stream(),
+        media_type='application/zip',
+        headers={'content-disposition': resp.headers.get(
+            'Content-Disposition', 'attachment; filename="workspace.zip"')},
+    )
 
 
 @router.api_route(

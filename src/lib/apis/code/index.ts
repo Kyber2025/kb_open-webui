@@ -6,11 +6,39 @@ import { WEBUI_API_BASE_URL } from '$lib/constants';
 // bearer token.
 
 const SANDBOX = `${WEBUI_API_BASE_URL}/code/sandbox`;
+const FS = `${WEBUI_API_BASE_URL}/code/fs`;
 
 const authHeaders = (token: string) => ({
 	Accept: 'application/json',
 	authorization: `Bearer ${token}`
 });
+
+// Upload a project zip into the workspace. `file` is the raw .zip Blob/File;
+// the body is sent as-is and the backend forwards it to the sandbox manager.
+export const uploadProject = async (token: string, file: Blob) => {
+	const res = await fetch(`${FS}/upload`, {
+		method: 'POST',
+		headers: { ...authHeaders(token), 'Content-Type': 'application/zip' },
+		body: file
+	});
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	return res.json();
+};
+
+// Download the workspace as a zip → trigger a browser save.
+export const downloadProject = async (token: string) => {
+	const res = await fetch(`${FS}/download`, { headers: authHeaders(token) });
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = 'workspace.zip';
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	URL.revokeObjectURL(url);
+};
 
 export type CodeModel = { id: string; name: string };
 
