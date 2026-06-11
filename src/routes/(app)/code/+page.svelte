@@ -23,6 +23,14 @@
 
 	import ModeSwitcher from '$lib/components/code/ModeSwitcher.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import {
+		supportsDirPicker,
+		pickAndSyncFolder,
+		syncFileList,
+		buildBaseline,
+		pullChanges,
+		downloadWorkspaceZip
+	} from '$lib/utils/codeFolderSync';
 
 	const i18n: any = getContext('i18n');
 
@@ -106,6 +114,79 @@
 		}
 	};
 
+	// ── open a LOCAL folder (Claude-Code-style): mirror its files into the
+	// sandbox, then write the agent's changes back to it (Chrome/Edge). Other
+	// browsers fall back to import-only + "download a copy".
+	let dirInput: HTMLInputElement;
+	let importing = false;
+	// folderName -> { handle, baseline }: presence enables two-way write-back.
+	const folderSync = new Map<string, { handle: any; baseline: Map<string, number> }>();
+	let syncingBack = false;
+
+	const afterImport = async (folderName: string, handle: any, count: number) => {
+		await loadWorkspace();
+		selectFolder(folderName);
+		const baseline = new Map<string, number>();
+		try {
+			await buildBaseline(localStorage.token, folderName, baseline);
+		} catch {
+			/* baseline empty → first sync writes everything back, still correct */
+		}
+		if (handle) folderSync.set(folderName, { handle, baseline });
+		toast.success(
+			$i18n.t('Imported {{count}} files from “{{name}}”', { count, name: folderName })
+		);
+	};
+
+	const openLocalFolder = async () => {
+		showFolderMenu = false;
+		if (importing) return;
+		if (!supportsDirPicker()) {
+			dirInput?.click();
+			return;
+		}
+		importing = true;
+		try {
+			const { folderName, handle, count } = await pickAndSyncFolder(localStorage.token);
+			await afterImport(folderName, handle, count);
+		} catch (e: any) {
+			if (e?.name !== 'AbortError')
+				toast.error(e?.detail || e?.message || $i18n.t('Could not open folder.'));
+		} finally {
+			importing = false;
+		}
+	};
+
+	const onDirInput = async (e: Event) => {
+		const fl = (e.target as HTMLInputElement).files;
+		(e.target as HTMLInputElement).value = '';
+		if (!fl || !fl.length) return;
+		importing = true;
+		try {
+			const { folderName, count } = await syncFileList(localStorage.token, fl);
+			await afterImport(folderName, null, count);
+		} catch (e: any) {
+			toast.error(e?.detail || e?.message || $i18n.t('Could not import folder.'));
+		} finally {
+			importing = false;
+		}
+	};
+
+	// after each agent turn, mirror changed files back to the local folder
+	const syncBack = async () => {
+		const ent = folder ? folderSync.get(folder) : null;
+		if (!ent || syncingBack) return;
+		syncingBack = true;
+		try {
+			const n = await pullChanges(localStorage.token, folder, ent.handle, ent.baseline);
+			if (n) toast.success($i18n.t('Synced {{count}} file(s) back to your folder', { count: n }));
+		} catch (e) {
+			console.error('write-back failed', e);
+		} finally {
+			syncingBack = false;
+		}
+	};
+
 	$: greeting = $i18n.t("What's up next, {{name}}?", {
 		name: ($user?.name || '').trim().split(' ')[0] || $i18n.t('there')
 	});
@@ -160,7 +241,7 @@
 		if (p.sessionID && activeSession && p.sessionID !== activeSession) return;
 		if (t === 'message.updated') upsertMessageInfo(p.info);
 		else if (t === 'message.part.updated') upsertPart(p.part);
-		else if (t === 'session.idle') busy = false;
+		else if (t === 'session.idle') { busy = false; void syncBack(); }
 		else if (t === 'session.error') {
 			busy = false;
 			toast.error(p?.error?.message || $i18n.t('The agent hit an error.'));
@@ -485,7 +566,7 @@
 												on:click={() => (showFolderMenu = false)}
 											/>
 											<div
-												class="absolute bottom-full left-0 mb-1.5 z-50 w-56 max-h-64 overflow-y-auto rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg py-1 text-sm"
+												class="absolute bottom-full left-0 mb-1.5 z-50 w-60 max-h-72 overflow-y-auto rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg py-1 text-sm"
 											>
 												<button
 													class="w-full text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-850 {folder === ''
@@ -502,19 +583,57 @@
 															: ''}"
 														on:click={() => selectFolder(f)}
 													>
-														{f}
+														{f}{#if folderSync.has(f)}<span class="text-green-500" title={$i18n.t('Synced with your local folder')}> ⇄</span>{/if}
 													</button>
 												{/each}
+												<div class="border-t border-gray-100 dark:border-gray-850 mt-1 pt-1">
+													<!-- open a LOCAL folder (primary, Claude-Code style) -->
+													<button
+														class="w-full flex items-center gap-2 text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-850 disabled:opacity-50"
+														on:click={openLocalFolder}
+														disabled={importing}
+													>
+														<svg class="size-3.5 flex-none" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+															<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+															<path d="M8 8v3M6.5 9.5h3" stroke-linecap="round" />
+														</svg>
+														{importing ? $i18n.t('Importing…') : $i18n.t('Open local folder…')}
+													</button>
+													{#if folder}
+														<button
+															class="w-full flex items-center gap-2 text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-850"
+															on:click={() => {
+																showFolderMenu = false;
+																downloadWorkspaceZip(localStorage.token).catch(() =>
+																	toast.error($i18n.t('Download failed'))
+																);
+															}}
+														>
+															<svg class="size-3.5 flex-none" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+																<path d="M8 2v8m0 0L5 7m3 3 3-3M3 13h10" stroke-linecap="round" stroke-linejoin="round" />
+															</svg>
+															{$i18n.t('Download a copy (.zip)')}
+														</button>
+													{/if}
+												</div>
 												<div class="border-t border-gray-100 dark:border-gray-850 mt-1 pt-1 px-2 pb-1">
 													<input
 														bind:value={newFolderName}
-														placeholder={$i18n.t('New folder…')}
+														placeholder={$i18n.t('New empty folder…')}
 														class="w-full bg-gray-50 dark:bg-gray-850 rounded-lg px-2 py-1 text-xs outline-none"
 														on:keydown={(e) => e.key === 'Enter' && onCreateFolder()}
 													/>
 												</div>
 											</div>
 										{/if}
+										<!-- hidden fallback picker for browsers without File System Access -->
+										<input
+											type="file"
+											webkitdirectory
+											class="hidden"
+											bind:this={dirInput}
+											on:change={onDirInput}
+										/>
 									</div>
 								</div>
 
