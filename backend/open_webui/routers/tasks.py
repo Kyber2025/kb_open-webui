@@ -517,12 +517,14 @@ async def generate_queries(request: Request, form_data: dict, user=Depends(get_v
 
 @router.post('/folder_search/completions')
 async def generate_folder_search(request: Request, form_data: dict, user=Depends(get_verified_user)):
-    # Planning step for the client-side folder mount (Claude Code-style
-    # navigation): the browser sends the question + mounted file tree (+ an
-    # optional summary of the previous grep round) and the task model answers
-    # with {"keywords": [...], "files": [...]} — grep terms and full-read
-    # picks that the CLIENT then executes locally. Reuses the retrieval
-    # query-generation feature flag and task-model plumbing.
+    # Navigation step for the client-side folder mount (Claude Code-style):
+    # the browser sends the conversation + mounted file tree (+ results of
+    # previous rounds) and the model answers with {"keywords", "files",
+    # "dirs", "done", "notes"} — greps, full-file reads and tree expansions
+    # that the CLIENT then executes locally, looping until "done". Navigation
+    # runs on the SELECTED chat model (the one that will answer) so intent
+    # inference matches answer quality; reuses the retrieval query-generation
+    # feature flag.
     if not request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -544,25 +546,32 @@ async def generate_folder_search(request: Request, form_data: dict, user=Depends
             detail=ERROR_MESSAGES.MODEL_NOT_FOUND(),
         )
 
-    task_model_id = get_task_model_id(
-        model_id,
-        request.app.state.config.TASK_MODEL,
-        request.app.state.config.TASK_MODEL_EXTERNAL,
-        models,
-    )
+    if form_data.get('use_chat_model'):
+        # Navigate with the model that will write the answer — the whole
+        # point is that the smartest model in the loop drives the search.
+        task_model_id = model_id
+    else:
+        task_model_id = get_task_model_id(
+            model_id,
+            request.app.state.config.TASK_MODEL,
+            request.app.state.config.TASK_MODEL_EXTERNAL,
+            models,
+        )
 
     log.debug(f'generating folder-search plan using model {task_model_id} for user {user.email}')
 
     # Defensive caps — the client already trims these, but the endpoint must
-    # not let an oversized body balloon the task-model prompt.
-    question = str(form_data.get('question') or '')[:4000]
+    # not let an oversized body balloon the navigation prompt.
+    conversation = str(form_data.get('conversation') or form_data.get('question') or '')[:8000]
     tree = str(form_data.get('tree') or '')[:16000]
-    results = str(form_data.get('results') or '')[:6000]
+    results = str(form_data.get('results') or '')[:10000]
 
-    content = DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE.replace('{{QUESTION}}', question).replace('{{TREE}}', tree)
+    content = DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE.replace('{{CONVERSATION}}', conversation).replace(
+        '{{TREE}}', tree
+    )
     content = content.replace(
         '{{RESULTS}}',
-        (f'\n### SEARCH RESULTS (previous round, already executed client-side):\n{results}' if results else ''),
+        (f'\n### RESULTS OF PREVIOUS ROUNDS (already executed client-side):\n{results}' if results else ''),
     )
     content = await prompt_template(content, user)
 
@@ -573,7 +582,7 @@ async def generate_folder_search(request: Request, form_data: dict, user=Depends
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.QUERY_GENERATION),
-            'task_body': {'model': model_id, 'question': question},
+            'task_body': {'model': model_id, 'conversation': conversation[:500]},
             'chat_id': form_data.get('chat_id', None),
         },
     }

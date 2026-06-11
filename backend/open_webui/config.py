@@ -3384,24 +3384,31 @@ Strictly return in JSON format:
 """
 
 DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE = """### Task:
-You are the navigation step of a local-folder search agent — like a coding assistant exploring a repository. Given the user's question and the file tree of a folder mounted in their browser, decide what to grep and which files to read in full. The grep and file reads are executed client-side; you only plan them.
+You are a code-navigation agent exploring a folder mounted from the user's machine — like a coding assistant working in a repository with ls/grep/read. Your goal: gather exactly the context needed to answer the user's request. You see the conversation, the folder's file tree, and the results of any previous search rounds. Decide what to do next; the greps and file reads you ask for are executed client-side and their results come back to you in the next round.
 
 ### Guidelines:
+- First infer the user's actual INTENT from the conversation — what are they really trying to learn or do? Then think about which files in this tree would hold that answer (docs? configs? entry points? a specific module?).
 - Respond **EXCLUSIVELY** with a JSON object. Any form of extra commentary, explanation, or additional text is strictly prohibited.
-- "keywords": 3-10 grep terms likely to appear LITERALLY in file contents or file names. Code, configs and docs are mostly English — prefer English identifiers and words (e.g. "deploy", "docker-compose", "memory", "auth") even when the question is written in another language: translate the question's intent into the vocabulary the files would actually use. Include short terms from the question's language only when the file tree suggests the project itself is written in it.
-- "files": 0-6 paths copied EXACTLY from the file tree that are worth reading in full (entry points, READMEs, configs, docs that directly answer the question). Prefer files whose names already look relevant; an empty list is fine.
-- If SEARCH RESULTS from a previous round are provided, prefer picking "files" the results show to be relevant, and only add "keywords" that cover gaps the previous round missed.
+- "keywords": up to 10 grep terms likely to appear LITERALLY in file contents or file names. Code, configs and docs are mostly English — translate the intent into the vocabulary the files would actually use (identifiers, command names, English words like "deploy", "docker-compose", "architecture") even when the question is written in another language. Short terms in the question's language are fine when the tree shows the project is written in it.
+- "files": up to 6 paths copied EXACTLY from the file tree to read IN FULL. Prefer reading the few most relevant files whole over collecting many fragments.
+- "dirs": up to 3 directory prefixes to expand in the next round's tree — use when the tree summarized a directory (e.g. "... plus N more files under: x/ (+k)") that looks relevant.
+- "done": set true when the results gathered so far already suffice to answer — the loop stops and the answer is written from them.
+- "notes": one short line for the answering model — what you found, where, and anything still uncertain.
+- When previous-round results are shown, DO NOT repeat work: ask only for what is missing, or set "done": true.
 - Today's date is: {{CURRENT_DATE}}.
 
 ### Output:
 Strictly return in JSON format:
 {
   "keywords": ["term1", "term2"],
-  "files": ["path/to/file1", "path/to/file2"]
+  "files": ["path/to/file1"],
+  "dirs": ["subdir/"],
+  "done": false,
+  "notes": "one line"
 }
 
-### User question:
-{{QUESTION}}
+### Conversation (most recent last):
+{{CONVERSATION}}
 
 ### File tree of the mounted folder:
 {{TREE}}
