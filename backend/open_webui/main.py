@@ -182,6 +182,10 @@ from open_webui.config import (
     KYBERROUTER_API_URL,
     ENABLE_KYBER_TOKEN_BILLING,
     KYBER_BILLING_BASE_URL,
+    ENABLE_CODE_MODE,
+    CODE_SANDBOX_URL,
+    CODE_SANDBOX_SECRET,
+    CODE_MODE_MIN_TIER_RANK,
     ENABLE_EVALUATION_ARENA_MODELS,
     ENABLE_FOLDERS,
     ENABLE_FOLLOW_UP_GENERATION,
@@ -523,6 +527,7 @@ from open_webui.routers import (
     kyber as kyber_router,
     subscriptions,
     guest as guest_router,
+    code as code_router,
     tasks,
     terminals,
     tools,
@@ -894,6 +899,10 @@ app.state.config.ENABLE_KYBER_AUTH_BRIDGE = ENABLE_KYBER_AUTH_BRIDGE
 app.state.config.KYBERROUTER_API_URL = KYBERROUTER_API_URL
 app.state.config.ENABLE_KYBER_TOKEN_BILLING = ENABLE_KYBER_TOKEN_BILLING
 app.state.config.KYBER_BILLING_BASE_URL = KYBER_BILLING_BASE_URL
+app.state.config.ENABLE_CODE_MODE = ENABLE_CODE_MODE
+app.state.config.CODE_SANDBOX_URL = CODE_SANDBOX_URL
+app.state.config.CODE_SANDBOX_SECRET = CODE_SANDBOX_SECRET
+app.state.config.CODE_MODE_MIN_TIER_RANK = CODE_MODE_MIN_TIER_RANK
 
 ########################################
 #
@@ -1482,6 +1491,7 @@ app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
 app.include_router(subscriptions.router, prefix='/api/v1/subscriptions', tags=['subscriptions'])
 app.include_router(guest_router.router, prefix='/api/v1/guest', tags=['guest'])
 app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
+app.include_router(code_router.router, prefix='/api/v1/code', tags=['code'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
@@ -2495,6 +2505,10 @@ async def get_app_config(request: Request):
             'enable_signup': app.state.config.ENABLE_SIGNUP,
             'enable_kyber_auth_bridge': getattr(app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False),
             'enable_kyber_token_billing': getattr(app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False),
+            # Code mode advertises as available only when both the flag is on AND a
+            # sandbox secret is configured (without it the proxy refuses to call).
+            'enable_code_mode': bool(getattr(app.state.config, 'ENABLE_CODE_MODE', False))
+            and bool(getattr(app.state.config, 'CODE_SANDBOX_SECRET', '')),
             'enable_guest_access': getattr(app.state.config, 'ENABLE_GUEST_ACCESS', False),
             'enable_login_form': app.state.config.ENABLE_LOGIN_FORM,
             'enable_websocket': ENABLE_WEBSOCKET_SUPPORT,
