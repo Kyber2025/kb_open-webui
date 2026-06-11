@@ -27,6 +27,7 @@ import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from open_webui.config import CODE_SANDBOX_SECRET
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.kyber import get_user_kyber_api_key
 from open_webui.utils.subscription import get_user_tier, filter_models_by_tier
@@ -52,9 +53,7 @@ _DROP_RES_HEADERS = {
 
 
 def _enabled(cfg) -> bool:
-    return bool(getattr(cfg, 'ENABLE_CODE_MODE', False)) and bool(
-        getattr(cfg, 'CODE_SANDBOX_SECRET', '')
-    )
+    return bool(getattr(cfg, 'ENABLE_CODE_MODE', False)) and bool(CODE_SANDBOX_SECRET)
 
 
 def _sandbox_base(cfg) -> str:
@@ -85,7 +84,7 @@ async def _require_access(request: Request, user):
             status_code=400,
             detail='Your account is not linked to a wallet yet',
         )
-    return _sandbox_base(cfg), getattr(cfg, 'CODE_SANDBOX_SECRET', ''), key
+    return _sandbox_base(cfg), CODE_SANDBOX_SECRET, key
 
 
 @router.get('/config')
