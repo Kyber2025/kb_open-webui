@@ -405,6 +405,45 @@ KYBER_BILLING_BASE_URL = ConfigVar(
 KYBER_INTERNAL_SECRET = os.environ.get('KYBER_INTERNAL_SECRET', '')
 
 ####################################
+# CODE MODE (opencode sandbox)
+####################################
+
+# "Code" mode: a Claude-Code-style coding agent surfaced next to Chat. Each user
+# drives an opencode process running on the dedicated sandbox node, reached only
+# via the sandbox-manager (server-to-server). The agent edits files in a per-user
+# workspace and calls models through KyberRouter with the user's own sk-or- key,
+# so Mode-B token limits / extra-usage all apply unchanged. Default OFF until the
+# sandbox node is deployed and verified. See code-mode runbook.
+ENABLE_CODE_MODE = ConfigVar(
+    'ENABLE_CODE_MODE',
+    'code.enable',
+    os.getenv('ENABLE_CODE_MODE', 'False').lower() == 'true',
+)
+
+# Base URL of the sandbox-manager on the sandbox node (private VPC, e.g.
+# http://172.31.x.x:8990). Reachable from the open-webui container; the node's
+# security group must allow ONLY k1/k2 -> this port.
+CODE_SANDBOX_URL = ConfigVar(
+    'CODE_SANDBOX_URL',
+    'code.sandbox_url',
+    os.getenv('CODE_SANDBOX_URL', 'http://127.0.0.1:8990'),
+)
+
+# Shared secret between open-webui and the sandbox-manager (its MANAGER_SECRET).
+# Plain env (never DB-persisted or exposed via /api/config). Empty disables Code
+# mode regardless of ENABLE_CODE_MODE (the proxy refuses to call without it).
+CODE_SANDBOX_SECRET = os.environ.get('CODE_SANDBOX_SECRET', '')
+
+# Lowest subscription tier allowed to use Code mode, by rank (0=free .. 3=ultra).
+# Code mode spawns a resident sandbox process per active user, so it is gated to
+# paying tiers by default. -1 allows everyone (incl. free/guest).
+CODE_MODE_MIN_TIER_RANK = ConfigVar(
+    'CODE_MODE_MIN_TIER_RANK',
+    'code.min_tier_rank',
+    int(os.getenv('CODE_MODE_MIN_TIER_RANK', '1')),
+)
+
+####################################
 # OLLAMA_BASE_URL
 ####################################
 
