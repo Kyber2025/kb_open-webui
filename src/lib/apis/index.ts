@@ -1012,6 +1012,65 @@ export const generateQueries = async (
 	}
 };
 
+// Folder-mount navigation planning (Claude Code-style): sends the question +
+// mounted file tree (+ optional previous-round summary) to the task model and
+// returns {keywords, files} — grep terms and full-read picks that the caller
+// executes client-side. Returns null when the plan is unavailable/unparsable.
+export const generateFolderSearch = async (
+	token: string = '',
+	model: string,
+	question: string,
+	tree: string,
+	results: string = '',
+	chat_id?: string
+): Promise<{ keywords: string[]; files: string[] } | null> => {
+	const res = await fetch(`${WEBUI_BASE_URL}/api/v1/tasks/folder_search/completions`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			model: model,
+			question: question,
+			tree: tree,
+			results: results,
+			...(chat_id && { chat_id: chat_id })
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			return null;
+		});
+
+	const content = res?.choices?.[0]?.message?.content ?? '';
+
+	try {
+		const jsonStartIndex = content.indexOf('{');
+		const jsonEndIndex = content.lastIndexOf('}');
+		if (jsonStartIndex === -1 || jsonEndIndex <= jsonStartIndex) return null;
+
+		const parsed = JSON.parse(content.substring(jsonStartIndex, jsonEndIndex + 1));
+		const keywords = Array.isArray(parsed?.keywords)
+			? parsed.keywords.filter((k: unknown) => typeof k === 'string')
+			: [];
+		const files = Array.isArray(parsed?.files)
+			? parsed.files.filter((f: unknown) => typeof f === 'string')
+			: [];
+
+		if (keywords.length === 0 && files.length === 0) return null;
+		return { keywords, files };
+	} catch (e) {
+		console.error('Failed to parse folder search plan: ', e);
+		return null;
+	}
+};
+
 export const generateAutoCompletion = async (
 	token: string = '',
 	model: string,

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from open_webui.config import (
     DEFAULT_AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_EMOJI_GENERATION_PROMPT_TEMPLATE,
+    DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE,
     DEFAULT_FOLLOW_UP_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_MOA_GENERATION_PROMPT_TEMPLATE,
@@ -26,6 +27,7 @@ from open_webui.utils.task import (
     get_task_model_id,
     image_prompt_generation_template,
     moa_response_generation_template,
+    prompt_template,
     query_generation_template,
     tags_generation_template,
     title_generation_template,
@@ -494,6 +496,84 @@ async def generate_queries(request: Request, form_data: dict, user=Depends(get_v
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.QUERY_GENERATION),
             'task_body': form_data,
+            'chat_id': form_data.get('chat_id', None),
+        },
+    }
+
+    # Process the payload through the pipeline
+    try:
+        payload = await process_pipeline_inlet_filter(request, payload, user, models)
+    except Exception as e:
+        raise e
+
+    try:
+        return await generate_chat_completion(request, form_data=payload, user=user)
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={'detail': str(e)},
+        )
+
+
+@router.post('/folder_search/completions')
+async def generate_folder_search(request: Request, form_data: dict, user=Depends(get_verified_user)):
+    # Planning step for the client-side folder mount (Claude Code-style
+    # navigation): the browser sends the question + mounted file tree (+ an
+    # optional summary of the previous grep round) and the task model answers
+    # with {"keywords": [...], "files": [...]} — grep terms and full-read
+    # picks that the CLIENT then executes locally. Reuses the retrieval
+    # query-generation feature flag and task-model plumbing.
+    if not request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.FEATURE_DISABLED('Query generation'),
+        )
+
+    if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
+        models = {
+            **request.app.state.MODELS,
+            request.state.model['id']: request.state.model,
+        }
+    else:
+        models = request.app.state.MODELS
+
+    model_id = form_data['model']
+    if model_id not in models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.MODEL_NOT_FOUND(),
+        )
+
+    task_model_id = get_task_model_id(
+        model_id,
+        request.app.state.config.TASK_MODEL,
+        request.app.state.config.TASK_MODEL_EXTERNAL,
+        models,
+    )
+
+    log.debug(f'generating folder-search plan using model {task_model_id} for user {user.email}')
+
+    # Defensive caps — the client already trims these, but the endpoint must
+    # not let an oversized body balloon the task-model prompt.
+    question = str(form_data.get('question') or '')[:4000]
+    tree = str(form_data.get('tree') or '')[:16000]
+    results = str(form_data.get('results') or '')[:6000]
+
+    content = DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE.replace('{{QUESTION}}', question).replace('{{TREE}}', tree)
+    content = content.replace(
+        '{{RESULTS}}',
+        (f'\n### SEARCH RESULTS (previous round, already executed client-side):\n{results}' if results else ''),
+    )
+    content = await prompt_template(content, user)
+
+    payload = {
+        'model': task_model_id,
+        'messages': [{'role': 'user', 'content': content}],
+        'stream': False,
+        'metadata': {
+            **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
+            'task': str(TASKS.QUERY_GENERATION),
+            'task_body': {'model': model_id, 'question': question},
             'chat_id': form_data.get('chat_id', None),
         },
     }

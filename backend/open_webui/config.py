@@ -3383,6 +3383,30 @@ Strictly return in JSON format:
 </chat_history>
 """
 
+DEFAULT_FOLDER_SEARCH_PROMPT_TEMPLATE = """### Task:
+You are the navigation step of a local-folder search agent — like a coding assistant exploring a repository. Given the user's question and the file tree of a folder mounted in their browser, decide what to grep and which files to read in full. The grep and file reads are executed client-side; you only plan them.
+
+### Guidelines:
+- Respond **EXCLUSIVELY** with a JSON object. Any form of extra commentary, explanation, or additional text is strictly prohibited.
+- "keywords": 3-10 grep terms likely to appear LITERALLY in file contents or file names. Code, configs and docs are mostly English — prefer English identifiers and words (e.g. "deploy", "docker-compose", "memory", "auth") even when the question is written in another language: translate the question's intent into the vocabulary the files would actually use. Include short terms from the question's language only when the file tree suggests the project itself is written in it.
+- "files": 0-6 paths copied EXACTLY from the file tree that are worth reading in full (entry points, READMEs, configs, docs that directly answer the question). Prefer files whose names already look relevant; an empty list is fine.
+- If SEARCH RESULTS from a previous round are provided, prefer picking "files" the results show to be relevant, and only add "keywords" that cover gaps the previous round missed.
+- Today's date is: {{CURRENT_DATE}}.
+
+### Output:
+Strictly return in JSON format:
+{
+  "keywords": ["term1", "term2"],
+  "files": ["path/to/file1", "path/to/file2"]
+}
+
+### User question:
+{{QUESTION}}
+
+### File tree of the mounted folder:
+{{TREE}}
+{{RESULTS}}"""
+
 ENABLE_AUTOCOMPLETE_GENERATION = ConfigVar(
     'ENABLE_AUTOCOMPLETE_GENERATION',
     'task.autocomplete.enable',
