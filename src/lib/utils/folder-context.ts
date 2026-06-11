@@ -226,6 +226,31 @@ export const buildFileTree = (
 
 const fileTree = (folder: MountedFolder): string => buildFileTree(folder, 300, 8000, false);
 
+/**
+ * "ls" for the navigator: list the files under requested directory prefixes —
+ * used when the main tree window summarized a directory the navigator wants
+ * to see into. Appended to the tree it gets in the next round.
+ */
+export const expandTreeDirs = (folder: MountedFolder, dirs: string[]): string => {
+	const sections: string[] = [];
+	for (const raw of dirs.slice(0, 3)) {
+		const prefix = raw.trim().replace(/^\.\//, '').replace(/\/$/, '').toLowerCase();
+		if (!prefix) continue;
+		const matches = folder.files.filter((f) => f.path.toLowerCase().startsWith(`${prefix}/`));
+		if (matches.length === 0) {
+			sections.push(`\nEXPANDED ${raw}: (no mounted files under this prefix)`);
+			continue;
+		}
+		const lines = matches
+			.slice(0, 80)
+			.map((f) => `${f.path} (${formatSize(f.content.length)})`)
+			.join('\n');
+		const more = matches.length > 80 ? `\n... (+${matches.length - 80} more)` : '';
+		sections.push(`\nEXPANDED ${raw}:\n${lines}${more}`);
+	}
+	return sections.join('\n');
+};
+
 // Entry-point files worth attaching whole when a structural question has no
 // keyword hits in (mostly English) code — e.g. "这个项目的架构是怎样的".
 const KEY_BASENAMES = new Set([
@@ -318,12 +343,14 @@ export const buildFullFolderContext = (folder: MountedFolder): FolderContextResu
 };
 
 export interface FolderSearchOutcome {
-	/** files to attach whole — planner picks first, then question-named files */
+	/** files to attach whole — navigator picks first, then question-named files */
 	named: MountedFile[];
 	snippets: FolderSnippet[];
 	terms: string[];
 	/** true when a model plan (keywords/files) contributed to this round */
 	planned: boolean;
+	/** navigator's one-line note to the answering model (set by the loop) */
+	notes?: string;
 }
 
 /** Resolve planner-returned paths against mounted files (exact → suffix → basename). */
@@ -379,32 +406,36 @@ export const runFolderSearch = (
 };
 
 /**
- * Compact, model-readable summary of a search round — what was read whole and
- * where the grep hits landed — fed back to the planner so it can refine its
- * next picks (the "look at grep output, then decide what to read" step).
+ * Model-readable summary of the rounds so far — what was read whole (with a
+ * head preview) and the actual grep hit content — fed back to the navigator
+ * so it can decide what is still missing or declare itself done. This is the
+ * "look at the grep output, then decide what to read next" step.
  */
-export const summarizeSearchResults = (outcome: FolderSearchOutcome, maxChars = 4000): string => {
-	const lines: string[] = [];
+export const summarizeSearchResults = (outcome: FolderSearchOutcome, maxChars = 9000): string => {
+	const parts: string[] = [];
+
 	if (outcome.named.length) {
-		lines.push(`Read in full: ${outcome.named.map((f) => f.path).join(', ')}`);
+		parts.push('Files already read IN FULL (their complete content goes to the answering model):');
+		for (const f of outcome.named) {
+			const head = f.content.slice(0, 200).replace(/\s+/g, ' ').trim();
+			parts.push(`- ${f.path} (${formatSize(f.content.length)}) starts: ${head}`);
+		}
 	}
 
-	const byPath = new Map<string, FolderSnippet[]>();
-	for (const sn of outcome.snippets) {
-		const arr = byPath.get(sn.path) ?? [];
-		arr.push(sn);
-		byPath.set(sn.path, arr);
-	}
-	for (const [path, sns] of byPath) {
-		const first = sns[0];
-		const firstLine = (first.text.split('\n').find((l) => l.trim()) ?? '').trim().slice(0, 120);
-		lines.push(
-			`${path} — ${sns.length} match window(s), e.g. lines ${first.startLine}-${first.endLine}: ${firstLine}`
-		);
+	if (outcome.snippets.length) {
+		parts.push('Grep matches:');
+		let used = parts.join('\n').length;
+		for (const sn of outcome.snippets) {
+			const text = sn.text.length > 240 ? `${sn.text.slice(0, 240)}…` : sn.text;
+			const block = `--- ${sn.path} lines ${sn.startLine}-${sn.endLine} ---\n${text}`;
+			if (used + block.length > maxChars) break;
+			used += block.length;
+			parts.push(block);
+		}
 	}
 
-	if (lines.length === 0) return 'No matches in this round.';
-	const out = lines.join('\n');
+	if (parts.length === 0) return 'No matches in this round.';
+	const out = parts.join('\n');
 	return out.length > maxChars ? out.slice(0, maxChars) : out;
 };
 
@@ -434,13 +465,14 @@ export const renderFolderContext = (
 	const header =
 		`[Mounted local folder "${folder.name}" — ${folder.fileCount} text/code files, ` +
 		(outcome.planned
-			? `searched Claude-Code style: a planning model saw the file tree and chose the grep keywords and the files to read in full`
+			? `searched Claude-Code style: the model navigated the file tree itself, choosing grep keywords and files to read in full over multiple rounds`
 			: `searched client-side with keywords from the user's question`) +
 		`${searchedWith ? ` (${searchedWith})` : ''}. ` +
 		`To inspect another file, just mention its file name or path in the next ` +
 		`message (e.g. "看下 main.py") and its full content will be attached ` +
-		`automatically — no need for the user to paste it.]\n\n` +
-		`FILE TREE:\n${fileTree(folder)}\n`;
+		`automatically — no need for the user to paste it.]\n` +
+		`${outcome.notes ? `\nNAVIGATOR NOTES: ${outcome.notes}\n` : ''}` +
+		`\nFILE TREE:\n${fileTree(folder)}\n`;
 
 	const fullBlock = renderFullFiles(named, fullLabel);
 

@@ -1012,18 +1012,27 @@ export const generateQueries = async (
 	}
 };
 
-// Folder-mount navigation planning (Claude Code-style): sends the question +
-// mounted file tree (+ optional previous-round summary) to the task model and
-// returns {keywords, files} — grep terms and full-read picks that the caller
-// executes client-side. Returns null when the plan is unavailable/unparsable.
+export interface FolderSearchPlan {
+	keywords: string[];
+	files: string[];
+	dirs: string[];
+	done: boolean;
+	notes: string;
+}
+
+// Folder-mount navigation (Claude Code-style): sends the conversation +
+// mounted file tree (+ results of previous rounds) to the SELECTED chat model
+// and returns its next move — {keywords, files, dirs, done, notes}: greps,
+// full-file reads and tree expansions that the caller executes client-side,
+// looping until done. Returns null when the plan is unavailable/unparsable.
 export const generateFolderSearch = async (
 	token: string = '',
 	model: string,
-	question: string,
+	conversation: string,
 	tree: string,
 	results: string = '',
 	chat_id?: string
-): Promise<{ keywords: string[]; files: string[] } | null> => {
+): Promise<FolderSearchPlan | null> => {
 	const res = await fetch(`${WEBUI_BASE_URL}/api/v1/tasks/folder_search/completions`, {
 		method: 'POST',
 		headers: {
@@ -1033,9 +1042,10 @@ export const generateFolderSearch = async (
 		},
 		body: JSON.stringify({
 			model: model,
-			question: question,
+			conversation: conversation,
 			tree: tree,
 			results: results,
+			use_chat_model: true,
 			...(chat_id && { chat_id: chat_id })
 		})
 	})
@@ -1056,15 +1066,21 @@ export const generateFolderSearch = async (
 		if (jsonStartIndex === -1 || jsonEndIndex <= jsonStartIndex) return null;
 
 		const parsed = JSON.parse(content.substring(jsonStartIndex, jsonEndIndex + 1));
-		const keywords = Array.isArray(parsed?.keywords)
-			? parsed.keywords.filter((k: unknown) => typeof k === 'string')
-			: [];
-		const files = Array.isArray(parsed?.files)
-			? parsed.files.filter((f: unknown) => typeof f === 'string')
-			: [];
+		const strings = (v: unknown): string[] =>
+			Array.isArray(v) ? v.filter((x: unknown) => typeof x === 'string') : [];
 
-		if (keywords.length === 0 && files.length === 0) return null;
-		return { keywords, files };
+		const plan: FolderSearchPlan = {
+			keywords: strings(parsed?.keywords),
+			files: strings(parsed?.files),
+			dirs: strings(parsed?.dirs),
+			done: parsed?.done === true,
+			notes: typeof parsed?.notes === 'string' ? parsed.notes : ''
+		};
+
+		if (plan.keywords.length === 0 && plan.files.length === 0 && plan.dirs.length === 0 && !plan.done) {
+			return null;
+		}
+		return plan;
 	} catch (e) {
 		console.error('Failed to parse folder search plan: ', e);
 		return null;

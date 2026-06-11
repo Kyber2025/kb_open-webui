@@ -5,6 +5,7 @@ import {
 	buildFileTree,
 	buildFolderContext,
 	buildFullFolderContext,
+	expandTreeDirs,
 	extractTerms,
 	mountFolderFromEntries,
 	renderFolderContext,
@@ -152,31 +153,70 @@ describe('renderFolderContext', () => {
 		expect(result.content).toContain('# Demo');
 	});
 
-	it('mentions planner-driven search when planned', () => {
+	it('mentions model-driven navigation when planned', () => {
 		const outcome = runFolderSearch(folder, '部署架构', ['deploy'], ['README.md']);
 		const result = renderFolderContext(folder, outcome);
-		expect(result.content).toContain('planning model');
+		expect(result.content).toContain('the model navigated the file tree itself');
 		expect(result.content).toContain('FILES READ IN FULL');
 	});
 });
 
 describe('summarizeSearchResults', () => {
-	it('lists full reads and grep hit locations', () => {
+	it('lists full reads with heads and grep hits with content', () => {
 		const folder = mkFolder({
 			'repo/README.md': '# Demo\nDeployment architecture overview.',
 			'repo/deploy.sh': 'echo start\ndocker compose up -d\necho done'
 		});
 		const outcome = runFolderSearch(folder, 'docker', [], ['README.md']);
 		const summary = summarizeSearchResults(outcome);
-		expect(summary).toContain('Read in full: repo/README.md');
-		expect(summary).toContain('repo/deploy.sh');
-		expect(summary).toMatch(/lines \d+-\d+/);
+		expect(summary).toContain('read IN FULL');
+		expect(summary).toContain('- repo/README.md');
+		expect(summary).toContain('starts: # Demo');
+		expect(summary).toMatch(/--- repo\/deploy\.sh lines \d+-\d+ ---/);
+		expect(summary).toContain('docker compose up -d');
 	});
 
 	it('reports empty rounds', () => {
 		const folder = mkFolder({ 'repo/a.ts': 'const x = 1;' });
 		const outcome = runFolderSearch(folder, '毫无命中的查询词汇');
 		expect(summarizeSearchResults(outcome)).toBe('No matches in this round.');
+	});
+});
+
+describe('expandTreeDirs', () => {
+	const folder = mkFolder({
+		'repo/README.md': '# top',
+		'repo/jenkins/deploy.sh': 'docker compose up',
+		'repo/jenkins/cleanup.sh': 'docker prune',
+		'repo/src/auth.ts': 'login'
+	});
+
+	it('lists files under a requested prefix', () => {
+		const out = expandTreeDirs(folder, ['repo/jenkins/']);
+		expect(out).toContain('EXPANDED repo/jenkins/');
+		expect(out).toContain('repo/jenkins/deploy.sh');
+		expect(out).toContain('repo/jenkins/cleanup.sh');
+		expect(out).not.toContain('repo/src/auth.ts');
+	});
+
+	it('notes prefixes with no mounted files', () => {
+		const out = expandTreeDirs(folder, ['repo/nonexistent/']);
+		expect(out).toContain('(no mounted files under this prefix)');
+	});
+});
+
+describe('navigator notes', () => {
+	it('renders notes into the context header', () => {
+		const folder = mkFolder({
+			'repo/README.md': '# Demo\nDeployment architecture overview.',
+			'repo/deploy.sh': 'docker compose up -d'
+		});
+		const outcome = runFolderSearch(folder, '部署架构', ['deploy'], ['README.md']);
+		outcome.notes = 'Deployment doc is in README; compose details in deploy.sh';
+		const result = renderFolderContext(folder, outcome);
+		expect(result.content).toContain(
+			'NAVIGATOR NOTES: Deployment doc is in README; compose details in deploy.sh'
+		);
 	});
 });
 

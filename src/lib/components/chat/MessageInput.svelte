@@ -59,6 +59,7 @@
 		mountFolderFromEntries,
 		buildFullFolderContext,
 		buildFileTree,
+		expandTreeDirs,
 		runFolderSearch,
 		renderFolderContext,
 		summarizeSearchResults,
@@ -499,18 +500,34 @@
 		);
 	};
 
+	// Recent conversation turns as plain text — lets the folder navigator
+	// infer the user's actual intent, not just the literal last message.
+	const folderConversationTail = (): string => {
+		try {
+			const list = history?.currentId ? createMessagesList(history, history.currentId) : [];
+			const lines = list
+				.slice(-6)
+				.filter((m) => typeof m?.content === 'string' && m.content.trim() !== '')
+				.map((m) => `${m.role}: ${m.content.slice(0, 600)}`);
+			lines.push(`user: ${prompt}`);
+			return lines.join('\n');
+		} catch (e) {
+			return `user: ${prompt}`;
+		}
+	};
+
 	// Called right before submit: search the mounted folder and attach the
 	// results as a text item — the backend injects its content verbatim
 	// (get_sources_from_items text fallback).
 	//
 	// Claude Code-style navigation: small folders are attached WHOLE (no
-	// search). Larger ones go through a planning loop — the task model sees
-	// the question + file tree + a summary of the literal-keyword round and
-	// answers with ENGLISH grep keywords plus files to read in full; we
-	// execute its plan locally. If its keywords hit but few files were read
-	// whole, a second round lets it re-pick files after seeing where the
-	// matches landed (grep → read). Every model step degrades gracefully to
-	// the literal-keyword result on timeout/failure.
+	// search). Larger ones are navigated by the SELECTED chat model itself —
+	// it sees the conversation, the file tree and the results of each round
+	// (real grep content, heads of files read), and answers with grep
+	// keywords, files to read in full, directories to expand, or "done".
+	// We execute each move locally and loop (up to 3 rounds). Every model
+	// step degrades gracefully to the literal-keyword result on
+	// timeout/failure.
 	const injectFolderContext = async () => {
 		if (!$mountedFolder || prompt.trim() === '') {
 			return;
@@ -524,49 +541,52 @@
 			let outcome = runFolderSearch(folder, prompt);
 
 			if (selectedModels?.[0]) {
-				const tree = buildFileTree(folder);
 				const withTimeout = (p: Promise<any>, ms: number): Promise<any> =>
 					Promise.race([p, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
 
 				try {
-					const plan = await withTimeout(
-						generateFolderSearch(
-							localStorage.token,
-							selectedModels[0],
-							prompt,
-							tree,
-							summarizeSearchResults(outcome)
-						),
-						10000
-					);
-					if (plan) {
-						outcome = runFolderSearch(folder, prompt, plan.keywords, plan.files);
+					const conversation = folderConversationTail();
+					const baseTree = buildFileTree(folder);
+					let tree = baseTree;
+					const keywords: string[] = [];
+					const fileAsks: string[] = [];
+					let notes = '';
 
-						// Round 2: the planner re-picks files to read whole after
-						// seeing where its keywords actually hit.
-						if (outcome.snippets.length > 0 && outcome.named.length < 2) {
-							const plan2 = await withTimeout(
-								generateFolderSearch(
-									localStorage.token,
-									selectedModels[0],
-									prompt,
-									tree,
-									summarizeSearchResults(outcome)
-								),
-								8000
-							);
-							if (plan2) {
-								outcome = runFolderSearch(
-									folder,
-									prompt,
-									[...plan.keywords, ...plan2.keywords],
-									[...plan.files, ...plan2.files]
-								);
-							}
+					const signature = () =>
+						`${outcome.named.map((f) => f.path).join(',')}|${outcome.snippets.length}`;
+
+					for (let round = 0; round < 3; round++) {
+						const plan = await withTimeout(
+							generateFolderSearch(
+								localStorage.token,
+								selectedModels[0],
+								conversation,
+								tree,
+								summarizeSearchResults(outcome)
+							),
+							round === 0 ? 15000 : 12000
+						);
+						if (!plan) break;
+
+						if (plan.notes) notes = plan.notes;
+						keywords.push(...plan.keywords);
+						fileAsks.push(...plan.files);
+
+						const before = signature();
+						outcome = runFolderSearch(folder, prompt, keywords, fileAsks);
+						outcome.notes = notes;
+
+						if (plan.done) break;
+						if (plan.dirs.length > 0) {
+							// "ls" move: show the requested directories in the next round.
+							tree = `${baseTree}${expandTreeDirs(folder, plan.dirs)}`;
+						} else if (signature() === before) {
+							// No new evidence and nothing left to expand — stop looping.
+							break;
 						}
 					}
 				} catch (e) {
-					// planning unavailable (disabled / guest-limited) — keep the literal-keyword outcome
+					// navigation unavailable (disabled / guest-limited) — keep the literal-keyword outcome
 				}
 			}
 
