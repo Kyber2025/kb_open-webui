@@ -113,6 +113,8 @@ async def code_config(request: Request, user=Depends(get_verified_user)):
         {'id': 'gpt-5.5', 'name': 'GPT-5.5'},
         {'id': 'gpt-5.4', 'name': 'GPT-5.4'},
         {'id': 'gpt-5.2', 'name': 'GPT-5.2'},
+        {'id': 'claude-opus-4-8', 'name': 'Claude Opus 4.8'},
+        {'id': 'claude-sonnet-4-6', 'name': 'Claude Sonnet 4.6'},
     ]
     if not is_admin and tier is not None:
         code_models = filter_models_by_tier(code_models, tier)
