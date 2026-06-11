@@ -5,7 +5,7 @@
 	import DOMPurify from 'dompurify';
 	import { toast } from 'svelte-sonner';
 
-	import { config, mobile, showSidebar, user } from '$lib/stores';
+	import { config, user } from '$lib/stores';
 	import {
 		getCodeConfig,
 		listSessions,
@@ -15,14 +15,14 @@
 		sendPrompt,
 		abortSession,
 		subscribeEvents,
-		uploadProject,
-		downloadProject,
+		getWorkspacePaths,
+		listWorkspaceEntries,
+		createWorkspaceFolder,
 		type CodeModel
 	} from '$lib/apis/code';
 
 	import ModeSwitcher from '$lib/components/code/ModeSwitcher.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import Sidebar from '$lib/components/icons/Sidebar.svelte';
 
 	const i18n: any = getContext('i18n');
 
@@ -42,38 +42,73 @@
 	let input = '';
 	let msgCounter = 0;
 
-	let fileInput: HTMLInputElement;
-	let transferring = false;
+	// ── folder scoping: sessions live in a top-level folder of the sandbox
+	// workspace ('' = the workspace root). opencode resolves a relative
+	// `?directory=` against the workspace root and stamps the absolute path on
+	// each session, so filtering only needs the root path + string compare.
+	let workspaceRoot = '';
+	let folders: string[] = [];
+	let folder = localStorage.getItem('codeFolder') ?? '';
+	let showFolderMenu = false;
+	let newFolderName = '';
+	let creatingFolder = false;
+
+	const normPath = (p: string) => (p ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+
+	const sessionFolder = (s: any): string | null => {
+		const dir = normPath(s?.directory ?? '');
+		if (!workspaceRoot || !dir) return '';
+		if (dir === workspaceRoot) return '';
+		if (dir.startsWith(workspaceRoot + '/')) return dir.slice(workspaceRoot.length + 1);
+		return null; // outside the workspace — never shown
+	};
+
+	$: visibleSessions = sessions.filter((s) => sessionFolder(s) === folder);
+
+	const loadWorkspace = async () => {
+		try {
+			const paths = await getWorkspacePaths(localStorage.token);
+			workspaceRoot = normPath(paths?.directory ?? '');
+			const entries = await listWorkspaceEntries(localStorage.token);
+			folders = (entries ?? [])
+				.filter((e: any) => e?.type === 'directory' && !String(e?.name ?? '').startsWith('.'))
+				.map((e: any) => e.name)
+				.sort();
+			if (folder && !folders.includes(folder)) selectFolder('');
+		} catch (e) {
+			// folder picker degrades to "workspace root" only
+			console.error('workspace listing failed', e);
+		}
+	};
+
+	const selectFolder = (f: string) => {
+		folder = f;
+		localStorage.setItem('codeFolder', f);
+		showFolderMenu = false;
+		activeSession = null;
+		messageMap = new Map();
+		rebuild();
+	};
+
+	const onCreateFolder = async () => {
+		const name = newFolderName.trim();
+		if (!name || creatingFolder) return;
+		creatingFolder = true;
+		try {
+			await createWorkspaceFolder(localStorage.token, name);
+			newFolderName = '';
+			await loadWorkspace();
+			selectFolder(name);
+		} catch (e: any) {
+			toast.error(e?.detail || $i18n.t('Could not create folder.'));
+		} finally {
+			creatingFolder = false;
+		}
+	};
 
 	$: greeting = $i18n.t("What's up next, {{name}}?", {
 		name: ($user?.name || '').trim().split(' ')[0] || $i18n.t('there')
 	});
-
-	const onUploadPick = async (e: Event) => {
-		const f = (e.target as HTMLInputElement).files?.[0];
-		(e.target as HTMLInputElement).value = '';
-		if (!f) return;
-		transferring = true;
-		try {
-			const r = await uploadProject(localStorage.token, f);
-			toast.success($i18n.t('Uploaded {{count}} files', { count: r?.files ?? 0 }));
-		} catch (err: any) {
-			toast.error(err?.detail || $i18n.t('Upload failed'));
-		} finally {
-			transferring = false;
-		}
-	};
-
-	const onDownload = async () => {
-		transferring = true;
-		try {
-			await downloadProject(localStorage.token);
-		} catch (err: any) {
-			toast.error(err?.detail || $i18n.t('Download failed'));
-		} finally {
-			transferring = false;
-		}
-	};
 
 	let evController: AbortController | null = null;
 	let scrollEl: HTMLDivElement;
@@ -171,7 +206,7 @@
 
 	const newSession = async () => {
 		try {
-			const s = await createSession(localStorage.token, $i18n.t('Untitled'));
+			const s = await createSession(localStorage.token, $i18n.t('Untitled'), folder);
 			await loadSessions();
 			await openSession(s.id);
 		} catch (e: any) {
@@ -245,8 +280,10 @@
 		}
 		models = cfg.models ?? [];
 		selectedModel = models[0]?.id ?? '';
+		await loadWorkspace();
 		await loadSessions();
-		if (sessions.length) await openSession(sessions[0].id);
+		const latest = sessions.find((s) => sessionFolder(s) === folder);
+		if (latest) await openSession(latest.id);
 		startEventStream();
 		loaded = true;
 	});
@@ -254,30 +291,15 @@
 	onDestroy(() => evController?.abort());
 </script>
 
-<svelte:head><title>{$i18n.t('Code')} • {$config?.name ?? 'Open WebUI'}</title></svelte:head>
+<svelte:head><title>{$i18n.t('Coding')} • {$config?.name ?? 'Open WebUI'}</title></svelte:head>
 
 {#if loaded}
-	<div
-		class="flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
-			? 'md:max-w-[calc(100%-var(--sidebar-width))]'
-			: ''} max-w-full"
-	>
-		<!-- top bar: sidebar toggle + centered Chat/Code switcher -->
+	<div class="flex flex-col w-full h-screen max-h-[100dvh] max-w-full">
+		<!-- top bar: Chat/Code switcher pinned to the far left (the chat sidebar
+		     is not rendered on /code, so this is the true top-left corner) -->
 		<nav class="px-2.5 pt-1.5 pb-1 w-full flex items-center">
-			<div class="flex-none flex items-center">
-				{#if !$showSidebar || $mobile}
-					<Tooltip content={$i18n.t('Open Sidebar')}>
-						<button
-							class="cursor-pointer p-1.5 flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition"
-							on:click={() => showSidebar.set(!$showSidebar)}
-						>
-							<Sidebar class="size-5" />
-						</button>
-					</Tooltip>
-				{/if}
-			</div>
-			<div class="flex-1 flex justify-center"><ModeSwitcher /></div>
-			<div class="flex-none w-8" />
+			<div class="flex-none"><ModeSwitcher /></div>
+			<div class="flex-1" />
 		</nav>
 
 		{#if !enabled}
@@ -322,12 +344,12 @@
 					<div class="px-2 pb-1 text-xs font-medium text-gray-400 dark:text-gray-500">
 						{$i18n.t('Recents')}
 					</div>
-					{#if sessions.length === 0}
+					{#if visibleSessions.length === 0}
 						<div class="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-600">
 							{$i18n.t('No projects yet')}
 						</div>
 					{/if}
-					{#each sessions as s (s.id)}
+					{#each visibleSessions as s (s.id)}
 						<div
 							class="group flex items-center rounded-lg text-sm {activeSession === s.id
 								? 'bg-gray-100 dark:bg-gray-850'
@@ -424,45 +446,76 @@
 					<!-- composer -->
 					<div class="px-4 md:px-8 pb-5 pt-2">
 						<div class="max-w-3xl mx-auto">
-							<input
-								type="file"
-								accept=".zip,application/zip"
-								class="hidden"
-								bind:this={fileInput}
-								on:change={onUploadPick}
-							/>
 							<div
 								class="rounded-[26px] border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm focus-within:border-gray-300 dark:focus-within:border-gray-700 transition"
 							>
-								<!-- context chips -->
+								<!-- context chips: where the agent runs + which folder it works in -->
 								<div class="flex items-center gap-1.5 px-3 pt-2.5 text-xs text-gray-500 dark:text-gray-400">
-									<span
-										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-850"
-									>
-										<svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-											<rect x="2" y="3" width="12" height="9" rx="1.5" /><path d="M6 14h4" stroke-linecap="round" />
-										</svg>
-										{$i18n.t('Sandbox')}
-									</span>
-									<button
-										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
-										on:click={() => fileInput?.click()}
-										disabled={transferring}
-										title={$i18n.t('Upload a .zip into the workspace')}
-									>
-										↑ {$i18n.t('Upload')}
-									</button>
-									<button
-										class="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition disabled:opacity-40"
-										on:click={onDownload}
-										disabled={transferring}
-										title={$i18n.t('Download the workspace as a .zip')}
-									>
-										↓ {$i18n.t('Download')}
-									</button>
-									{#if transferring}
-										<span class="text-gray-400">…</span>
-									{/if}
+									<Tooltip content={$i18n.t('Your code runs in an isolated cloud sandbox')}>
+										<span
+											class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-850"
+										>
+											<svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+												<rect x="2" y="3" width="12" height="9" rx="1.5" /><path d="M6 14h4" stroke-linecap="round" />
+											</svg>
+											{$i18n.t('Sandbox')}
+										</span>
+									</Tooltip>
+
+									<div class="relative">
+										<button
+											class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-850 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+											on:click={() => (showFolderMenu = !showFolderMenu)}
+											title={$i18n.t('Choose the folder the agent works in')}
+										>
+											<svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+												<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+											</svg>
+											{folder || $i18n.t('Workspace root')}
+											<svg class="size-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4">
+												<path d="M3 4.5 6 7.5l3-3" stroke-linecap="round" stroke-linejoin="round" />
+											</svg>
+										</button>
+
+										{#if showFolderMenu}
+											<!-- click-away backdrop -->
+											<button
+												class="fixed inset-0 z-40 cursor-default"
+												aria-label="close"
+												on:click={() => (showFolderMenu = false)}
+											/>
+											<div
+												class="absolute bottom-full left-0 mb-1.5 z-50 w-56 max-h-64 overflow-y-auto rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg py-1 text-sm"
+											>
+												<button
+													class="w-full text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-850 {folder === ''
+														? 'font-medium'
+														: ''}"
+													on:click={() => selectFolder('')}
+												>
+													{$i18n.t('Workspace root')}
+												</button>
+												{#each folders as f (f)}
+													<button
+														class="w-full text-left px-3 py-1.5 truncate hover:bg-gray-50 dark:hover:bg-gray-850 {folder === f
+															? 'font-medium'
+															: ''}"
+														on:click={() => selectFolder(f)}
+													>
+														{f}
+													</button>
+												{/each}
+												<div class="border-t border-gray-100 dark:border-gray-850 mt-1 pt-1 px-2 pb-1">
+													<input
+														bind:value={newFolderName}
+														placeholder={$i18n.t('New folder…')}
+														class="w-full bg-gray-50 dark:bg-gray-850 rounded-lg px-2 py-1 text-xs outline-none"
+														on:keydown={(e) => e.key === 'Enter' && onCreateFolder()}
+													/>
+												</div>
+											</div>
+										{/if}
+									</div>
 								</div>
 
 								<textarea
@@ -478,9 +531,11 @@
 									<div
 										class="relative inline-flex items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 									>
+										<!-- bg-none kills the global app.css `select` chevron background-image,
+										     which would otherwise double up with the custom arrow below -->
 										<select
 											bind:value={selectedModel}
-											class="appearance-none bg-transparent outline-none text-xs text-gray-600 dark:text-gray-300 pl-2.5 pr-6 py-1.5 cursor-pointer"
+											class="appearance-none bg-none bg-transparent outline-none text-xs text-gray-600 dark:text-gray-300 pl-2.5 pr-6 py-1.5 cursor-pointer"
 										>
 											{#each models as mdl}
 												<option value={mdl.id}>{mdl.name}</option>

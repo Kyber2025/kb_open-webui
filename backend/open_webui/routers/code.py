@@ -147,6 +147,28 @@ async def code_fs_upload(request: Request, user=Depends(get_verified_user)):
         await session.close()
 
 
+@router.post('/fs/mkdir')
+async def code_fs_mkdir(request: Request, user=Depends(get_verified_user)):
+    """Create a top-level folder in the user's sandbox workspace (the folder
+    picker on the Code page). Name validation lives in the sandbox-manager."""
+    base, secret, key = await _require_access(request, user)
+    body = await request.body()
+    headers = {
+        'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key,
+        'content-type': 'application/json',
+    }
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('POST', f'{base}/fs/mkdir', headers=headers, data=body)
+        text = await resp.text()
+        return Response(content=text, status_code=resp.status, media_type='application/json')
+    except aiohttp.ClientError as e:
+        log.warning('Code mkdir unreachable for %s: %s', user.id, e)
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    finally:
+        await session.close()
+
+
 @router.get('/fs/download')
 async def code_fs_download(request: Request, user=Depends(get_verified_user)):
     """Stream the user's sandbox workspace back as a zip (opencode state dirs and
@@ -179,6 +201,72 @@ async def code_fs_download(request: Request, user=Depends(get_verified_user)):
         headers={'content-disposition': resp.headers.get(
             'Content-Disposition', 'attachment; filename="workspace.zip"')},
     )
+
+
+@router.post('/fs/write')
+async def code_fs_write(request: Request, user=Depends(get_verified_user)):
+    """Sync a batch of files into the sandbox workspace (folder upload).
+    Body: {files:[{path, content(base64)}]}. Manager guards traversal + quota."""
+    base, secret, key = await _require_access(request, user)
+    body = await request.body()
+    headers = {
+        'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key,
+        'content-type': 'application/json',
+    }
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('POST', f'{base}/fs/write', headers=headers, data=body)
+        text = await resp.text()
+        return Response(content=text, status_code=resp.status, media_type='application/json')
+    except aiohttp.ClientError as e:
+        log.warning('Code fs/write unreachable for %s: %s', user.id, e)
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    finally:
+        await session.close()
+
+
+@router.get('/fs/list')
+async def code_fs_list(request: Request, user=Depends(get_verified_user)):
+    """Workspace manifest [{path,size,mtime}] for the client to diff and pull back."""
+    base, secret, key = await _require_access(request, user)
+    headers = {'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key}
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('GET', f'{base}/fs/list', headers=headers)
+        text = await resp.text()
+        return Response(content=text, status_code=resp.status, media_type='application/json')
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    finally:
+        await session.close()
+
+
+@router.get('/fs/get')
+async def code_fs_get(request: Request, user=Depends(get_verified_user)):
+    """Stream one workspace file's bytes (write-back to the user's local folder)."""
+    base, secret, key = await _require_access(request, user)
+    p = request.query_params.get('path', '')
+    headers = {'x-sandbox-secret': secret, 'x-sandbox-user': user.id, 'x-kyber-key': key}
+    session = aiohttp.ClientSession(timeout=_PROXY_TIMEOUT)
+    try:
+        resp = await session.request('GET', f'{base}/fs/get', headers=headers, params={'path': p})
+    except aiohttp.ClientError as e:
+        await session.close()
+        raise HTTPException(status_code=502, detail='Sandbox is unreachable') from e
+    if resp.status != 200:
+        text = await resp.text()
+        await session.close()
+        raise HTTPException(status_code=resp.status, detail=(text[:200] or 'get failed'))
+
+    async def stream():
+        try:
+            async for chunk in resp.content.iter_any():
+                yield chunk
+        finally:
+            resp.release()
+            await session.close()
+
+    return StreamingResponse(stream(), media_type='application/octet-stream')
 
 
 @router.api_route(

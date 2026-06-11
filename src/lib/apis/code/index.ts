@@ -13,31 +13,69 @@ const authHeaders = (token: string) => ({
 	authorization: `Bearer ${token}`
 });
 
-// Upload a project zip into the workspace. `file` is the raw .zip Blob/File;
-// the body is sent as-is and the backend forwards it to the sandbox manager.
-export const uploadProject = async (token: string, file: Blob) => {
-	const res = await fetch(`${FS}/upload`, {
+// opencode's `/path` — `directory` is the workspace root the server runs in.
+// The folder picker needs it to map each session's absolute directory back to
+// a top-level folder name.
+export const getWorkspacePaths = async (token: string): Promise<{ directory?: string }> => {
+	const res = await fetch(`${SANDBOX}/path`, { headers: authHeaders(token) });
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	return res.json();
+};
+
+// List workspace-root entries via opencode's `/file?path=.`
+// (entries: { name, type: 'file' | 'directory', ignored, ... }).
+export const listWorkspaceEntries = async (token: string) => {
+	const res = await fetch(`${SANDBOX}/file?path=.`, { headers: authHeaders(token) });
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	return res.json();
+};
+
+// Create a top-level folder in the sandbox workspace (sandbox-manager /fs/mkdir).
+export const createWorkspaceFolder = async (token: string, name: string) => {
+	const res = await fetch(`${FS}/mkdir`, {
 		method: 'POST',
-		headers: { ...authHeaders(token), 'Content-Type': 'application/zip' },
-		body: file
+		headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name })
 	});
 	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
 	return res.json();
 };
 
-// Download the workspace as a zip → trigger a browser save.
-export const downloadProject = async (token: string) => {
-	const res = await fetch(`${FS}/download`, { headers: authHeaders(token) });
+// ── Local-folder sync (Code mode "open folder") ─────────────────────────────
+// The browser can't expose a local folder to the cloud agent directly, so we
+// mirror it: push the picked folder's files into the workspace, then pull back
+// whatever the agent changed.
+
+// Push a batch of files into the workspace. `content` is base64.
+export const syncFolderIn = async (
+	token: string,
+	files: { path: string; content: string }[]
+) => {
+	const res = await fetch(`${FS}/write`, {
+		method: 'POST',
+		headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+		body: JSON.stringify({ files })
+	});
 	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
-	const blob = await res.blob();
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = 'workspace.zip';
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
-	URL.revokeObjectURL(url);
+	return res.json();
+};
+
+// Full workspace manifest (recursive) for diffing what changed.
+export const listWorkspaceFiles = async (
+	token: string
+): Promise<{ files: { path: string; size: number; mtime: number }[] }> => {
+	const res = await fetch(`${FS}/list`, { headers: authHeaders(token) });
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	return res.json();
+};
+
+// Fetch one workspace file's raw bytes (to write back to the local folder).
+export const getWorkspaceFile = async (token: string, path: string): Promise<Blob> => {
+	const res = await fetch(`${FS}/get?path=${encodeURIComponent(path)}`, {
+		headers: authHeaders(token)
+	});
+	if (!res.ok) throw await res.json().catch(() => ({ detail: res.statusText }));
+	return res.blob();
 };
 
 export type CodeModel = { id: string; name: string };
@@ -59,8 +97,11 @@ export const listSessions = async (token: string) => {
 	return res.json();
 };
 
-export const createSession = async (token: string, title = 'Untitled') => {
-	const res = await fetch(`${SANDBOX}/session`, {
+// `directory` is a folder name RELATIVE to the workspace root ('' = root);
+// opencode resolves it against its cwd and scopes the session's tools to it.
+export const createSession = async (token: string, title = 'Untitled', directory = '') => {
+	const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+	const res = await fetch(`${SANDBOX}/session${qs}`, {
 		method: 'POST',
 		headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
 		body: JSON.stringify({ title })
