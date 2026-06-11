@@ -1578,11 +1578,12 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
 
     # Subscription tier model allow-list (UX: hide models not in the user's plan).
     # The hard gate is enforced at completion time. Admins see all models.
-    # When KyberRouter token billing is on, model access is governed by KyberRouter
-    # (per-key group), so skip the tier filter and let it be the source of truth.
+    # Two-stage filtering by design: KyberRouter defines the platform model pool
+    # (what the connection exposes at all); the tier's checked models are the
+    # second filter — applied in BOTH billing modes, so unchecking a model in
+    # the plan hides it from the picker even with token billing on.
     if (
         getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True)
-        and not getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False)
         and user.role != 'admin'
     ):
         tier, _ = await get_user_tier(user.id)

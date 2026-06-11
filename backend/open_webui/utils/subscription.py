@@ -163,10 +163,6 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
 
     if is_guest_user(user):
         return
-    # P2: when KyberRouter token billing is on, metering/limits/402 happen natively
-    # in KyberRouter against the user's wallet — skip the per-message-count gate.
-    if getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
-        return
     if getattr(user, 'role', None) == 'admin':
         return
 
@@ -175,13 +171,20 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
         # Subscriptions enabled but no tiers configured/seeded yet → don't block.
         return
 
-    # 1) Model allow-list (empty / None = all models allowed)
+    # 1) Model allow-list (empty / None = all models allowed). Applies in BOTH
+    # billing modes: KyberRouter defines the platform model pool (first filter);
+    # the tier's checked models are the second filter — what this plan may use.
     allowed = tier.allowed_model_ids
     if allowed and model_id not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The model '{model_id}' isn't included in your {tier.name} plan. Upgrade to use it.",
         )
+
+    # P2: when KyberRouter token billing is on, metering/limits/402 happen natively
+    # in KyberRouter against the user's wallet — skip ONLY the per-message-count gate.
+    if getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
+        return
 
     # 2) Daily message quota
     limit = tier.daily_message_limit
