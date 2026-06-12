@@ -2031,7 +2031,7 @@
 		const isGenerating = lastMessage && lastMessage.role === 'assistant' && !lastMessage.done;
 
 		if (isGenerating) {
-			if ($settings?.enableMessageQueue ?? true) {
+			if ($settings?.enableMessageQueue ?? false) {
 				// Enqueue the request
 				const _files = structuredClone(files);
 				chatRequestQueues.update((q) => ({
