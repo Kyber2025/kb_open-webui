@@ -58,7 +58,7 @@
 	let insertFollowUpPrompt = false;
 
 	let regenerateMenu = true;
-	let enableMessageQueue = true;
+	let enableMessageQueue = false;
 
 	let landingPageMode = '';
 	let chatBubble = true;
@@ -228,7 +228,7 @@
 		insertFollowUpPrompt = $settings?.insertFollowUpPrompt ?? false;
 
 		regenerateMenu = $settings?.regenerateMenu ?? true;
-		enableMessageQueue = $settings?.enableMessageQueue ?? true;
+		enableMessageQueue = $settings?.enableMessageQueue ?? false;
 
 		largeTextAsFile = $settings?.largeTextAsFile ?? false;
 		copyFormatted = $settings?.copyFormatted ?? false;
