@@ -22,7 +22,6 @@
 
 	import ShareChatModal from '../chat/ShareChatModal.svelte';
 	import ModelSelector from '../chat/ModelSelector.svelte';
-	import ModeSwitcher from '../code/ModeSwitcher.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
@@ -115,12 +114,6 @@
 								</div>
 							</button>
 						</Tooltip>
-					</div>
-				{/if}
-
-				{#if $config?.features?.enable_code_mode}
-					<div class="flex-none hidden sm:flex items-center mr-1 {$showSidebar ? 'ml-1' : ''}">
-						<ModeSwitcher />
 					</div>
 				{/if}
 
