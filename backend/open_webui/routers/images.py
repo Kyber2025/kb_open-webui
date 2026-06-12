@@ -564,7 +564,9 @@ async def generate_images(request: Request, form_data: CreateImageForm, user=Dep
 # a billable result, so a retry can't double-charge. A real 4xx (bad prompt,
 # content policy) is NOT retried — it would just fail again. Per-attempt timeout
 # bounds a stalled connection so it becomes a retryable TimeoutError instead of
-# hanging forever.
+# hanging forever. 600s (not 300) because gpt-image-2 edits have been observed
+# to take 440s+ upstream while still succeeding; the rest of the chain
+# (KyberRouter fetch / nginx / ALB) is aligned to 600s.
 _IMAGE_RETRY_STATUSES = {502, 503, 504}
 _IMAGE_RETRY_EXC = (
     aiohttp.ServerDisconnectedError,
@@ -579,7 +581,7 @@ async def _post_image_json_with_retry(
     *,
     attempts: int = 3,
     backoff: float = 1.5,
-    per_attempt_timeout: int = 300,
+    per_attempt_timeout: int = 600,
     **post_kwargs,
 ) -> dict:
     last_exc: Exception | None = None
