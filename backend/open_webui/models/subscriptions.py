@@ -370,6 +370,27 @@ class UserSubscriptionsTable:
             await db.refresh(target)
             return UserSubscriptionModel.model_validate(target)
 
+    async def revoke_by_order_id(
+        self, order_id: str, db: Optional[AsyncSession] = None
+    ) -> list[str]:
+        """Cancel + expire any subscription created by `order_id` (gift-card refund).
+        Used when an admin invalidates a redeemed gift card: the subscription it granted
+        (order_id 'gift:<code>') is revoked so the user reverts to the default tier.
+        Returns the distinct affected user_ids (for rate-limit re-sync). Idempotent —
+        re-running just re-cancels an already-cancelled row."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            result = await db.execute(select(UserSubscription).filter_by(order_id=order_id))
+            subs = result.scalars().all()
+            user_ids: list[str] = []
+            for s in subs:
+                s.status = 'cancelled'
+                s.expires_at = now
+                s.updated_at = now
+                user_ids.append(s.user_id)
+            await db.commit()
+            return list(dict.fromkeys(user_ids))  # de-dupe, preserve order
+
 
 class SubscriptionOrdersTable:
     async def insert(
@@ -600,6 +621,7 @@ class GiftCardsTable:
         self,
         status: Optional[str] = None,
         batch_id: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 500,
         db: Optional[AsyncSession] = None,
     ) -> list[GiftCardModel]:
@@ -607,6 +629,10 @@ class GiftCardsTable:
             stmt = select(GiftCard)
             if batch_id:
                 stmt = stmt.filter_by(batch_id=batch_id)
+            if search:
+                # `search` is pre-normalized by the router (uppercased, regrouped). The
+                # pattern is bound as a parameter by SQLAlchemy, so this is injection-safe.
+                stmt = stmt.filter(GiftCard.code.ilike(f'%{search}%'))
             if status == 'redeemed':
                 stmt = stmt.filter(GiftCard.redeemed_by.isnot(None))
             elif status == 'available':

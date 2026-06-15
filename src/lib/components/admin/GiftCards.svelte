@@ -11,6 +11,7 @@
 		generateGiftCards,
 		getGiftCards,
 		setGiftCardStatus,
+		invalidateGiftCard,
 		deleteGiftCard
 	} from '$lib/apis/subscriptions';
 
@@ -23,14 +24,19 @@
 	let statusFilter = 'all';
 	let tierFilter = 'all';
 	let daysFilter = 'all';
+	let searchQuery = '';
+	let searchDebounce;
 
-	// Tier + days are filtered client-side over the loaded list (status goes to the
-	// backend). The list is capped at 500 most-recent server-side.
+	// Tier + days + code search are filtered client-side over the loaded list for
+	// instant feedback; status + search ALSO go to the backend (debounced) so a code
+	// beyond the 500-most-recent cap is still findable. Code match ignores dashes/case.
 	$: distinctDurations = [...new Set(cards.map((c) => c.duration_days))].sort((a, b) => a - b);
+	$: normSearch = searchQuery.toUpperCase().replace(/[^A-Z0-9]/g, '');
 	$: filteredCards = cards.filter(
 		(c) =>
 			(tierFilter === 'all' || c.tier_id === tierFilter) &&
-			(daysFilter === 'all' || String(c.duration_days) === String(daysFilter))
+			(daysFilter === 'all' || String(c.duration_days) === String(daysFilter)) &&
+			(!normSearch || c.code.replace(/-/g, '').includes(normSearch))
 	);
 
 	// generation form
@@ -55,9 +61,14 @@
 	};
 
 	const loadCards = async () => {
-		const res = await getGiftCards(localStorage.token, statusFilter).catch(() => null);
+		const res = await getGiftCards(localStorage.token, statusFilter, searchQuery).catch(() => null);
 		cards = res?.cards ?? [];
 		counts = res?.counts ?? { total: 0, available: 0, redeemed: 0, disabled: 0 };
+	};
+
+	const onSearchInput = () => {
+		clearTimeout(searchDebounce);
+		searchDebounce = setTimeout(loadCards, 300);
 	};
 
 	const reload = async () => {
@@ -163,13 +174,41 @@
 		}
 	};
 
+	// Refund a redeemed card: void the code AND revoke the subscription it granted.
+	const invalidate = async (card) => {
+		if (
+			!confirm(
+				$i18n.t(
+					'Invalidate {{code}}? This voids the code and revokes the subscription it granted (refund).',
+					{ code: card.code }
+				)
+			)
+		)
+			return;
+		try {
+			await invalidateGiftCard(localStorage.token, card.code);
+			toast.success($i18n.t('Gift card invalidated'));
+			await loadCards();
+		} catch (e) {
+			toast.error(`${e}`);
+		}
+	};
+
+	// A redeemed card that's been disabled = 'invalidated' (refunded/voided).
 	const cardState = (card) =>
-		card.redeemed_by ? 'redeemed' : card.enabled ? 'available' : 'disabled';
+		card.redeemed_by
+			? card.enabled
+				? 'redeemed'
+				: 'invalidated'
+			: card.enabled
+				? 'available'
+				: 'disabled';
 
 	const stateBadgeClass = {
 		available: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
 		redeemed: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-		disabled: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+		disabled: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+		invalidated: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
 	};
 
 	const fmtDate = (secs) => (secs ? new Date(secs * 1000).toLocaleDateString() : '');
@@ -289,6 +328,13 @@
 			<span>{$i18n.t('Disabled')}: <span class="font-semibold text-black dark:text-white">{counts.disabled}</span></span>
 		</div>
 		<div class="flex items-center gap-2 flex-wrap">
+			<input
+				type="text"
+				bind:value={searchQuery}
+				on:input={onSearchInput}
+				placeholder={$i18n.t('Search code')}
+				class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs text-black dark:text-white outline-none w-36 font-mono"
+			/>
 			<select
 				class="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs outline-none"
 				bind:value={statusFilter}
@@ -335,7 +381,9 @@
 		<div class="text-sm text-gray-500 py-8 text-center">{$i18n.t('Loading…')}</div>
 	{:else if cards.length === 0}
 		<div class="text-center text-sm text-gray-500 py-10">
-			{$i18n.t('No gift cards yet. Generate a batch above.')}
+			{searchQuery.trim() || statusFilter !== 'all'
+				? $i18n.t('No gift cards match the selected filters.')
+				: $i18n.t('No gift cards yet. Generate a batch above.')}
 		</div>
 	{:else if filteredCards.length === 0}
 		<div class="text-center text-sm text-gray-500 py-10">
@@ -367,6 +415,14 @@
 								on:click={() => toggleEnabled(card)}
 							>
 								{card.enabled ? $i18n.t('Disable') : $i18n.t('Enable')}
+							</button>
+						{:else if card.enabled}
+							<button
+								class="text-xs text-orange-500 hover:text-orange-600 dark:hover:text-orange-400"
+								title={$i18n.t('Void this code and revoke the granted subscription (refund)')}
+								on:click={() => invalidate(card)}
+							>
+								{$i18n.t('Invalidate')}
 							</button>
 						{/if}
 						<button class="text-xs text-red-500 hover:underline" on:click={() => remove(card)}>
