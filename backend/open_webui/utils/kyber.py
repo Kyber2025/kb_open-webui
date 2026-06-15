@@ -344,6 +344,13 @@ async def kyber_set_user_rate_limits(
         return False
     url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/rate-limits'
     body = {'rateLimits': override}
+    # Tell KyberRouter which key is the open-webui-linked subscription key, so ONLY
+    # chat traffic via it is metered against the subscription token window — the user's
+    # own keys + the playground stay plain pay-as-you-go. Best-effort: omitted when no
+    # key is stored yet (KyberRouter then leaves the flag untouched).
+    sub_key = await get_user_kyber_api_key(owui_user_id)
+    if sub_key:
+        body['subscriptionKey'] = sub_key
     if subscription_managed is not None:
         body['subscriptionManaged'] = subscription_managed
     # Extra-usage (paid overflow): the per-user opt-in + the per-tier multiplier.
