@@ -522,6 +522,48 @@ async def redeem_gift_card(request: Request, user, raw_code: str) -> dict:
     }
 
 
+async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
+    """Refund a REDEEMED gift card (admin action): void the code AND revoke the
+    subscription it granted, so the redeemer reverts to the default tier — the
+    in-system half of a refund (the actual money refund is handled out-of-band).
+
+    Steps: disable the card (so it reads as 'invalidated' and can't be re-enabled
+    casually), cancel/expire the subscription tagged order_id 'gift:<code>', then
+    re-sync the affected user's rate limits to KyberRouter so their caps drop back to
+    Free. Idempotent: re-running just re-disables + re-cancels. Raises 404 if the code
+    is missing, 400 if it was never redeemed (use the enable/disable toggle for those).
+    """
+    code = normalize_gift_code(raw_code)
+    card = await GiftCards.get(code) if code else None
+    if card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift card not found')
+    if not card.redeemed_by:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Only redeemed gift cards can be refunded. Disable unredeemed cards instead.',
+        )
+
+    # 1) Void the code.
+    await GiftCards.set_enabled(code, False)
+
+    # 2) Revoke the subscription this redemption granted (tagged 'gift:<code>').
+    affected = await UserSubscriptions.revoke_by_order_id(f'gift:{code}')
+
+    # 3) Re-sync each affected user's rate limits to KyberRouter (tier reverts to Free).
+    # Fall back to the card's redeemed_by if no subscription row was found (e.g. it was
+    # already superseded) so the managed caps are still re-derived for that user.
+    targets = affected or ([card.redeemed_by] if card.redeemed_by else [])
+    for user_id in targets:
+        await sync_user_rate_limits_to_kyber(request, user_id)
+
+    return {
+        'success': True,
+        'code': code,
+        'redeemed_by': card.redeemed_by,
+        'revoked_user_ids': affected,
+    }
+
+
 ####################
 # Seeding
 ####################

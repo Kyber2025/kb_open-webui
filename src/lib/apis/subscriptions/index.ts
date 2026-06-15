@@ -79,9 +79,10 @@ export const generateGiftCards = (
 	payload: { tier_id: string; count: number; duration_days?: number | null; note?: string | null }
 ) => request(token, '/admin/gift-cards', 'POST', payload);
 
-export const getGiftCards = (token: string, statusFilter = '', batchId = '') => {
+export const getGiftCards = (token: string, statusFilter = '', search = '', batchId = '') => {
 	const params = new URLSearchParams();
 	if (statusFilter && statusFilter !== 'all') params.set('status_filter', statusFilter);
+	if (search && search.trim()) params.set('search', search.trim());
 	if (batchId) params.set('batch_id', batchId);
 	const qs = params.toString();
 	return request(token, `/admin/gift-cards${qs ? `?${qs}` : ''}`);
@@ -89,6 +90,10 @@ export const getGiftCards = (token: string, statusFilter = '', batchId = '') => 
 
 export const setGiftCardStatus = (token: string, code: string, enabled: boolean) =>
 	request(token, `/admin/gift-cards/${encodeURIComponent(code)}/status`, 'POST', { enabled });
+
+// Refund a redeemed gift card: voids the code AND revokes the subscription it granted.
+export const invalidateGiftCard = (token: string, code: string) =>
+	request(token, `/admin/gift-cards/${encodeURIComponent(code)}/invalidate`, 'POST');
 
 export const deleteGiftCard = (token: string, code: string) =>
 	request(token, `/admin/gift-cards/${encodeURIComponent(code)}`, 'DELETE');

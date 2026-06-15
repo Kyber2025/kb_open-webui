@@ -17,6 +17,8 @@ from open_webui.utils.subscription import (
     create_subscription_order,
     generate_gift_cards,
     get_subscription_state,
+    invalidate_gift_card,
+    normalize_gift_code,
     redeem_gift_card,
     seed_default_tiers,
     sync_order,
@@ -175,11 +177,19 @@ async def admin_generate_gift_cards(form_data: GiftCardGenerateForm, user=Depend
 async def admin_list_gift_cards(
     status_filter: Optional[str] = None,
     batch_id: Optional[str] = None,
+    search: Optional[str] = None,
     user=Depends(get_admin_user),
 ):
     """List gift cards (most recent first, capped) plus summary counts.
-    `status_filter` ∈ all | available | redeemed | disabled."""
-    cards = await GiftCards.list_cards(status=status_filter, batch_id=batch_id)
+    `status_filter` ∈ all | available | redeemed | disabled. `search` matches the code
+    (case-insensitive, dash-optional) so an admin can find any code beyond the 500 cap."""
+    search_term = None
+    if search and search.strip():
+        raw = search.strip().upper()
+        # If typed without dashes, regroup into the stored 'XXXX-XXXX-…' form so a
+        # `contains` prefix still hits (normalize_gift_code uppercases + strips + groups).
+        search_term = raw if '-' in raw else (normalize_gift_code(raw) or raw)
+    cards = await GiftCards.list_cards(status=status_filter, batch_id=batch_id, search=search_term)
     counts = await GiftCards.counts()
     return {'cards': cards, 'counts': counts}
 
@@ -192,6 +202,14 @@ async def admin_set_gift_card_status(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift card not found')
     return {'success': True, 'enabled': form_data.enabled}
+
+
+@router.post('/admin/gift-cards/{code}/invalidate')
+async def admin_invalidate_gift_card(request: Request, code: str, user=Depends(get_admin_user)):
+    """Refund a REDEEMED gift card: void the code AND revoke the subscription it
+    granted (the redeemer reverts to Free). For unredeemed codes, use the status
+    (enable/disable) endpoint instead."""
+    return await invalidate_gift_card(request, code)
 
 
 @router.delete('/admin/gift-cards/{code}')
