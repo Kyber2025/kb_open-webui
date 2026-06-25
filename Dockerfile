@@ -30,7 +30,7 @@ ARG BUILD_HASH
 # Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
 # Raised + enabled for the Kividas fork: the vite build OOMs with the default heap.
 # Build runs natively on the arm64 t4g.xlarge Jenkins node (16GB), so 8GB heap is safe.
-ENV NODE_OPTIONS="--max-old-space-size=8192"
+ENV NODE_OPTIONS="--max-old-space-size=6144"
 
 WORKDIR /app
 
