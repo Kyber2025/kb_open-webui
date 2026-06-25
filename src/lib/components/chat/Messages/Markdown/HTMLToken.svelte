@@ -19,8 +19,9 @@
 
 {#if token.type === 'html'}
 	{#if html && html.includes('<video')}
-		{@const video = html.match(/<video[^>]*>([\s\S]*?)<\/video>/)}
-		{@const videoSrc = video && video[1]}
+		{@const srcAttr = html.match(/<video[^>]*\ssrc=["']([^"']+)["']/i)}
+		{@const inner = html.match(/<video[^>]*>([\s\S]*?)<\/video>/)}
+		{@const videoSrc = ((srcAttr && srcAttr[1]) || (inner && inner[1]) || '').trim()}
 		{#if videoSrc}
 			<!-- svelte-ignore a11y-media-has-caption -->
 			<video
@@ -30,6 +31,10 @@
 				frameborder="0"
 				referrerpolicy="strict-origin-when-cross-origin"
 				controls
+				autoplay
+				muted
+				loop
+				playsinline
 				allowfullscreen
 			></video>
 		{:else}
