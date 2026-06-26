@@ -30,6 +30,7 @@
 				title="Video player"
 				frameborder="0"
 				referrerpolicy="strict-origin-when-cross-origin"
+				preload="auto"
 				controls
 				autoplay
 				muted
