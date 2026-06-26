@@ -132,6 +132,24 @@
 	export let atSelectedModel: Model | undefined = undefined;
 	export let selectedModels: [''];
 
+	// Module mode switch (对话 / 图片生成 / 视频生成). switchMode(mode) is wired in
+	// Chat.svelte and flips the active model to that module's model; currentMode
+	// derives the active module from the selected model so the matching button
+	// highlights.
+	export let switchMode: (mode: 'chat' | 'image' | 'video') => void = () => {};
+	const modeOfModel = (id: string): 'chat' | 'image' | 'video' => {
+		const x = String(id || '').toLowerCase();
+		if (/video/.test(x)) return 'video';
+		if (/image/.test(x)) return 'image';
+		return 'chat';
+	};
+	$: currentMode = modeOfModel((selectedModels ?? [])[0] ?? '');
+	const chatModes: Array<{ id: 'chat' | 'image' | 'video'; label: string }> = [
+		{ id: 'chat', label: '💬 对话' },
+		{ id: 'image', label: '🖼️ 图片生成' },
+		{ id: 'video', label: '🎬 视频生成' }
+	];
+
 	let selectedModelIds = [];
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 
@@ -1489,6 +1507,25 @@
 								{/each}
 							</div>
 						{/if}
+
+						<!-- Module mode switch: 对话 / 图片生成 / 视频生成. Clicking sets the active
+						     model for that module; the model selector then only offers that
+						     module's models (category filter in ModelSelector/Selector.svelte). -->
+						<div class="flex items-center gap-1 mb-1.5 px-1">
+							{#each chatModes as m (m.id)}
+								<button
+									type="button"
+									class="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition {currentMode ===
+									m.id
+										? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-medium'
+										: 'border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200'}"
+									aria-pressed={currentMode === m.id}
+									on:click={() => switchMode(m.id)}
+								>
+									{m.label}
+								</button>
+							{/each}
+						</div>
 
 						{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.file_upload ?? true)}
 							<!-- Folder mount (Claude Code-style): content stays in browser memory;

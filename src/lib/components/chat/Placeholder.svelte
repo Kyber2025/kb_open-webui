@@ -41,6 +41,7 @@
 
 	export let atSelectedModel: Model | undefined;
 	export let selectedModels: [''];
+	export let switchMode: (mode: 'chat' | 'image' | 'video') => void = () => {};
 
 	export let history;
 
@@ -216,6 +217,7 @@
 					bind:this={messageInput}
 					{history}
 					{selectedModels}
+					{switchMode}
 					bind:files
 					bind:prompt
 					bind:autoScroll
