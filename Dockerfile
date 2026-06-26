@@ -40,6 +40,19 @@ RUN apk add --no-cache git
 COPY package.json package-lock.json ./
 RUN npm ci --force
 
+# Pre-fetch pyodide wheels in a layer cached on package-lock + the fetch script
+# (Kividas fork). Without this, `npm run build` runs `pyodide:fetch` AFTER
+# `COPY . .`, so every source change busts the cache and re-downloads dozens of
+# wheels from the CDN each build. Here the download happens in its own layer
+# that only re-runs when package-lock or the script changes; the later
+# `npm run build` re-runs pyodide:fetch but finds everything already cached in
+# node_modules / static/pyodide and skips the downloads. node_modules is
+# excluded by .dockerignore and the prefetched static/pyodide/*.whl are
+# gitignored, so neither is clobbered by the subsequent `COPY . .`.
+COPY scripts ./scripts
+COPY static/pyodide/pyodide-lock.json ./static/pyodide/pyodide-lock.json
+RUN npm run pyodide:fetch
+
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
 RUN npm run build
