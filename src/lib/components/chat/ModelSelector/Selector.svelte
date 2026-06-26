@@ -178,6 +178,16 @@
 		updateFuse();
 	}
 
+	// Module separation: a model's category is derived from its id. The dropdown
+	// only shows models in the SAME category as the currently-selected one, so the
+	// 图片生成 / 视频生成 / 对话 modules can't be cross-selected by mistake.
+	const modelCategory = (id) => {
+		const x = String(id || '').toLowerCase();
+		if (/video/.test(x)) return 'video';
+		if (/image/.test(x)) return 'image';
+		return 'chat';
+	};
+
 	$: filteredItems = (
 		searchValue
 			? fuse
@@ -225,7 +235,9 @@
 							return item.model?.direct;
 						}
 					})
-	).filter((item) => !(item.model?.info?.meta?.hidden ?? false));
+	)
+		.filter((item) => !(item.model?.info?.meta?.hidden ?? false))
+		.filter((item) => !value || modelCategory(item.value) === modelCategory(value));
 
 	$: if (
 		selectedTag !== undefined ||
