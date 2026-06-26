@@ -22,6 +22,8 @@
 		{@const srcAttr = html.match(/<video[^>]*\ssrc=["']([^"']+)["']/i)}
 		{@const inner = html.match(/<video[^>]*>([\s\S]*?)<\/video>/)}
 		{@const videoSrc = ((srcAttr && srcAttr[1]) || (inner && inner[1]) || '').trim()}
+		{@const posterMatch = html.match(/<video[^>]*\sposter=["']([^"']+)["']/i)}
+		{@const posterUrl = posterMatch && posterMatch[1]}
 		{#if videoSrc}
 			<!-- svelte-ignore a11y-media-has-caption -->
 			<video
@@ -31,6 +33,7 @@
 				frameborder="0"
 				referrerpolicy="strict-origin-when-cross-origin"
 				preload="auto"
+				poster={posterUrl || undefined}
 				controls
 				autoplay
 				muted
