@@ -307,6 +307,48 @@
 		oldSelectedModelIds = structuredClone(selectedModelIds);
 	};
 
+	// ── Module mode switch (对话 / 图片生成 / 视频生成) ──
+	// The input toolbar has three mode buttons; clicking one flips the active
+	// model to that module's model. The model selector's category filter then
+	// restricts the dropdown to that module's models, so the user can't pick the
+	// wrong type. grok-2-image auto-opens the image-gen toggle via its model meta
+	// defaultFeatureIds (applied in setDefaults()).
+	const GROK_IMAGE_MODEL = 'grok-2-image';
+	const GROK_VIDEO_MODEL = 'grok-imagine-video';
+	const modeOfModel = (id: string): 'chat' | 'image' | 'video' => {
+		const x = String(id || '').toLowerCase();
+		if (/video/.test(x)) return 'video';
+		if (/image/.test(x)) return 'image';
+		return 'chat';
+	};
+	const pickModelForMode = (mode: 'chat' | 'image' | 'video'): string | undefined => {
+		const all = $models ?? [];
+		if (mode === 'image')
+			return (all.find((m) => m.id === GROK_IMAGE_MODEL) ?? all.find((m) => modeOfModel(m.id) === 'image'))
+				?.id;
+		if (mode === 'video')
+			return (all.find((m) => m.id === GROK_VIDEO_MODEL) ?? all.find((m) => modeOfModel(m.id) === 'video'))
+				?.id;
+		// chat: keep the current chat model if there is one, else the configured
+		// default, else the first available chat model.
+		const cur = (selectedModels ?? []).filter((id) => id && modeOfModel(id) === 'chat');
+		if (cur.length) return cur[0];
+		const def = ($config?.default_models ? $config.default_models.split(',') : []).filter(
+			(id) => modeOfModel(id) === 'chat' && all.find((m) => m.id === id)
+		);
+		if (def.length) return def[0];
+		return all.find((m) => modeOfModel(m.id) === 'chat')?.id;
+	};
+	const switchMode = (mode: 'chat' | 'image' | 'video') => {
+		const id = pickModelForMode(mode);
+		if (!id) {
+			toast.error($i18n.t('No model available for this mode.'));
+			return;
+		}
+		atSelectedModel = undefined;
+		selectedModels = [id];
+	};
+
 	const resetInput = async () => {
 		selectedToolIds = [];
 		selectedSkillIds = [];
@@ -3166,6 +3208,7 @@
 									{history}
 									{taskIds}
 									{selectedModels}
+									{switchMode}
 									bind:files
 									bind:prompt
 									bind:autoScroll
@@ -3253,6 +3296,7 @@
 							<div class="flex items-center h-full">
 								<Placeholder
 									{history}
+									{switchMode}
 									bind:selectedModels
 									bind:messageInput
 									bind:files
