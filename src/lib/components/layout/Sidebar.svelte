@@ -1122,6 +1122,40 @@
 					</div>
 
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+						<a
+							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
+							href="/?models=grok-2-image"
+							draggable="false"
+							on:click={newChatHandler}
+							aria-label="图片生成"
+						>
+							<div class="self-center">
+								<PencilSquare className=" size-4.5" strokeWidth="2" />
+							</div>
+							<div class="flex flex-1 self-center translate-y-[0.5px]">
+								<div class=" self-center text-sm font-primary">🖼️ 图片生成</div>
+							</div>
+						</a>
+					</div>
+
+					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+						<a
+							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
+							href="/?models=grok-imagine-video"
+							draggable="false"
+							on:click={newChatHandler}
+							aria-label="视频生成"
+						>
+							<div class="self-center">
+								<PencilSquare className=" size-4.5" strokeWidth="2" />
+							</div>
+							<div class="flex flex-1 self-center translate-y-[0.5px]">
+								<div class=" self-center text-sm font-primary">🎬 视频生成</div>
+							</div>
+						</a>
+					</div>
+
+					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<button
 							id="sidebar-search-button"
 							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
