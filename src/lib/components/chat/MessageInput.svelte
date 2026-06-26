@@ -144,11 +144,9 @@
 		return 'chat';
 	};
 	$: currentMode = modeOfModel((selectedModels ?? [])[0] ?? '');
-	const chatModes: Array<{ id: 'chat' | 'image' | 'video'; label: string }> = [
-		{ id: 'chat', label: '💬 对话' },
-		{ id: 'image', label: '🖼️ 图片生成' },
-		{ id: 'video', label: '🎬 视频生成' }
-	];
+	// Toggle a module button in the bottom toolbar: clicking the active module
+	// returns to chat; otherwise switches into that module.
+	const toggleMode = (mode: 'image' | 'video') => switchMode(currentMode === mode ? 'chat' : mode);
 
 	let selectedModelIds = [];
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
@@ -1508,25 +1506,6 @@
 							</div>
 						{/if}
 
-						<!-- Module mode switch: 对话 / 图片生成 / 视频生成. Clicking sets the active
-						     model for that module; the model selector then only offers that
-						     module's models (category filter in ModelSelector/Selector.svelte). -->
-						<div class="flex items-center gap-1 mb-1.5 px-1">
-							{#each chatModes as m (m.id)}
-								<button
-									type="button"
-									class="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition {currentMode ===
-									m.id
-										? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-medium'
-										: 'border-gray-100 dark:border-gray-850 bg-white/60 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-700 dark:hover:text-gray-200'}"
-									aria-pressed={currentMode === m.id}
-									on:click={() => switchMode(m.id)}
-								>
-									{m.label}
-								</button>
-							{/each}
-						</div>
-
 						{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.file_upload ?? true)}
 							<!-- Folder mount (Claude Code-style): content stays in browser memory;
 							     matching snippets are searched & attached per message. -->
@@ -2166,6 +2145,54 @@
 												</button>
 											</Tooltip>
 										{/if}
+
+										<!-- 图片生成 module button: switches the active model to the image
+										     model (grok-2-image). The model selector then only offers image
+										     models. Click again (when active) to return to chat. -->
+										<Tooltip content="图片生成" placement="top">
+											<button
+												on:click|preventDefault={() => toggleMode('image')}
+												type="button"
+												aria-pressed={currentMode === 'image'}
+												class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {currentMode ===
+												'image'
+													? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-700/10 border border-sky-200/40 dark:border-sky-500/20'
+													: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
+											>
+												<Photo className="size-4" strokeWidth="1.75" />
+												<span class="text-xs whitespace-nowrap">图片生成</span>
+											</button>
+										</Tooltip>
+
+										<!-- 视频生成 module button: switches the active model to the video
+										     model (grok-imagine-video). Click again to return to chat. -->
+										<Tooltip content="视频生成" placement="top">
+											<button
+												on:click|preventDefault={() => toggleMode('video')}
+												type="button"
+												aria-pressed={currentMode === 'video'}
+												class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {currentMode ===
+												'video'
+													? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-700/10 border border-sky-200/40 dark:border-sky-500/20'
+													: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
+											>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+													stroke-width="1.75"
+													stroke="currentColor"
+													class="size-4"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+													/>
+												</svg>
+												<span class="text-xs whitespace-nowrap">视频生成</span>
+											</button>
+										</Tooltip>
 
 										{#if imageGenerationEnabled}
 											<Tooltip content={$i18n.t('Image')} placement="top">
