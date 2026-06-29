@@ -1,9 +1,12 @@
 <script lang="ts">
 	import DOMPurify from 'dompurify';
 	import type { Token } from 'marked';
+	import { getContext } from 'svelte';
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { settings } from '$lib/stores';
+
+	const i18n: any = getContext('i18n');
 
 	export let id: string;
 	export let token: Token;
@@ -41,6 +44,14 @@
 				playsinline
 				allowfullscreen
 			></video>
+			{@const cleanSrc = videoSrc.replaceAll('&amp;', '&')}
+			<a
+				href={cleanSrc + (cleanSrc.includes('?') ? '&' : '?') + 'dl=1'}
+				download
+				class="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
+			>
+				⬇️ {$i18n.t('Download video')}
+			</a>
 		{:else}
 			{token.text}
 		{/if}
