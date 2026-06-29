@@ -148,6 +148,47 @@
 	// returns to chat; otherwise switches into that module.
 	const toggleMode = (mode: 'image' | 'video') => switchMode(currentMode === mode ? 'chat' : mode);
 
+	// ── 视频合并 box: pick + drag-reorder this conversation's clips → merge ──
+	let showMerge = false;
+	let mergeQueue: number[] = []; // 1-based indices into mergeClips, in chosen order
+	let dragFrom: number | null = null;
+	const FILE_VIDEO_RE = /https?:\/\/[^\s"'()<>]+\/files\/[A-Za-z0-9._-]+\.mp4/gi;
+	$: mergeClips = extractMergeClips(history);
+	function extractMergeClips(hist: any): string[] {
+		const out: string[] = [];
+		const seen = new Set<string>();
+		const msgs = hist?.messages ? Object.values(hist.messages) : [];
+		msgs.sort((a: any, b: any) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0));
+		for (const m of msgs) {
+			const c = typeof (m as any)?.content === 'string' ? (m as any).content : '';
+			for (const mm of c.matchAll(FILE_VIDEO_RE)) {
+				if (!seen.has(mm[0])) { seen.add(mm[0]); out.push(mm[0]); }
+			}
+		}
+		return out;
+	}
+	function toggleMergePick(n: number) {
+		mergeQueue = mergeQueue.includes(n) ? mergeQueue.filter((x) => x !== n) : [...mergeQueue, n];
+	}
+	function onMergeDrop(toPos: number) {
+		if (dragFrom === null || dragFrom === toPos) { dragFrom = null; return; }
+		const arr = [...mergeQueue];
+		const [moved] = arr.splice(dragFrom, 1);
+		arr.splice(toPos, 0, moved);
+		mergeQueue = arr;
+		dragFrom = null;
+	}
+	async function doMerge() {
+		if (mergeQueue.length < 2) return;
+		const p = '合并视频 ' + mergeQueue.join(',');
+		showMerge = false;
+		switchMode('video'); // ensure the command routes to the video/merge path
+		await tick();
+		prompt = p;
+		mergeQueue = [];
+		dispatch('submit', p);
+	}
+
 	let selectedModelIds = [];
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 
@@ -1333,6 +1374,62 @@
 	});
 </script>
 
+<!-- 视频合并 box: double-click clips to add, drag the queue to reorder, then merge -->
+{#if showMerge}
+	<div
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4"
+		on:click|self={() => (showMerge = false)}
+	>
+		<div class="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-auto p-5 shadow-xl border border-gray-100 dark:border-gray-850">
+			<div class="flex items-center justify-between mb-1">
+				<h3 class="text-base font-semibold text-gray-900 dark:text-white">合并视频</h3>
+				<button type="button" on:click={() => (showMerge = false)} class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">✕</button>
+			</div>
+			<p class="text-xs text-gray-500 dark:text-gray-400 mb-3">双击片段加入合并队列；拖拽下方队列里的片段可调整顺序。</p>
+
+			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">可用片段（双击选入）</div>
+			<div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
+				{#each mergeClips as url, i}
+					<button
+						type="button"
+						on:dblclick={() => toggleMergePick(i + 1)}
+						class="relative rounded-lg overflow-hidden border-2 {mergeQueue.includes(i + 1) ? 'border-emerald-500' : 'border-gray-200 dark:border-gray-700'}"
+					>
+						<video src={`${url}#t=0.1`} muted preload="metadata" class="w-full aspect-video object-cover bg-black pointer-events-none"></video>
+						<span class="absolute top-0.5 left-0.5 text-[10px] px-1 rounded bg-black/60 text-white">#{i + 1}</span>
+					</button>
+				{/each}
+			</div>
+
+			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">合并顺序（拖拽调整）</div>
+			{#if mergeQueue.length === 0}
+				<div class="text-xs text-gray-400 dark:text-gray-500 mb-4">还没选片段</div>
+			{:else}
+				<div class="flex flex-wrap gap-2 mb-4">
+					{#each mergeQueue as n, pos (n)}
+						<div
+							draggable="true"
+							on:dragstart={() => (dragFrom = pos)}
+							on:dragover|preventDefault
+							on:drop|preventDefault={() => onMergeDrop(pos)}
+							class="relative rounded-lg overflow-hidden border-2 border-emerald-500 w-24 cursor-grab"
+						>
+							<video src={`${mergeClips[n - 1]}#t=0.1`} muted preload="metadata" class="w-full aspect-video object-cover bg-black pointer-events-none"></video>
+							<span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center">{pos + 1}</span>
+							<button type="button" on:click={() => toggleMergePick(n)} class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center">✕</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<div class="flex justify-end gap-2">
+				<button type="button" on:click={() => (showMerge = false)} class="px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">取消</button>
+				<button type="button" on:click={doMerge} disabled={mergeQueue.length < 2} class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">合并 ({mergeQueue.length})</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <ToolServersModal bind:show={showTools} {selectedToolIds} />
 <SkillsModal bind:show={showSkills} {selectedSkillIds} />
 
@@ -2191,6 +2288,22 @@
 												</svg>
 											</button>
 										</Tooltip>
+
+										<!-- 合并视频: opens the merge box (only when this chat has ≥2 clips) -->
+										{#if mergeClips.length >= 2}
+											<Tooltip content="合并视频" placement="top">
+												<button
+													on:click|preventDefault={() => (showMerge = true)}
+													type="button"
+													class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="size-4">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-.75m0-9 3.75-3.75M21 3h-3.75m3.75 0v3.75M9 12.75h6m-3-3v6" />
+													</svg>
+													<span class="text-xs whitespace-nowrap">合并视频</span>
+												</button>
+											</Tooltip>
+										{/if}
 
 										<!-- Kividas fork: native image-generation inline badge removed; the
 										     custom 图片生成 toolbar button (which highlights when active) is
