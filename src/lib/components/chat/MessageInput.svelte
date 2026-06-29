@@ -180,7 +180,7 @@
 	}
 	async function doMerge() {
 		if (mergeQueue.length < 2) return;
-		const p = '合并视频 ' + mergeQueue.join(',');
+		const p = 'merge ' + mergeQueue.join(',');
 		showMerge = false;
 		switchMode('video'); // ensure the command routes to the video/merge path
 		await tick();
@@ -1382,12 +1382,12 @@
 	>
 		<div class="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-auto p-5 shadow-xl border border-gray-100 dark:border-gray-850">
 			<div class="flex items-center justify-between mb-1">
-				<h3 class="text-base font-semibold text-gray-900 dark:text-white">合并视频</h3>
+				<h3 class="text-base font-semibold text-gray-900 dark:text-white">{$i18n.t('Merge Videos')}</h3>
 				<button type="button" on:click={() => (showMerge = false)} class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">✕</button>
 			</div>
-			<p class="text-xs text-gray-500 dark:text-gray-400 mb-3">双击片段加入合并队列；拖拽下方队列里的片段可调整顺序。</p>
+			<p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{$i18n.t('Double-click a clip to add it to the queue; drag clips in the queue to reorder.')}</p>
 
-			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">可用片段（双击选入）</div>
+			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">{$i18n.t('Available clips (double-click to add)')}</div>
 			<div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
 				{#each mergeClips as url, i}
 					<button
@@ -1401,9 +1401,9 @@
 				{/each}
 			</div>
 
-			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">合并顺序（拖拽调整）</div>
+			<div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">{$i18n.t('Merge order (drag to reorder)')}</div>
 			{#if mergeQueue.length === 0}
-				<div class="text-xs text-gray-400 dark:text-gray-500 mb-4">还没选片段</div>
+				<div class="text-xs text-gray-400 dark:text-gray-500 mb-4">{$i18n.t('No clips selected yet')}</div>
 			{:else}
 				<div class="flex flex-wrap gap-2 mb-4">
 					{#each mergeQueue as n, pos (n)}
@@ -1423,8 +1423,8 @@
 			{/if}
 
 			<div class="flex justify-end gap-2">
-				<button type="button" on:click={() => (showMerge = false)} class="px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">取消</button>
-				<button type="button" on:click={doMerge} disabled={mergeQueue.length < 2} class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">合并 ({mergeQueue.length})</button>
+				<button type="button" on:click={() => (showMerge = false)} class="px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">{$i18n.t('Cancel')}</button>
+				<button type="button" on:click={doMerge} disabled={mergeQueue.length < 2} class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">{$i18n.t('Merge')} ({mergeQueue.length})</button>
 			</div>
 		</div>
 	</div>
@@ -2246,7 +2246,7 @@
 										<!-- 图片生成 module button: switches the active model to the image
 										     model (grok-2-image). The model selector then only offers image
 										     models. Click again (when active) to return to chat. -->
-										<Tooltip content="图片生成" placement="top">
+										<Tooltip content={$i18n.t('Image Generation')} placement="top">
 											<button
 												on:click|preventDefault={() => toggleMode('image')}
 												type="button"
@@ -2262,7 +2262,7 @@
 
 										<!-- 视频生成 module button: switches the active model to the video
 										     model (grok-imagine-video). Click again to return to chat. -->
-										<Tooltip content="视频生成" placement="top">
+										<Tooltip content={$i18n.t('Video Generation')} placement="top">
 											<button
 												on:click|preventDefault={() => toggleMode('video')}
 												type="button"
@@ -2291,7 +2291,7 @@
 
 										<!-- 合并视频: opens the merge box (only when this chat has ≥2 clips) -->
 										{#if mergeClips.length >= 2}
-											<Tooltip content="合并视频" placement="top">
+											<Tooltip content={$i18n.t('Merge Videos')} placement="top">
 												<button
 													on:click|preventDefault={() => (showMerge = true)}
 													type="button"
@@ -2300,7 +2300,7 @@
 													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="size-4">
 														<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-.75m0-9 3.75-3.75M21 3h-3.75m3.75 0v3.75M9 12.75h6m-3-3v6" />
 													</svg>
-													<span class="text-xs whitespace-nowrap">合并视频</span>
+													<span class="text-xs whitespace-nowrap">{$i18n.t('Merge Videos')}</span>
 												</button>
 											</Tooltip>
 										{/if}
