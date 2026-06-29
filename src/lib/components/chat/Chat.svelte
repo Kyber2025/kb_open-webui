@@ -1276,6 +1276,27 @@
 
 			// Unavailable & hidden models filtering
 			selectedModels = selectedModels.filter((modelId) => availableModels.includes(modelId));
+
+			// A new chat always starts in 对话 (chat) mode — never inherit a
+			// persisted image/video model (grok-2-image / grok-imagine-video) from
+			// the previous chat. Image/video are entered via the input toolbar
+			// buttons within a chat, not carried across new chats. (URL ?models=
+			// deep-links above are explicit intent and are left untouched.)
+			const _modeOf = (id) => {
+				const x = String(id || '').toLowerCase();
+				return /video/.test(x) ? 'video' : /image/.test(x) ? 'image' : 'chat';
+			};
+			if (selectedModels.some((id) => _modeOf(id) !== 'chat')) {
+				const chatDefaults = defaultModels.filter(
+					(id) => _modeOf(id) === 'chat' && availableModels.includes(id)
+				);
+				const firstChat = availableModels.find((id) => _modeOf(id) === 'chat');
+				selectedModels = chatDefaults.length
+					? chatDefaults
+					: firstChat
+						? [firstChat]
+						: selectedModels;
+			}
 		}
 
 		// Ensure at least one model is selected
