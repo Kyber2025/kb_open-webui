@@ -104,15 +104,42 @@ async def cleanup_response(
                 await result
 
 
-async def stream_wrapper(response, session=None, content_handler=None):
+async def stream_wrapper(response, session=None, content_handler=None, retry_factory=None):
     """Wrap a stream to ensure cleanup happens even if streaming is interrupted.
 
     This is more reliable than BackgroundTask which may not run if the client
     disconnects.  When using the shared pool, ``session`` should be ``None``.
+
+    ``retry_factory``: optional async callable returning a fresh aiohttp response.
+    If the upstream stream fails with a payload error (e.g.
+    ``aiohttp.ClientPayloadError`` — "Response payload is not completed:
+    <TransferEncodingError: Not enough data to satisfy transfer length header>")
+    *before any chunk has been emitted to the client*, the request is re-issued
+    ONCE.  This is safe because no partial output was sent yet.  Once any chunk
+    has been yielded, the error propagates unchanged — retrying then would
+    duplicate the already-streamed tokens.
     """
+    retried = False
     try:
-        stream = content_handler(response.content) if content_handler else response.content
-        async for chunk in stream:
-            yield chunk
+        while True:
+            yielded_any = False
+            try:
+                stream = content_handler(response.content) if content_handler else response.content
+                async for chunk in stream:
+                    yielded_any = True
+                    yield chunk
+                break  # stream completed cleanly
+            except aiohttp.ClientPayloadError:
+                if retry_factory is None or retried or yielded_any:
+                    raise
+                # Truncated before the first byte reached the client — safe to
+                # re-issue exactly once. Clean up the dead response first.
+                retried = True
+                log.warning(
+                    'stream truncated before first byte (ClientPayloadError); retrying upstream once'
+                )
+                await cleanup_response(response, session)
+                response = await retry_factory()
+                # loop: re-iterate the fresh response
     finally:
         await cleanup_response(response, session)

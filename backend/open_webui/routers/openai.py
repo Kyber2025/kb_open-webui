@@ -1251,8 +1251,23 @@ async def generate_chat_completion(
                     )
 
             streaming = True
+
+            # Re-issue the identical upstream request. Used by stream_wrapper to
+            # retry ONCE if the stream truncates (ClientPayloadError /
+            # TransferEncodingError) before the first byte reaches the client.
+            async def _retry_request():
+                return await session.request(
+                    method='POST',
+                    url=request_url,
+                    data=payload,
+                    headers=headers,
+                    cookies=cookies,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT),
+                )
+
             return StreamingResponse(
-                stream_wrapper(r, content_handler=stream_chunks_handler),
+                stream_wrapper(r, content_handler=stream_chunks_handler, retry_factory=_retry_request),
                 status_code=r.status,
                 headers=_clean_proxy_headers(r.headers),
             )
