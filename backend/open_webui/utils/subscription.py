@@ -166,6 +166,14 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
     if getattr(user, 'role', None) == 'admin':
         return
 
+    # Enterprise (KyberRouter org-seat) members get desktop parity: skip the
+    # per-tier model allow-list AND the daily message cap — KyberRouter's seat
+    # quota + org wallet govern usage instead (same as the desktop client).
+    from open_webui.utils.kyber import is_kyber_enterprise_member
+
+    if await is_kyber_enterprise_member(request, user.id):
+        return
+
     tier, _ = await get_user_tier(user.id)
     if tier is None:
         # Subscriptions enabled but no tiers configured/seeded yet → don't block.

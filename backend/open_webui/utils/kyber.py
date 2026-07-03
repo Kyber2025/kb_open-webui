@@ -6,6 +6,7 @@ shadow user, and stores the user's `sk-or-` API key (Fernet-encrypted) for P2 pe
 token billing. All functions here are no-ops unless the bridge is enabled by the caller."""
 
 import logging
+import time
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -373,3 +374,63 @@ async def kyber_set_user_rate_limits(
     except Exception as e:
         log.warning('KyberRouter set rate-limits failed for %s: %s', owui_user_id, e)
         return False
+
+
+####################
+# Enterprise (org-seat) — desktop parity on the web
+####################
+
+# In-process TTL cache for the org-seat lookup. The model-list filter and the
+# chat gate both run on hot paths, so we must NOT hit KyberRouter on every call.
+# Staleness is bounded by _ORG_SEAT_TTL_S (org membership changes are rare, and
+# KyberRouter's own getOrgContext is likewise short-TTL cached).
+_ORG_SEAT_TTL_S = 60.0
+_ORG_SEAT_CACHE_MAX = 50_000
+_org_seat_cache: dict = {}
+
+
+async def kyber_get_user_org_seat(request: Request, owui_user_id: str) -> Optional[dict]:
+    """Fetch the user's KyberRouter enterprise (org-seat) context via the internal
+    endpoint, or None. Cached in-process for _ORG_SEAT_TTL_S. Best-effort: any
+    failure (no internal secret, no linked account, KyberRouter unreachable, non-200)
+    returns None, so a caller falls back to the normal subscription tier and this
+    never blocks the model list or a chat."""
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        return None
+    now = time.time()
+    hit = _org_seat_cache.get(owui_user_id)
+    if hit and hit[0] > now:
+        return hit[1]
+    link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    if not link or not link.kyber_user_id:
+        return None
+    url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/org-seat'
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.get(
+                url, headers={'X-Internal-Secret': KYBER_INTERNAL_SECRET}
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+    except Exception as e:
+        log.warning('KyberRouter org-seat lookup failed for %s: %s', owui_user_id, e)
+        return None
+    if not isinstance(data, dict):
+        return None
+    if _ORG_SEAT_TTL_S > 0:
+        if len(_org_seat_cache) >= _ORG_SEAT_CACHE_MAX:
+            _org_seat_cache.clear()
+        _org_seat_cache[owui_user_id] = (now + _ORG_SEAT_TTL_S, data)
+    return data
+
+
+async def is_kyber_enterprise_member(request: Request, owui_user_id: str) -> bool:
+    """True when the user holds an ACTIVE KyberRouter org seat in an active org.
+    Such users get desktop parity on the web (all models, no per-tier model
+    allow-list or daily message cap); actual usage is governed by KyberRouter's
+    seat quota + org wallet, exactly as when the desktop client hits it directly."""
+    data = await kyber_get_user_org_seat(request, owui_user_id)
+    return bool(data and data.get('isEnterprise'))

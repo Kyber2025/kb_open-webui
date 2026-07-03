@@ -1586,8 +1586,13 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
         getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True)
         and user.role != 'admin'
     ):
-        tier, _ = await get_user_tier(user.id)
-        models = filter_models_by_tier(models, tier)
+        # Enterprise (KyberRouter org-seat) members see ALL models on the web —
+        # desktop parity — instead of being narrowed to their fallback tier.
+        from open_webui.utils.kyber import is_kyber_enterprise_member
+
+        if not await is_kyber_enterprise_member(request, user.id):
+            tier, _ = await get_user_tier(user.id)
+            models = filter_models_by_tier(models, tier)
 
     log.debug(
         f'/api/models returned filtered models accessible to the user: {json.dumps([model.get("id") for model in models])}'
