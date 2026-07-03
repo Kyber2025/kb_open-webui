@@ -2380,5 +2380,9 @@
 	"Choose the folder the agent works in": "選擇智慧代理的工作資料夾",
 	"Workspace root": "工作區根目錄",
 	"New folder…": "新增資料夾…",
-	"What's up next, {{name}}?": "{{name}}，接下來做什麼？"
+	"What's up next, {{name}}?": "{{name}}，接下來做什麼？",
+	"Products": "產品",
+	"AI coding desktop client for Windows.": "AI 編程桌面客戶端（Windows）。",
+	"Version {{version}}": "版本 {{version}}",
+	"Download for Windows (.exe)": "下載 Windows 客戶端 (.exe)"
 }

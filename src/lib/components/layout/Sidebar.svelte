@@ -1221,6 +1221,38 @@
 					</div>
 				</div>
 
+				<!-- Kividas: Products → Code (Kividas Code desktop client download page) -->
+				<div class="px-[0.4375rem] pb-1.5">
+					<div class="px-2.5 pb-1 text-xs font-medium text-gray-400 dark:text-gray-500">
+						{$i18n.t('Products')}
+					</div>
+					<a
+						id="sidebar-code-button"
+						class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
+						href="/code"
+						draggable="false"
+						on:click={itemClickHandler}
+						aria-label="Kividas Code"
+					>
+						<div class="self-center">
+							<Code className="size-4.5" strokeWidth="2" />
+						</div>
+						<div class="flex flex-1 self-center translate-y-[0.5px]">
+							<div class="self-center text-sm font-primary">Code</div>
+						</div>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							class="size-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5 19.5 4.5m0 0H9m10.5 0V15" />
+						</svg>
+					</a>
+				</div>
+
 				{#if ($models ?? []).length > 0 && (($settings?.pinnedModels ?? []).length > 0 || $config?.default_pinned_models)}
 					<Folder
 						id="sidebar-models"

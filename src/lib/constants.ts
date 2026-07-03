@@ -3,6 +3,12 @@ import { browser, dev } from '$app/environment';
 
 export const APP_NAME = 'Open WebUI';
 
+// Kividas Code desktop client (Tauri build), published to S3 (kividas-desktop-updates)
+// and served via CloudFront at dl.kividas.com. Bump on each release — single source
+// of truth for the /code download page.
+export const KIVIDAS_CODE_VERSION = '0.5.32';
+export const KIVIDAS_CODE_DOWNLOAD_URL = `https://dl.kividas.com/KividasCode_${KIVIDAS_CODE_VERSION}_x64-setup.exe`;
+
 export const WEBUI_HOSTNAME = browser ? (dev ? `${location.hostname}:8080` : ``) : '';
 export const WEBUI_BASE_URL = browser ? (dev ? `http://${WEBUI_HOSTNAME}` : ``) : ``;
 export const WEBUI_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1`;

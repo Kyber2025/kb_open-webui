@@ -2457,5 +2457,9 @@
 	"Choose the folder the agent works in": "选择智能体的工作文件夹",
 	"Workspace root": "工作区根目录",
 	"New folder…": "新建文件夹…",
-	"What's up next, {{name}}?": "{{name}}，接下来做什么？"
+	"What's up next, {{name}}?": "{{name}}，接下来做什么？",
+	"Products": "产品",
+	"AI coding desktop client for Windows.": "AI 编程桌面客户端（Windows）。",
+	"Version {{version}}": "版本 {{version}}",
+	"Download for Windows (.exe)": "下载 Windows 客户端 (.exe)"
 }
