@@ -520,6 +520,7 @@ from open_webui.routers import (
     retrieval,
     scim,
     skills,
+    code as code_router,
     kyber as kyber_router,
     subscriptions,
     guest as guest_router,
@@ -1482,6 +1483,7 @@ app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
 app.include_router(subscriptions.router, prefix='/api/v1/subscriptions', tags=['subscriptions'])
 app.include_router(guest_router.router, prefix='/api/v1/guest', tags=['guest'])
 app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
+app.include_router(code_router.router, prefix='/api/v1/code', tags=['code'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])

@@ -1,13 +1,33 @@
 <script>
-	import { getContext } from 'svelte';
+	import { getContext, onMount } from 'svelte';
 
 	const i18n = getContext('i18n');
 
 	import { showSidebar } from '$lib/stores';
-	import { KIVIDAS_CODE_VERSION, KIVIDAS_CODE_DOWNLOAD_URL } from '$lib/constants';
+	import { WEBUI_API_BASE_URL, KIVIDAS_CODE_VERSION, KIVIDAS_CODE_DOWNLOAD_URL } from '$lib/constants';
 	import Sidebar from '$lib/components/icons/Sidebar.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Code from '$lib/components/icons/Code.svelte';
+
+	// Show the latest desktop release from the Tauri updater feed (proxied server-side
+	// to dodge CORS); fall back to the bundled constants if the feed is unreachable.
+	let version = KIVIDAS_CODE_VERSION;
+	let downloadUrl = KIVIDAS_CODE_DOWNLOAD_URL;
+
+	onMount(async () => {
+		try {
+			const res = await fetch(`${WEBUI_API_BASE_URL}/code/latest`, {
+				headers: { Authorization: `Bearer ${localStorage.token}` }
+			});
+			if (res.ok) {
+				const d = await res.json();
+				if (d?.version) version = d.version;
+				if (d?.url) downloadUrl = d.url;
+			}
+		} catch (e) {
+			// keep the fallback constants
+		}
+	});
 </script>
 
 <svelte:head>
@@ -50,11 +70,11 @@
 					{$i18n.t('AI coding desktop client for Windows.')}
 				</div>
 				<div class="mt-1 text-xs text-gray-400">
-					{$i18n.t('Version {{version}}', { version: KIVIDAS_CODE_VERSION })}
+					{$i18n.t('Version {{version}}', { version })}
 				</div>
 
 				<a
-					href={KIVIDAS_CODE_DOWNLOAD_URL}
+					href={downloadUrl}
 					download
 					class="mt-6 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 transition"
 				>
