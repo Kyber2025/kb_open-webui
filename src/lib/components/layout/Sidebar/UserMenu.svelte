@@ -6,6 +6,7 @@
 
 	import { getUsage } from '$lib/apis';
 	import { getSessionUser, userSignOut } from '$lib/apis/auths';
+	import { getKyberUsageLimits } from '$lib/apis/kyber';
 
 	import {
 		showSettings,
@@ -98,6 +99,16 @@
 			getUsageInfo();
 		}
 	};
+
+	// Enterprise (KyberRouter org-seat) name for the header badge — desktop parity
+	// (shows the org, e.g. "test-leo", instead of the personal/free plan).
+	let orgName = '';
+	onMount(async () => {
+		if ($config?.features?.enable_kyber_token_billing) {
+			const res = await getKyberUsageLimits(localStorage.token).catch(() => null);
+			orgName = res?.enterprise?.orgName ?? '';
+		}
+	});
 </script>
 
 <svelte:window
@@ -135,8 +146,15 @@
 					</div>
 
 					<div class=" flex flex-col w-full flex-1">
-						<div class="font-medium line-clamp-1 pr-2">
-							{$user.name}
+						<div class="font-medium line-clamp-1 pr-2 flex items-center gap-2">
+							<span class="truncate">{$user.name}</span>
+							{#if orgName}
+								<span
+									class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
+								>
+									{orgName}
+								</span>
+							{/if}
 						</div>
 
 						<div class=" flex items-center gap-2">

@@ -25,6 +25,30 @@
 	const fmtUsd = (n: number) =>
 		`$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
+	// Compact token count: 40000 -> "40.0K", 3000000 -> "3.0M".
+	const fmtTokens = (n: number): string => {
+		const v = Number(n) || 0;
+		if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+		if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+		return `${v}`;
+	};
+
+	// Enterprise (org-seat) member? Then the widget mirrors the desktop client:
+	// monthly seat quota + org-wallet overflow, instead of the personal plan view.
+	$: enterprise = limits?.enterprise ?? null;
+	const entPct = (e: any): number => {
+		const q = Number(e?.quota) || 0;
+		if (q <= 0) return 0;
+		return Math.min(100, Math.round(((Number(e?.used) || 0) / q) * 100));
+	};
+	// Whole days until the monthly seat cycle resets (from an ISO cycleEndsAt).
+	const fmtDaysReset = (iso: string | null): string => {
+		if (!iso) return '';
+		const ms = new Date(iso).getTime() - Date.now();
+		if (ms <= 0) return $i18n.t('resets soon');
+		return $i18n.t('Resets in ~{{n}} days', { n: Math.max(1, Math.ceil(ms / 86400000)) });
+	};
+
 	// Percent used of a token window. limit 0/undefined = unlimited → 0%.
 	const pct = (w: any): number => {
 		const limit = Number(w?.limit) || 0;
@@ -45,8 +69,13 @@
 		return $i18n.t('resets in ~{{n}}d', { n: Math.round(hrs / 24) });
 	};
 
-	// The headline % shown on the collapsed pill = the more-consumed of the two windows.
-	$: headlinePct = limits ? Math.max(pct(limits.tp5h), pct(limits.tpw)) : 0;
+	// The headline % on the collapsed pill: seat-quota % for enterprise, else the
+	// more-consumed of the two personal token windows.
+	$: headlinePct = enterprise
+		? entPct(enterprise)
+		: limits
+			? Math.max(pct(limits.tp5h), pct(limits.tpw))
+			: 0;
 	$: barColor = (p: number) =>
 		p >= 100 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
 
@@ -119,6 +148,39 @@
 					</button>
 				</div>
 
+				{#if enterprise}
+					<!-- Enterprise seat quota (desktop parity) -->
+					<div class="py-1">
+						<div class="flex items-baseline justify-between">
+							<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Enterprise quota')}</span>
+							<span class="text-gray-700 dark:text-gray-200">
+								{fmtTokens(enterprise.used)} / {fmtTokens(enterprise.quota)}
+								<span class="text-[10px] text-gray-400">({entPct(enterprise)}%)</span>
+							</span>
+						</div>
+						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+							<div class="h-full rounded-full {barColor(entPct(enterprise))}" style="width: {entPct(enterprise)}%"></div>
+						</div>
+						{#if enterprise.cycleEndsAt}
+							<div class="mt-0.5 text-[10px] text-gray-400">{fmtDaysReset(enterprise.cycleEndsAt)}</div>
+						{/if}
+					</div>
+
+					<div class="my-2 border-t border-gray-100 dark:border-gray-800"></div>
+
+					<div class="flex items-baseline justify-between py-1">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('5-hour limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">{$i18n.t('Unlimited')}</span>
+					</div>
+					<div class="flex items-baseline justify-between py-1">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Weekly limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">{$i18n.t('Unlimited')}</span>
+					</div>
+
+					<p class="mt-2 text-[10px] text-gray-400 leading-snug">
+						{$i18n.t('When the monthly quota is used up, the org wallet balance is used automatically — no action needed.')}
+					</p>
+				{:else}
 				<!-- 5-hour window -->
 				<div class="py-1">
 					<div class="flex items-baseline justify-between">
@@ -211,6 +273,7 @@
 					>
 						{$i18n.t('Open billing dashboard')}
 					</a>
+				{/if}
 				{/if}
 			</div>
 		{/if}

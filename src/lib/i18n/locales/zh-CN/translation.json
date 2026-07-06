@@ -2461,5 +2461,8 @@
 	"Products": "产品",
 	"AI coding desktop client for Windows.": "AI 编程桌面客户端（Windows）。",
 	"Version {{version}}": "版本 {{version}}",
-	"Download for Windows (.exe)": "下载 Windows 客户端 (.exe)"
+	"Download for Windows (.exe)": "下载 Windows 客户端 (.exe)",
+	"Enterprise quota": "企业配额",
+	"Resets in ~{{n}} days": "约 {{n}} 天后重置",
+	"When the monthly quota is used up, the org wallet balance is used automatically — no action needed.": "月度配额用完后自动使用企业钱包余额，无需操作。"
 }

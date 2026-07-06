@@ -53,10 +53,28 @@ async def kyber_usage_limits(request: Request, user=Depends(get_verified_user)):
     indicator. ``{linked: false}`` when the user has no KyberRouter key (widget hides);
     on success ``{linked: true, tp5h, tpw, credits, extraUsageEnabled,
     extraUsageMultiplier, topup_url}``."""
+    from open_webui.utils.kyber import kyber_get_user_org_seat
+
     limits = await get_user_usage_limits(request, user)
-    if limits is None:
+    # Enterprise (org-seat) members get the desktop-style quota widget: attach the
+    # org name + seat quota/usage + cycle end so the client can render 企业配额.
+    org = await kyber_get_user_org_seat(request, user.id)
+    enterprise = None
+    if org and org.get('isEnterprise'):
+        enterprise = {
+            'orgName': org.get('orgName'),
+            'quota': org.get('seatTokenQuota'),
+            'used': org.get('seatUsed'),
+            'cycleEndsAt': org.get('cycleEndsAt'),
+        }
+    if limits is None and enterprise is None:
         return {'linked': False}
-    return {'linked': True, 'topup_url': _topup_url(request), **limits}
+    res = {'linked': True, 'topup_url': _topup_url(request)}
+    if limits:
+        res.update(limits)
+    if enterprise:
+        res['enterprise'] = enterprise
+    return res
 
 
 class TopUpForm(BaseModel):
