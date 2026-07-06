@@ -56,6 +56,7 @@
 	import ArchivedChatsModal from './ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
 	import { getMySubscription } from '$lib/apis/subscriptions';
+	import { getKyberUsageLimits } from '$lib/apis/kyber';
 	import { isGuestUser } from '$lib/apis/guest';
 	import ChatItem from './Sidebar/ChatItem.svelte';
 	import Spinner from '../common/Spinner.svelte';
@@ -80,14 +81,22 @@
 	const BREAKPOINT = 768;
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
-	// Current subscription tier (free/pro/max/ultra), shown next to the username.
+	// Badge next to the username: the enterprise org name for org-seat members
+	// (desktop parity — e.g. "test-leo"), otherwise the subscription tier.
 	let subTier = '';
+	let orgName = '';
 	let subTierFetched = false;
+	$: badgeLabel = orgName || subTier;
 	$: if ($user && !isGuestUser($user) && !subTierFetched) {
 		subTierFetched = true;
 		getMySubscription(localStorage.token)
 			.then((r) => (subTier = r?.tier?.name || r?.tier?.id || ''))
 			.catch(() => {});
+		if ($config?.features?.enable_kyber_token_billing) {
+			getKyberUsageLimits(localStorage.token)
+				.then((r) => (orgName = r?.enterprise?.orgName || ''))
+				.catch(() => {});
+		}
 	}
 
 	let scrollTop = 0;
@@ -1704,10 +1713,12 @@
 								</div>
 								<div class=" self-center font-medium truncate flex items-center gap-1.5">
 									<span class="truncate">{$user?.name}</span>
-									{#if subTier}
+									{#if badgeLabel}
 										<span
-											class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
-											>{subTier}</span
+											class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold {orgName
+												? 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
+												: 'uppercase bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}"
+											>{badgeLabel}</span
 										>
 									{/if}
 								</div>
