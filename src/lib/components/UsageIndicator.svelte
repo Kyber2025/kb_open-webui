@@ -33,6 +33,22 @@
 	};
 	const isUnlimited = (w: any): boolean => !(Number(w?.limit) > 0);
 
+	// Enterprise (org-seat) member? Mirror the desktop client: show the monthly seat
+	// quota + org-wallet overflow instead of the personal 5h/weekly plan view.
+	$: enterprise = limits?.enterprise ?? null;
+	const entPct = (e: any): number => {
+		const q = Number(e?.quota) || 0;
+		if (q <= 0) return 0;
+		return Math.min(100, Math.round(((Number(e?.used) || 0) / q) * 100));
+	};
+	// Whole days until the monthly seat cycle resets (from an ISO cycleEndsAt).
+	const fmtDaysReset = (iso: string | null): string => {
+		if (!iso) return '';
+		const ms = new Date(iso).getTime() - Date.now();
+		if (ms <= 0) return $i18n.t('resets soon');
+		return $i18n.t('Resets in ~{{n}} days', { n: Math.max(1, Math.ceil(ms / 86400000)) });
+	};
+
 	const fmtReset = (resetAt: number | null): string => {
 		if (!resetAt) return '';
 		const ms = resetAt - Date.now();
@@ -44,8 +60,13 @@
 		return $i18n.t('resets in ~{{n}}d', { n: Math.round(hrs / 24) });
 	};
 
-	$: allUnlimited = limits ? isUnlimited(limits.tp5h) && isUnlimited(limits.tpw) : true;
-	$: headlinePct = limits ? Math.max(pct(limits.tp5h), pct(limits.tpw)) : 0;
+	// Enterprise: the collapsed pill shows the seat-quota % as a ring, never the ∞ icon.
+	$: allUnlimited = enterprise ? false : limits ? isUnlimited(limits.tp5h) && isUnlimited(limits.tpw) : true;
+	$: headlinePct = enterprise
+		? entPct(enterprise)
+		: limits
+			? Math.max(pct(limits.tp5h), pct(limits.tpw))
+			: 0;
 	// Claude-style thresholds: <80% blue, 80–90% yellow, ≥90% red.
 	const barColor = (p: number) => (p >= 90 ? 'bg-red-500' : p >= 80 ? 'bg-amber-500' : 'bg-blue-500');
 	const ringColor = (p: number) => (p >= 90 ? '#ef4444' : p >= 80 ? '#f59e0b' : '#3b82f6');
@@ -140,31 +161,56 @@
 					</button>
 				</div>
 
-				<div class="py-1">
-					<div class="flex items-baseline justify-between">
-						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('5-hour limit')}</span>
-						<span class="text-gray-700 dark:text-gray-200">{isUnlimited(limits.tp5h) ? $i18n.t('Unlimited') : `${pct(limits.tp5h)}%`}</span>
-					</div>
-					{#if !isUnlimited(limits.tp5h)}
-						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-							<div class="h-full rounded-full {barColor(pct(limits.tp5h))}" style="width: {pct(limits.tp5h)}%"></div>
+				{#if enterprise}
+					<!-- Enterprise seat quota (desktop parity): monthly seat quota, then 无限制 windows. -->
+					<div class="py-1">
+						<div class="flex items-baseline justify-between">
+							<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Seat quota ({{org}})', { org: enterprise.orgName })}</span>
+							<span class="text-gray-700 dark:text-gray-200">{entPct(enterprise)}%</span>
 						</div>
-						{#if limits.tp5h?.resetAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tp5h.resetAt)}</div>{/if}
-					{/if}
-				</div>
+						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+							<div class="h-full rounded-full {barColor(entPct(enterprise))}" style="width: {entPct(enterprise)}%"></div>
+						</div>
+						{#if enterprise.cycleEndsAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtDaysReset(enterprise.cycleEndsAt)}</div>{/if}
+					</div>
 
-				<div class="py-1">
-					<div class="flex items-baseline justify-between">
-						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Weekly limit')}</span>
-						<span class="text-gray-700 dark:text-gray-200">{isUnlimited(limits.tpw) ? $i18n.t('Unlimited') : `${pct(limits.tpw)}%`}</span>
+					<div class="py-1 flex items-baseline justify-between">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('5-hour limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">{$i18n.t('Unlimited')}</span>
 					</div>
-					{#if !isUnlimited(limits.tpw)}
-						<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-							<div class="h-full rounded-full {barColor(pct(limits.tpw))}" style="width: {pct(limits.tpw)}%"></div>
+					<div class="py-1 flex items-baseline justify-between">
+						<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Weekly limit')}</span>
+						<span class="text-gray-700 dark:text-gray-200">{$i18n.t('Unlimited')}</span>
+					</div>
+
+					<p class="mt-1 text-[10px] text-gray-400 leading-snug">{$i18n.t('When the monthly quota is used up, the org wallet balance is used automatically — no action needed.')}</p>
+				{:else}
+					<div class="py-1">
+						<div class="flex items-baseline justify-between">
+							<span class="text-gray-500 dark:text-gray-400">{$i18n.t('5-hour limit')}</span>
+							<span class="text-gray-700 dark:text-gray-200">{isUnlimited(limits.tp5h) ? $i18n.t('Unlimited') : `${pct(limits.tp5h)}%`}</span>
 						</div>
-						{#if limits.tpw?.resetAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tpw.resetAt)}</div>{/if}
-					{/if}
-				</div>
+						{#if !isUnlimited(limits.tp5h)}
+							<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+								<div class="h-full rounded-full {barColor(pct(limits.tp5h))}" style="width: {pct(limits.tp5h)}%"></div>
+							</div>
+							{#if limits.tp5h?.resetAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tp5h.resetAt)}</div>{/if}
+						{/if}
+					</div>
+
+					<div class="py-1">
+						<div class="flex items-baseline justify-between">
+							<span class="text-gray-500 dark:text-gray-400">{$i18n.t('Weekly limit')}</span>
+							<span class="text-gray-700 dark:text-gray-200">{isUnlimited(limits.tpw) ? $i18n.t('Unlimited') : `${pct(limits.tpw)}%`}</span>
+						</div>
+						{#if !isUnlimited(limits.tpw)}
+							<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+								<div class="h-full rounded-full {barColor(pct(limits.tpw))}" style="width: {pct(limits.tpw)}%"></div>
+							</div>
+							{#if limits.tpw?.resetAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tpw.resetAt)}</div>{/if}
+						{/if}
+					</div>
+				{/if}
 
 				<div class="my-2 border-t border-gray-100 dark:border-gray-800"></div>
 

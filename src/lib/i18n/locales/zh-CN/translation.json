@@ -2464,5 +2464,16 @@
 	"Download for Windows (.exe)": "下载 Windows 客户端 (.exe)",
 	"Enterprise quota": "企业配额",
 	"Resets in ~{{n}} days": "约 {{n}} 天后重置",
-	"When the monthly quota is used up, the org wallet balance is used automatically — no action needed.": "月度配额用完后自动使用企业钱包余额，无需操作。"
+	"When the monthly quota is used up, the org wallet balance is used automatically — no action needed.": "月度配额用完后自动使用企业钱包余额，无需操作。",
+	"Plan usage limits": "用量",
+	"Seat quota ({{org}})": "席位配额（{{org}}）",
+	"5-hour limit": "5 小时",
+	"Weekly limit": "每周",
+	"Unlimited": "无限制",
+	"Extra-usage balance": "额外用量余额",
+	"Use extra usage": "使用额外用量",
+	"resets soon": "即将重置",
+	"resets in ~{{n}}m": "约 {{n}} 分钟后重置",
+	"resets in ~{{n}}h": "约 {{n}} 小时后重置",
+	"resets in ~{{n}}d": "约 {{n}} 天后重置"
 }
