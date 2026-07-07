@@ -2601,8 +2601,19 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 form_data = await chat_web_search_handler(request, form_data, extra_params, user)
 
         if 'image_generation' in features and features['image_generation']:
-            # Skip forced image generation when native FC is enabled - model can use generate_image tool
-            if metadata.get('params', {}).get('function_calling') != 'native':
+            # Skip forced image generation when native FC is enabled - model can use generate_image tool.
+            # Also skip when the SELECTED MODEL is itself an image/video model (KyberRouter's
+            # gpt-image-*/grok-2-image/grok-imagine-video generate the picture directly on the chat
+            # completion). Otherwise this handler AND the model each produce an image → the user gets
+            # two pictures for one request. Text models keep the normal "generate image" behaviour.
+            _sel_model = str(form_data.get('model', '')).lower()
+            _is_image_model = (
+                'gpt-image' in _sel_model
+                or 'grok-2-image' in _sel_model
+                or 'imagine-video' in _sel_model
+                or _sel_model.endswith('-image')
+            )
+            if metadata.get('params', {}).get('function_calling') != 'native' and not _is_image_model:
                 form_data = await chat_image_generation_handler(request, form_data, extra_params, user)
 
         if 'code_interpreter' in features and features['code_interpreter']:
