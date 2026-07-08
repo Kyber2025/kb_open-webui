@@ -60,6 +60,16 @@
 		_code = code;
 	};
 
+	// Auto-collapse rendered-artifact code (html/svg): owui renders these live in
+	// the artifact panel, so the chat should show a clean result (the assistant's
+	// message + a collapsed source bar), not a wall of raw HTML. Set once when the
+	// language first resolves, so the user can still expand it manually afterwards.
+	let _autoCollapsed = false;
+	$: if (!_autoCollapsed && (lang === 'html' || lang === 'svg')) {
+		collapsed = true;
+		_autoCollapsed = true;
+	}
+
 	let _token = null;
 
 	let renderHTML = null;
