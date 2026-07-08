@@ -55,6 +55,7 @@
 	import Citations from './Citations.svelte';
 	import CodeExecutions from './CodeExecutions.svelte';
 	import ContentRenderer from './ContentRenderer.svelte';
+	import DocFileBar from './DocFileBar.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import FollowUps from './ResponseMessage/FollowUps.svelte';
@@ -867,6 +868,10 @@
 										updateChat();
 									}}
 								/>
+							{/if}
+
+							{#if message?.done && !readOnly && message.content?.includes('kyberDocgen')}
+								<DocFileBar content={message.content} done={message?.done ?? false} />
 							{/if}
 
 							{#if message?.error}
