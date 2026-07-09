@@ -1,22 +1,21 @@
 <script lang="ts">
-	// Persistent in-chat download button for generated office files (Excel/Word/PDF).
+	// Persistent in-chat action bar for generated office files.
 	//
 	// The real file-building JS can only run inside a sandboxed artifact iframe.
 	// The right-side artifact panel is transient (the user can close it), so to
-	// keep a clickable download in the conversation itself we render our OWN
-	// off-screen hidden iframe with the same artifact, let the doc-gen skill build
-	// the file and postMessage it back as a data: URL, then show a download button
-	// under the message. The button holds the bytes in this component, so it
-	// survives closing the panel and works with a single click (real user gesture).
+	// keep a clickable action in the conversation itself we render our OWN
+	// off-screen hidden iframe with the same artifact. The doc-gen skill then
+	// signals back via postMessage (source 'kyberDocgen'):
+	//   • Excel/Word → a data: URL of the built file → we show a one-click
+	//     "Download" button (bytes held here, survives closing the panel).
+	//   • PDF → a {kind:'pdf'} signal (no bytes: html2canvas can't run in the
+	//     no-same-origin sandbox, and embedding a CJK font is impractical). We
+	//     show a "Save as PDF" button that spawns a print iframe (allow-modals)
+	//     which window.print()s the same content → the browser's Save-as-PDF.
 	//
-	// The iframe is off-screen but given a REAL size — html2canvas (PDF path) needs
-	// layout dimensions to render, so a 0x0 iframe produced blank/failed PDFs.
-	//
-	// While the file is still building we show a "preparing…" pill so the user gets
-	// honest status instead of the model claiming "done" before the file exists.
-	//
-	// Only activates for artifacts the doc-gen skill produced — detected by the
-	// literal marker string 'kyberDocgen' that the skill's postMessage carries.
+	// The generator iframe is off-screen but real-sized so layout is correct.
+	// A "preparing…" pill shows until the file/signal arrives (honest status,
+	// instead of the model claiming done before anything is ready).
 	import { onDestroy, getContext } from 'svelte';
 	import { getCodeBlockContents } from '$lib/utils';
 	import Download from '$lib/components/icons/Download.svelte';
@@ -28,12 +27,14 @@
 	export let done = false;
 
 	type DocFile = { filename: string; dataUrl: string };
+	type PdfDoc = { filename: string; doc: string };
 
 	let srcdocs: string[] = [];
 	let frames: HTMLIFrameElement[] = [];
 	let files: DocFile[] = [];
+	let pdfs: PdfDoc[] = [];
 	let built = false;
-	let pending = false; // building started, no file yet
+	let pending = false;
 	let timedOut = false;
 	let timer: any = null;
 
@@ -63,24 +64,32 @@ ${g.js}</${''}script>
 		built = true;
 		srcdocs = docs;
 		pending = true;
-		// html2canvas (PDF) can be slow; give it room but don't spin forever.
 		timer = setTimeout(() => {
-			if (files.length === 0) {
+			if (files.length === 0 && pdfs.length === 0) {
 				pending = false;
 				timedOut = true;
 			}
-		}, 25000);
+		}, 20000);
 	};
 
 	$: if (done && content) build();
 
 	const onMessage = (e: MessageEvent) => {
 		const d: any = e?.data;
-		if (!d || d.source !== MARKER || !d.dataUrl || !d.filename) return;
-		// only accept from our own hidden iframes
-		if (!frames.some((f) => f && f.contentWindow === e.source)) return;
-		if (files.some((f) => f.filename === d.filename && f.dataUrl === d.dataUrl)) return;
-		files = [...files, { filename: String(d.filename), dataUrl: String(d.dataUrl) }];
+		if (!d || d.source !== MARKER || !d.filename) return;
+		const idx = frames.findIndex((f) => f && f.contentWindow === e.source);
+		if (idx === -1) return; // only our own hidden generator iframes
+		if (d.kind === 'pdf') {
+			if (!pdfs.some((p) => p.filename === d.filename)) {
+				pdfs = [...pdfs, { filename: String(d.filename), doc: srcdocs[idx] ?? '' }];
+			}
+		} else if (d.dataUrl) {
+			if (!files.some((f) => f.filename === d.filename && f.dataUrl === d.dataUrl)) {
+				files = [...files, { filename: String(d.filename), dataUrl: String(d.dataUrl) }];
+			}
+		} else {
+			return;
+		}
 		pending = false;
 		timedOut = false;
 	};
@@ -94,6 +103,26 @@ ${g.js}</${''}script>
 		document.body.removeChild(a);
 	};
 
+	const savePdf = (p: PdfDoc) => {
+		// Spawn a print iframe (allow-modals so window.print() is permitted) that
+		// renders the same content and prints it → browser "Save as PDF".
+		const autoPrint =
+			'<' +
+			'script>window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},350);});</' +
+			'script></body>';
+		const src = p.doc.indexOf('</body>') !== -1 ? p.doc.replace('</body>', autoPrint) : p.doc + autoPrint;
+		const f = document.createElement('iframe');
+		f.setAttribute('sandbox', 'allow-scripts allow-modals');
+		f.setAttribute('srcdoc', src);
+		f.style.cssText = 'position:fixed;left:-99999px;top:0;width:900px;height:1200px;border:0;';
+		document.body.appendChild(f);
+		setTimeout(() => {
+			try {
+				f.remove();
+			} catch (e) {}
+		}, 120000);
+	};
+
 	if (typeof window !== 'undefined') window.addEventListener('message', onMessage);
 	onDestroy(() => {
 		if (typeof window !== 'undefined') window.removeEventListener('message', onMessage);
@@ -101,7 +130,7 @@ ${g.js}</${''}script>
 	});
 </script>
 
-<!-- hidden generator iframes: off-screen but real-sized so html2canvas can render -->
+<!-- hidden generator iframes: off-screen but real-sized so layout is correct -->
 {#each srcdocs as doc, i}
 	<iframe
 		bind:this={frames[i]}
@@ -114,7 +143,7 @@ ${g.js}</${''}script>
 	></iframe>
 {/each}
 
-{#if files.length > 0}
+{#if files.length > 0 || pdfs.length > 0}
 	<div class="flex flex-wrap gap-2 mt-2">
 		{#each files as f}
 			<button
@@ -123,6 +152,15 @@ ${g.js}</${''}script>
 			>
 				<Download className="size-3.5" />
 				{$i18n.t('Download')} · {f.filename}
+			</button>
+		{/each}
+		{#each pdfs as p}
+			<button
+				class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition"
+				on:click={() => savePdf(p)}
+			>
+				<Download className="size-3.5" />
+				{$i18n.t('Save as PDF')} · {p.filename}
 			</button>
 		{/each}
 	</div>
