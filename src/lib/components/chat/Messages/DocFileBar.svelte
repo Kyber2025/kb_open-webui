@@ -18,6 +18,7 @@
 	// instead of the model claiming done before anything is ready).
 	import { onDestroy, getContext } from 'svelte';
 	import { getCodeBlockContents } from '$lib/utils';
+	import { KYBER_PDF_HELPER } from '$lib/utils/kyberPdf';
 	import Download from '$lib/components/icons/Download.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
@@ -43,6 +44,7 @@
 	const wrap = (g: { html: string; css: string; js: string }) => `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<${''}script>${KYBER_PDF_HELPER}</${''}script>
 <${''}style>body{background:#fff;}
 ${g.css}</${''}style></head>
 <body>

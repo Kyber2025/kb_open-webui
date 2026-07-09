@@ -67,6 +67,7 @@
 		isYoutubeUrl,
 		displayFileHandler
 	} from '$lib/utils';
+	import { KYBER_PDF_HELPER } from '$lib/utils/kyberPdf';
 	import { AudioQueue } from '$lib/utils/audio';
 
 	import {
@@ -1157,6 +1158,7 @@
                         <head>
                             <meta charset="UTF-8">
                             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+							<${''}script>${KYBER_PDF_HELPER}</${''}script>
 							<${''}style>
 								body {
 									background-color: white; /* Ensure the iframe has a white background */
