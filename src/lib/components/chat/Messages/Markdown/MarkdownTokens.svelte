@@ -154,27 +154,39 @@
 		</svelte:element>
 	{:else if token.type === 'code'}
 		{#if token.raw.includes('```')}
-			<CodeBlock
-				id={`${id}-${tokenIdx}`}
-				collapsed={$settings?.collapseCodeBlocks ?? false}
-				{token}
-				lang={token?.lang ?? ''}
-				code={token?.text ?? ''}
-				{attributes}
-				{save}
-				{preview}
-				edit={editCodeBlock}
-				stickyButtonsClassName={topPadding ? 'top-10' : 'top-0'}
-				onSave={(value) => {
-					onSave({
-						raw: token.raw,
-						oldContent: token.text,
-						newContent: value
-					});
-				}}
-				{onUpdate}
-				{onPreview}
-			/>
+			<!-- Doc-gen artifacts (kyberDocgen marker) are machinery, not meant to be
+			     read: hide the code block from the chat but keep it MOUNTED (display:none)
+			     so its onUpdate still fires (auto-opens the right-panel preview) and the
+			     download button (DocFileBar) still builds. Normal code blocks unaffected
+			     via display:contents (wrapper generates no box). -->
+			<div
+				style={['html', 'svg'].includes(token?.lang ?? '') &&
+				(token?.text ?? '').includes('kyberDocgen')
+					? 'display:none'
+					: 'display:contents'}
+			>
+				<CodeBlock
+					id={`${id}-${tokenIdx}`}
+					collapsed={$settings?.collapseCodeBlocks ?? false}
+					{token}
+					lang={token?.lang ?? ''}
+					code={token?.text ?? ''}
+					{attributes}
+					{save}
+					{preview}
+					edit={editCodeBlock}
+					stickyButtonsClassName={topPadding ? 'top-10' : 'top-0'}
+					onSave={(value) => {
+						onSave({
+							raw: token.raw,
+							oldContent: token.text,
+							newContent: value
+						});
+					}}
+					{onUpdate}
+					{onPreview}
+				/>
+			</div>
 		{:else}
 			{token.text}
 		{/if}
