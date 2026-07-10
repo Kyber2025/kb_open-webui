@@ -19,6 +19,7 @@
 	import { onDestroy, getContext } from 'svelte';
 	import { getCodeBlockContents } from '$lib/utils';
 	import { KYBER_PDF_HELPER } from '$lib/utils/kyberPdf';
+	import { showArtifacts, showControls, artifactCode } from '$lib/stores';
 	import Download from '$lib/components/icons/Download.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
@@ -105,6 +106,31 @@ ${g.js}</${''}script>
 		document.body.removeChild(a);
 	};
 
+	// Open the message's artifact in the right panel. artifactContents (populated
+	// by Chat.svelte from the message html) is matched by a substring — the
+	// filename appears in the artifact's kyberSend(...) call, so it selects THIS
+	// file's artifact.
+	const openPreview = (f: DocFile) => {
+		artifactCode.set(f.filename);
+		showControls.set(true);
+		showArtifacts.set(true);
+	};
+
+	// Single click → preview (right panel); double click → download.
+	let clickTimer: any = null;
+	const onFileClick = (f: DocFile) => {
+		if (clickTimer) {
+			clearTimeout(clickTimer);
+			clickTimer = null;
+			download(f);
+			return;
+		}
+		clickTimer = setTimeout(() => {
+			clickTimer = null;
+			openPreview(f);
+		}, 240);
+	};
+
 	const savePdf = (p: PdfDoc) => {
 		// Spawn a print iframe (allow-modals so window.print() is permitted) that
 		// renders the same content and prints it → browser "Save as PDF".
@@ -129,6 +155,7 @@ ${g.js}</${''}script>
 	onDestroy(() => {
 		if (typeof window !== 'undefined') window.removeEventListener('message', onMessage);
 		if (timer) clearTimeout(timer);
+		if (clickTimer) clearTimeout(clickTimer);
 	});
 </script>
 
@@ -150,7 +177,8 @@ ${g.js}</${''}script>
 		{#each files as f}
 			<button
 				class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition"
-				on:click={() => download(f)}
+				title={$i18n.t('Click to preview · double-click to download')}
+				on:click={() => onFileClick(f)}
 			>
 				<Download className="size-3.5" />
 				{$i18n.t('Download')} · {f.filename}
