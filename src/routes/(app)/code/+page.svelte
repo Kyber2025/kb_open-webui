@@ -134,10 +134,17 @@
 					{/each}
 				</div>
 
-				<div class="mt-6 max-w-xs text-xs text-gray-400 leading-relaxed">
-					{$i18n.t(
-						'On first launch macOS may say the app cannot be verified — open System Settings → Privacy & Security and click Open Anyway.'
-					)}
+				<div class="mt-6 max-w-sm text-xs text-gray-400 leading-relaxed">
+					<div>
+						{$i18n.t(
+							'macOS may report the app as "damaged" on first install. Drag it into Applications, then run this in Terminal and open it again:'
+						)}
+					</div>
+					<code
+						class="mt-1.5 inline-block px-2 py-1 rounded bg-gray-100 dark:bg-gray-850 text-[11px] text-gray-500 select-all break-all"
+					>
+						sudo xattr -rd com.apple.quarantine "/Applications/Kividas Code.app"
+					</code>
 				</div>
 			</div>
 		</div>

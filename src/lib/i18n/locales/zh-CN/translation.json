@@ -2465,7 +2465,7 @@
 	"Download for Windows (.exe)": "下载 Windows 客户端 (.exe)",
 	"Download for macOS (.dmg)": "下载 macOS 客户端 (.dmg)",
 	"Apple Silicon": "Apple 芯片",
-	"On first launch macOS may say the app cannot be verified — open System Settings → Privacy & Security and click Open Anyway.": "首次打开若 macOS 提示无法验证开发者，请到「系统设置 → 隐私与安全性」点「仍要打开」。",
+	"macOS may report the app as \"damaged\" on first install. Drag it into Applications, then run this in Terminal and open it again:": "首次安装 macOS 可能提示「已损坏，无法打开」。请先将 App 拖入「应用程序」，然后在「终端」执行下面这行命令，再重新打开：",
 	"Enterprise quota": "企业配额",
 	"Resets in ~{{n}} days": "约 {{n}} 天后重置",
 	"When the monthly quota is used up, the org wallet balance is used automatically — no action needed.": "月度配额用完后自动使用企业钱包余额，无需操作。",
