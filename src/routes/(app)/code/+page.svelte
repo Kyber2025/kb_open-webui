@@ -4,25 +4,46 @@
 	const i18n = getContext('i18n');
 
 	import { showSidebar } from '$lib/stores';
-	import { WEBUI_API_BASE_URL, KIVIDAS_CODE_VERSION, KIVIDAS_CODE_DOWNLOAD_URL } from '$lib/constants';
+	import {
+		WEBUI_API_BASE_URL,
+		KIVIDAS_CODE_VERSION,
+		KIVIDAS_CODE_DOWNLOAD_URL,
+		KIVIDAS_CODE_MAC_VERSION,
+		KIVIDAS_CODE_MAC_DOWNLOAD_URL
+	} from '$lib/constants';
 	import Sidebar from '$lib/components/icons/Sidebar.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Code from '$lib/components/icons/Code.svelte';
 
-	// Show the latest desktop release from the Tauri updater feed (proxied server-side
+	// Latest installer per platform, from the desktop release feed (proxied server-side
 	// to dodge CORS); fall back to the bundled constants if the feed is unreachable.
-	let version = KIVIDAS_CODE_VERSION;
-	let downloadUrl = KIVIDAS_CODE_DOWNLOAD_URL;
+	// Each platform carries its own version — a release that ships only one platform
+	// must not blank out the other one's download.
+	let windowsBuild = { version: KIVIDAS_CODE_VERSION, url: KIVIDAS_CODE_DOWNLOAD_URL };
+	let macBuild = { version: KIVIDAS_CODE_MAC_VERSION, url: KIVIDAS_CODE_MAC_DOWNLOAD_URL };
+
+	// Offer the visitor's own platform first; the other one stays available below it.
+	let isMac = false;
 
 	onMount(async () => {
+		isMac = /Mac/.test(navigator.platform ?? '') || /Mac OS X/.test(navigator.userAgent ?? '');
+
 		try {
 			const res = await fetch(`${WEBUI_API_BASE_URL}/code/latest`, {
 				headers: { Authorization: `Bearer ${localStorage.token}` }
 			});
 			if (res.ok) {
 				const d = await res.json();
-				if (d?.version) version = d.version;
-				if (d?.url) downloadUrl = d.url;
+				const platforms = d?.platforms ?? {};
+				if (platforms.windows?.version && platforms.windows?.url) {
+					windowsBuild = platforms.windows;
+				} else if (d?.version && d?.url) {
+					// Response from the pre-platforms endpoint: the top-level pair is Windows.
+					windowsBuild = { version: d.version, url: d.url };
+				}
+				if (platforms.mac?.version && platforms.mac?.url) {
+					macBuild = platforms.mac;
+				}
 			}
 		} catch (e) {
 			// keep the fallback constants
@@ -67,33 +88,57 @@
 
 				<div class="text-2xl font-semibold">Kividas Code</div>
 				<div class="mt-2 text-sm text-gray-500">
-					{$i18n.t('AI coding desktop client for Windows.')}
-				</div>
-				<div class="mt-1 text-xs text-gray-400">
-					{$i18n.t('Version {{version}}', { version })}
+					{$i18n.t('AI coding desktop client for Windows and macOS.')}
 				</div>
 
-				<a
-					href={downloadUrl}
-					download
-					class="mt-6 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 transition"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						class="size-5"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-6L12 15m0 0 4.5-4.5M12 15V3"
-						/>
-					</svg>
-					{$i18n.t('Download for Windows (.exe)')}
-				</a>
+				<div class="mt-6 w-full flex flex-col items-center gap-4">
+					{#each isMac ? ['mac', 'windows'] : ['windows', 'mac'] as platform, i (platform)}
+						{@const build = platform === 'mac' ? macBuild : windowsBuild}
+						<div class="w-full max-w-xs flex flex-col items-center gap-1.5">
+							<a
+								href={build.url}
+								download
+								class="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-medium hover:opacity-90 transition {i ===
+								0
+									? 'bg-black text-white dark:bg-white dark:text-black'
+									: 'border border-gray-200 dark:border-gray-700'}"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									class="size-5"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-6L12 15m0 0 4.5-4.5M12 15V3"
+									/>
+								</svg>
+								{platform === 'mac'
+									? $i18n.t('Download for macOS (.dmg)')
+									: $i18n.t('Download for Windows (.exe)')}
+							</a>
+							<div class="text-xs text-gray-400">
+								{#if platform === 'mac'}
+									{$i18n.t('Apple Silicon')} · {$i18n.t('Version {{version}}', {
+										version: build.version
+									})}
+								{:else}
+									{$i18n.t('Version {{version}}', { version: build.version })}
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+
+				<div class="mt-6 max-w-xs text-xs text-gray-400 leading-relaxed">
+					{$i18n.t(
+						'On first launch macOS may say the app cannot be verified — open System Settings → Privacy & Security and click Open Anyway.'
+					)}
+				</div>
 			</div>
 		</div>
 	</div>
