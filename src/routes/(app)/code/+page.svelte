@@ -134,18 +134,6 @@
 					{/each}
 				</div>
 
-				<div class="mt-6 max-w-sm text-xs text-gray-400 leading-relaxed">
-					<div>
-						{$i18n.t(
-							'macOS may report the app as "damaged" on first install. Drag it into Applications, then run this in Terminal and open it again:'
-						)}
-					</div>
-					<code
-						class="mt-1.5 inline-block px-2 py-1 rounded bg-gray-100 dark:bg-gray-850 text-[11px] text-gray-500 select-all break-all"
-					>
-						sudo xattr -rd com.apple.quarantine "/Applications/Kividas Code.app"
-					</code>
-				</div>
 			</div>
 		</div>
 	</div>

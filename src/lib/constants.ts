@@ -10,7 +10,7 @@ export const APP_NAME = 'Open WebUI';
 // version independently, since a release does not always ship both platforms.
 export const KIVIDAS_CODE_VERSION = '0.5.76';
 export const KIVIDAS_CODE_DOWNLOAD_URL = `https://dl.kividas.com/KividasCode_${KIVIDAS_CODE_VERSION}_x64-setup.exe`;
-export const KIVIDAS_CODE_MAC_VERSION = '0.5.77';
+export const KIVIDAS_CODE_MAC_VERSION = '0.5.78';
 export const KIVIDAS_CODE_MAC_DOWNLOAD_URL = `https://dl.kividas.com/KividasCode_${KIVIDAS_CODE_MAC_VERSION}_aarch64.dmg`;
 
 export const WEBUI_HOSTNAME = browser ? (dev ? `${location.hostname}:8080` : ``) : '';
