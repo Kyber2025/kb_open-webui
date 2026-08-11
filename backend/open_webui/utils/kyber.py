@@ -376,6 +376,60 @@ async def kyber_set_user_rate_limits(
         return False
 
 
+async def kyber_sync_user_password_hash(
+    request: Request, owui_user_id: str, email: str, password_hash: str
+) -> str:
+    """Mirror a password change made HERE into KyberRouter (the login backend for
+    ai.kividas.com + the desktop client), by pushing the freshly-stored bcrypt hash
+    through the shared-secret internal endpoint — the plaintext never goes over the
+    wire, and node bcrypt verifies python-bcrypt's $2b$ output fine.
+
+    Without this, an admin password change in the chat panel only lands in the local
+    auth table; chat's login bridge falls back to local auth and "works", silently
+    masking that KyberRouter still holds the old password (the two-password-stores
+    incident).
+
+    Returns:
+      'synced'     — KyberRouter updated; safe to write locally.
+      'no_account' — no KyberRouter account for this user (e.g. the local admin);
+                     a local-only change is consistent.
+      'skipped'    — no internal secret configured (dev / standalone install).
+      'failed'     — KyberRouter may hold this account but the write did not land.
+                     The CALLER MUST ABORT its local write, or the stores fork."""
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        return 'skipped'
+    body = {'email': (email or '').lower(), 'passwordHash': password_hash}
+    # Prefer the stable link id when we have one — it survives an email edit that
+    # was (also) never synced to KyberRouter. Email lookup covers unlinked accounts.
+    try:
+        link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+        if link and link.kyber_user_id:
+            body['kyberUserId'] = link.kyber_user_id
+    except Exception:
+        log.exception('KyberRouter link lookup failed for %s (email lookup still applies)', owui_user_id)
+    url = f'{kyber_base(request)}/internal/users/password-sync'
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.put(
+                url,
+                json=body,
+                headers={'Content-Type': 'application/json', 'X-Internal-Secret': KYBER_INTERNAL_SECRET},
+            ) as resp:
+                if resp.status == 200:
+                    return 'synced'
+                if resp.status == 404:
+                    return 'no_account'
+                log.warning(
+                    'KyberRouter password sync non-success (%s) for %s', resp.status, owui_user_id
+                )
+                return 'failed'
+    except Exception as e:
+        log.warning('KyberRouter password sync failed for %s: %s', owui_user_id, e)
+        return 'failed'
+
+
 ####################
 # Enterprise (org-seat) — desktop parity on the web
 ####################

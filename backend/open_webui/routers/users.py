@@ -38,6 +38,7 @@ from open_webui.utils.auth import (
     get_verified_user,
     validate_password,
 )
+from open_webui.utils.kyber import kyber_sync_user_password_hash
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -541,6 +542,7 @@ async def get_user_active_status_by_id(
 
 @router.post('/{user_id}/update', response_model=UserModel | None)
 async def update_user_by_id(
+    request: Request,
     user_id: str,
     form_data: UserUpdateForm,
     session_user: UserModel = Depends(get_admin_user),
@@ -592,6 +594,19 @@ async def update_user_by_id(
                 raise HTTPException(400, detail=str(e))
 
             hashed = get_password_hash(form_data.password)
+            # KyberRouter (ai.kividas.com + the desktop client) authenticates
+            # against ITS user store, not ours — push the new hash there FIRST,
+            # and abort if the push fails, so an admin password change can never
+            # fork the two stores. (The login bridge's local fallback would mask
+            # exactly that fork: chat would take the new password while the
+            # desktop client keeps demanding the old one.) `user.email` is still
+            # the pre-update email here, i.e. the one KyberRouter knows.
+            sync = await kyber_sync_user_password_hash(request, user_id, user.email, hashed)
+            if sync == 'failed':
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail='Could not update the password on the account service — nothing was changed. Please try again.',
+                )
             await Auths.update_user_password_by_id(user_id, hashed, db=db)
 
         # Build update dict from only the provided fields

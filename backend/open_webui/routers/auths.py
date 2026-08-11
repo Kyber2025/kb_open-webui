@@ -51,6 +51,7 @@ from open_webui.models.auths import (
     UpdatePasswordForm,
 )
 from open_webui.models.groups import Groups
+from open_webui.models.kyber_accounts import UserKyberAccounts
 from open_webui.models.oauth_sessions import OAuthSessions
 from open_webui.models.users import (
     UpdateProfileForm,
@@ -90,6 +91,7 @@ from open_webui.utils.kyber import (
     kyber_register_verify,
     kyber_reset_password,
     kyber_send_register_code,
+    kyber_sync_user_password_hash,
 )
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -310,6 +312,7 @@ async def update_timezone(
 
 @router.post('/update/password', response_model=bool)
 async def update_password(
+    request: Request,
     form_data: UpdatePasswordForm,
     session_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -330,6 +333,14 @@ async def update_password(
             except Exception as e:
                 raise HTTPException(400, detail=str(e))
             hashed = get_password_hash(form_data.new_password)
+            # Same store-fork guard as the admin edit path: KyberRouter first,
+            # local only after it (or when the user has no account there).
+            sync = await kyber_sync_user_password_hash(request, user.id, user.email, hashed)
+            if sync == 'failed':
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail='Could not update the password on the account service — nothing was changed. Please try again.',
+                )
             return await Auths.update_user_password_by_id(user.id, hashed, db=db)
         else:
             raise HTTPException(400, detail=ERROR_MESSAGES.INCORRECT_PASSWORD)
@@ -707,6 +718,26 @@ async def signin(
                 db=db,
             )
 
+            # The fallback just accepted a password KyberRouter rejected. For an
+            # account that IS linked to KyberRouter that means the two password
+            # stores have drifted apart (or KyberRouter is down) — and this very
+            # fallback is what makes the drift invisible: chat "works" while
+            # ai.kividas.com / the desktop client demand a different password.
+            # Log it loudly instead of letting it pass silently.
+            if user and getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False):
+                try:
+                    link = await UserKyberAccounts.get_by_user_id(user.id)
+                except Exception:
+                    link = None
+                if link and link.kyber_user_id:
+                    log.warning(
+                        'local-fallback login for linked account %s (kyber %s): '
+                        'KyberRouter rejected this password but the local hash matched '
+                        '— password stores have likely drifted (or KyberRouter is unreachable)',
+                        user.email,
+                        link.kyber_user_id,
+                    )
+
     if user:
         return await create_session_response(request, user, db, response, set_cookie=True)
     else:
@@ -863,6 +894,20 @@ async def kyber_bridge_signin(request: Request, email: str, password: str, *, db
         await ensure_kyber_link(user.id, kyber_user, base, jwt)
     except Exception:
         log.exception('KyberRouter linkage failed for %s', email)
+
+    # KyberRouter just accepted this password, so it is THE current one. Refresh
+    # the local shadow hash whenever it disagrees (it starts life as a random
+    # uuid, and stays stale after a KyberRouter-side reset) — otherwise the local
+    # fallback keeps accepting the user's OLD password on chat indefinitely.
+    # Best-effort: never block a successful bridge login on it.
+    try:
+        if user and not await Auths.authenticate_user(
+            email, lambda pw: verify_password(password, pw), db=db
+        ):
+            await Auths.update_user_password_by_id(user.id, get_password_hash(password), db=db)
+            log.info('refreshed local shadow password hash for %s from bridge login', email)
+    except Exception:
+        log.exception('local shadow password refresh failed for %s', email)
 
     # P4: re-apply the user's current tier rate limits to KyberRouter on every
     # login (also covers reverting limits after a subscription expires). Best-effort.
