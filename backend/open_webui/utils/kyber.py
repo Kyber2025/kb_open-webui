@@ -246,6 +246,23 @@ async def get_kyber_billing_key(request: Request, user, url: str) -> Optional[st
     return await get_user_kyber_api_key(user_id)
 
 
+async def _drop_rejected_api_key(user_id: str, status_code: int, what: str) -> None:
+    """A 401 from KyberRouter's authenticate middleware means the stored sk-or- key no
+    longer exists there (deleted or deactivated upstream, e.g. by the user in the
+    ai-side key manager). That never recovers on its own — ensure_kyber_link only
+    provisions a key when none is stored — so clear the dead key instead of retrying
+    it forever; the next bridge login re-provisions a fresh one."""
+    if status_code != 401:
+        return
+    if await UserKyberAccounts.clear_api_key(user_id):
+        log.warning(
+            'KyberRouter rejected the stored api key on %s for %s - cleared it, '
+            'a fresh key will be provisioned on the next bridge login',
+            what,
+            user_id,
+        )
+
+
 async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
     """P3: fetch the user's KyberRouter wallet balance + token usage for the
     bottom-right widget. Returns KyberRouter's /usage/summary payload
@@ -266,6 +283,7 @@ async def get_user_usage_summary(request: Request, user) -> Optional[dict]:
     if status_code == 200:
         return data
     log.info('KyberRouter usage summary non-success (%s) for %s', status_code, user_id)
+    await _drop_rejected_api_key(user_id, status_code, 'usage/summary')
     return None
 
 
@@ -290,6 +308,7 @@ async def get_user_usage_limits(request: Request, user) -> Optional[dict]:
     if status_code == 200:
         return data
     log.info('KyberRouter usage limits non-success (%s) for %s', status_code, user_id)
+    await _drop_rejected_api_key(user_id, status_code, 'usage/limits')
     return None
 
 

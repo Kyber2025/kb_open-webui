@@ -127,6 +127,21 @@ class UserKyberAccountsTable:
             await db.commit()
             return True
 
+    async def clear_api_key(
+        self, user_id: str, db: Optional[AsyncSession] = None
+    ) -> bool:
+        """Drop the stored (encrypted) sk-or- key but keep the link row, so the next
+        bridge login provisions a fresh key (ensure_kyber_link only creates one when
+        none is stored). Returns False when there was no key to clear."""
+        async with get_async_db_context(db) as db:
+            row = await db.get(UserKyberAccount, user_id)
+            if row is None or row.api_key_enc is None:
+                return False
+            row.api_key_enc = None
+            row.updated_at = int(time.time())
+            await db.commit()
+            return True
+
     async def set_extra_usage_enabled(
         self, user_id: str, enabled: bool, db: Optional[AsyncSession] = None
     ) -> bool:
