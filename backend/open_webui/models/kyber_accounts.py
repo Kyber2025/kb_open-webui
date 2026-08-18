@@ -78,6 +78,17 @@ class UserKyberAccountsTable:
             row = result.scalars().first()
             return UserKyberAccountModel.model_validate(row) if row else None
 
+    async def list_user_ids(self, db: Optional[AsyncSession] = None) -> list[str]:
+        """Every open-webui user id that has a KyberRouter link — the population a
+        tier-cap change has to be re-pushed to (unlinked users have nothing to sync)."""
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(UserKyberAccount.user_id)
+                .filter(UserKyberAccount.kyber_user_id.isnot(None))
+                .order_by(UserKyberAccount.created_at)
+            )
+            return [row[0] for row in result.all()]
+
     async def upsert(
         self,
         user_id: str,

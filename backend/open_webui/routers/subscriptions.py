@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from open_webui.models.kyber_accounts import UserKyberAccounts
@@ -21,6 +21,7 @@ from open_webui.utils.subscription import (
     normalize_gift_code,
     redeem_gift_card,
     seed_default_tiers,
+    sync_all_user_rate_limits_to_kyber,
     sync_order,
     sync_user_rate_limits_to_kyber,
 )
@@ -127,15 +128,45 @@ async def admin_list_tiers(user=Depends(get_admin_user)):
 
 
 @router.post('/admin/tiers')
-async def admin_upsert_tier(form_data: SubscriptionTierForm, user=Depends(get_admin_user)):
+async def admin_upsert_tier(
+    request: Request,
+    form_data: SubscriptionTierForm,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_admin_user),
+):
+    """Create/update a tier. When the token caps or the extra-usage multiplier of an
+    EXISTING tier change, every user currently on that tier is re-synced to
+    KyberRouter in the background, so the limiter and the usage ring pick up the new
+    caps immediately — not just the plan card. (Price/description/model-list edits
+    don't touch KyberRouter and skip the resync.)"""
     tier_id = (form_data.id or '').strip().lower()
     if not tier_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tier id is required')
     form_data.id = tier_id
+    previous = await SubscriptionTiers.get_tier(tier_id)
     tier = await SubscriptionTiers.upsert_tier(form_data)
     if tier is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Failed to save tier')
+    if previous is not None and (
+        previous.token_limit_5h != tier.token_limit_5h
+        or previous.token_limit_week != tier.token_limit_week
+        or previous.extra_usage_multiplier != tier.extra_usage_multiplier
+    ):
+        background_tasks.add_task(sync_all_user_rate_limits_to_kyber, request, tier_id)
     return tier
+
+
+@router.post('/admin/resync-rate-limits')
+async def admin_resync_rate_limits(
+    request: Request, tier_id: Optional[str] = None, user=Depends(get_admin_user)
+):
+    """Re-push every linked user's effective tier caps to KyberRouter (optionally only
+    users on `tier_id`) and report counts. Use after editing tiers by hand / SQL, or
+    after a KyberRouter internal-secret outage left users on stale caps."""
+    tier_id = (tier_id or '').strip().lower() or None
+    if tier_id is not None and await SubscriptionTiers.get_tier(tier_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
+    return await sync_all_user_rate_limits_to_kyber(request, tier_id)
 
 
 @router.delete('/admin/tiers/{tier_id}')

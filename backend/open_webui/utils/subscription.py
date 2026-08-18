@@ -1,6 +1,7 @@
 """Subscription business logic: tier resolution, enforcement, payment_service client,
 activation and default-tier seeding. See SUBSCRIPTION.md."""
 
+import asyncio
 import logging
 import secrets
 import time
@@ -54,7 +55,7 @@ async def get_user_tier(user_id: str) -> tuple[Optional[SubscriptionTierModel], 
     return tier, None
 
 
-async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> None:
+async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool:
     """P4 (Mode B): push the user's effective tier's 5h/week token caps to KyberRouter
     as a per-user override AND mark the account subscription-managed, so KyberRouter
     limits the user by these token rate caps instead of their wallet balance.
@@ -66,17 +67,18 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> None
     per-tier 5h/weekly caps, never by KyberRouter's global hourly/4h/daily defaults.
     Admins are subscription-managed but get a fully-unlimited override (all caps 0) so a
     bridge-provisioned admin isn't accidentally token-rate-capped by the Free tier. No-op
-    when token billing is off; best-effort (never raises into the subscription/login flow)."""
+    when token billing is off; best-effort (never raises into the subscription/login flow).
+    Returns True only when KyberRouter acknowledged the PUT (False on skip/failure) so
+    bulk callers can report how many users actually got the new caps."""
     try:
         if not getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
-            return
+            return False
         tier, _ = await get_user_tier(user_id)
         from open_webui.utils.kyber import kyber_set_user_rate_limits
 
         if tier is None:
             # No tier configured/seeded yet → clear any override, leave management off.
-            await kyber_set_user_rate_limits(request, user_id, None)
-            return
+            return await kyber_set_user_rate_limits(request, user_id, None)
 
         # Admins are subscription-managed (skip the wallet 402) but never token-rate-capped:
         # a bridge-provisioned admin would otherwise inherit the Free tier's caps.
@@ -108,12 +110,47 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> None
         link = await UserKyberAccounts.get_by_user_id(user_id)
         extra_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
         multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0)
-        await kyber_set_user_rate_limits(
+        return await kyber_set_user_rate_limits(
             request, user_id, override, subscription_managed=True,
             extra_usage_enabled=extra_enabled, extra_usage_multiplier=multiplier,
         )
     except Exception:
         log.exception('Failed to sync rate limits to KyberRouter for %s', user_id)
+        return False
+
+
+async def sync_all_user_rate_limits_to_kyber(
+    request: Request, tier_id: Optional[str] = None, concurrency: int = 4
+) -> dict:
+    """Re-push the effective tier caps of every KyberRouter-linked user — or, with
+    `tier_id`, only the users whose EFFECTIVE tier is that one (for the default free
+    tier that means everyone without an active paid subscription).
+
+    Why this exists: KyberRouter's limiter and the usage ring read the per-user
+    User.rateLimits override, which is only refreshed by the five per-user sync
+    events (login, redeem, payment, extra-usage toggle, gift invalidate). Editing a
+    tier's caps changed the plan CARD but left every existing subscriber on the old
+    caps until they happened to log in again. Called after an admin saves a tier and
+    from the admin resync endpoint. Best-effort per user; returns counts."""
+    from open_webui.models.kyber_accounts import UserKyberAccounts
+
+    user_ids = await UserKyberAccounts.list_user_ids()
+    sem = asyncio.Semaphore(max(1, concurrency))
+    stats = {'tier_id': tier_id, 'total_linked': len(user_ids), 'matched': 0, 'synced': 0, 'failed': 0}
+
+    async def _one(uid: str) -> None:
+        async with sem:
+            if tier_id is not None:
+                tier, _ = await get_user_tier(uid)
+                if tier is None or tier.id != tier_id:
+                    return
+            stats['matched'] += 1
+            ok = await sync_user_rate_limits_to_kyber(request, uid)
+            stats['synced' if ok else 'failed'] += 1
+
+    await asyncio.gather(*(_one(uid) for uid in user_ids))
+    log.info('rate-limit resync tier=%s: %s', tier_id, stats)
+    return stats
 
 
 async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
@@ -576,29 +613,39 @@ async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
 # Seeding
 ####################
 
+# Mirrors Anthropic's own plan line-up: Pro $20 / Max 5x $100 / Max 20x $200 (our
+# "Ultra"), and the official usage multipliers Pro : Max : Ultra = 1 : 5 : 20.
+# Anthropic publishes no token figures, so the absolute base is calibrated from our
+# own Max 20x bridge fleet (2026-08-18): the gateway's cache-weighted token count
+# (fresh + 0.1×cache-read + 1.25×cache-write + output — what KyberRouter's limiter
+# meters) reaches Anthropic's 100% mark at ≈20M per rolling 5h and ≈100M per rolling
+# 7 days at the fleet's Opus/Fable-dominated model mix. Ultra = one Max 20x account,
+# Max = ¼ of that, Pro = 1/20. Free stays a small teaser (Anthropic only says
+# "Pro ≥ 5× Free"). Live values live in the subscription_tier table and are
+# admin-editable; these seeds only apply to an empty table.
 DEFAULT_TIERS = [
     SubscriptionTierForm(
         id='free', name='Free', description='Get started — a small token quota.',
-        price_usd=0.0, duration_days=36500, daily_message_limit=10,
-        token_limit_5h=40000, token_limit_week=250000,
+        price_usd=0.0, duration_days=36500, daily_message_limit=None,
+        token_limit_5h=10000, token_limit_week=30000,
         allowed_model_ids=[], enabled=True, sort_order=0,
     ),
     SubscriptionTierForm(
         id='pro', name='Pro', description='For regular use.',
-        price_usd=9.99, duration_days=30, daily_message_limit=100,
-        token_limit_5h=400000, token_limit_week=3000000,
+        price_usd=20.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=1_000_000, token_limit_week=5_000_000,
         allowed_model_ids=[], enabled=True, sort_order=1,
     ),
     SubscriptionTierForm(
         id='max', name='Max', description='For power users.',
-        price_usd=29.99, duration_days=30, daily_message_limit=500,
-        token_limit_5h=2000000, token_limit_week=15000000,
+        price_usd=100.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=5_000_000, token_limit_week=25_000_000,
         allowed_model_ids=[], enabled=True, sort_order=2,
     ),
     SubscriptionTierForm(
-        id='ultra', name='Ultra', description='Unlimited tokens.',
-        price_usd=99.99, duration_days=30, daily_message_limit=None,
-        token_limit_5h=None, token_limit_week=None,
+        id='ultra', name='Ultra', description='Unlimited messages.',
+        price_usd=200.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=20_000_000, token_limit_week=100_000_000,
         allowed_model_ids=[], enabled=True, sort_order=3,
     ),
 ]

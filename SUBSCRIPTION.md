@@ -4,6 +4,13 @@ Adds Free/Pro/Max/Ultra **monthly subscriptions** to open-webui, paid in USDT vi
 Java `payment_service`. Tiers are **admin-configurable** (allowed models, daily message
 limit, price). Models are served by **KyberRouter** (the OpenAI-compatible upstream).
 
+Plan line-up (since 2026-08-18) mirrors Anthropic's own: Pro **$20** / Max **$100** (= Max 5x) /
+Ultra **$200** (= Max 20x), with the official usage multipliers Pro : Max : Ultra = 1 : 5 : 20.
+Token caps (KyberRouter's cache-weighted count, rolling windows): Free 10K/5h · 30K/wk, Pro 1M · 5M,
+Max 5M · 25M, Ultra 20M · 100M — the Ultra base is one Max 20x account's measured capacity on our
+own bridge fleet. The live values are the `subscription_tier` rows (edit at `/admin/subscriptions`);
+`DEFAULT_TIERS` in `utils/subscription.py` only seeds an empty table.
+
 ## Architecture
 
 ```
@@ -61,6 +68,11 @@ Effective tier = active `user_subscription` (status active & `expires_at > now`,
 - `GET  /order/{order_id}` — polls Java; on PAID activates subscription (idempotent). Returns order + subscription state.
 - `POST /redeem` `{code}` (verified user) — redeem a gift card; grants/extends the card's tier. See **Gift cards** below.
 - `GET  /admin/tiers` / `POST /admin/tiers` / `POST /admin/tiers/{id}` / `DELETE /admin/tiers/{id}` (admin) — tier CRUD.
+  Saving an existing tier whose `token_limit_5h` / `token_limit_week` / `extra_usage_multiplier` changed re-pushes the
+  new caps to KyberRouter for every user currently on that tier (background task) — the limiter + usage ring, not just
+  the plan card. Price/description/model-list edits don't trigger it.
+- `POST /admin/resync-rate-limits?tier_id=` (admin) — re-push every linked user's effective caps to KyberRouter (or only
+  users on `tier_id`); returns `{total_linked, matched, synced, failed}`. Use after SQL edits or an internal-secret outage.
 - `GET  /admin/subscriptions` (admin) — list user subscriptions (basic).
 - `POST /admin/gift-cards` `{tier_id, count, duration_days?, note?}` (admin) — generate a batch of single-use codes; returns the new `GiftCardModel[]`.
 - `GET  /admin/gift-cards?status_filter=&batch_id=` (admin) — recent cards (capped 500) + `{counts:{total,available,redeemed,disabled}}`.
