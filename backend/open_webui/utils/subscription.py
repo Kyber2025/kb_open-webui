@@ -620,14 +620,14 @@ async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
 # (fresh + 0.1×cache-read + 1.25×cache-write + output — what KyberRouter's limiter
 # meters) reaches Anthropic's 100% mark at ≈20M per rolling 5h and ≈100M per rolling
 # 7 days at the fleet's Opus/Fable-dominated model mix. Ultra = one Max 20x account,
-# Max = ¼ of that, Pro = 1/20. Free stays a small teaser (Anthropic only says
-# "Pro ≥ 5× Free"). Live values live in the subscription_tier table and are
+# Max = ¼ of that, Pro = 1/20, Free = Pro/5 (Anthropic: "Pro gets at least 5× the
+# usage of Free"). Live values live in the subscription_tier table and are
 # admin-editable; these seeds only apply to an empty table.
 DEFAULT_TIERS = [
     SubscriptionTierForm(
         id='free', name='Free', description='Get started — a small token quota.',
         price_usd=0.0, duration_days=36500, daily_message_limit=None,
-        token_limit_5h=10000, token_limit_week=30000,
+        token_limit_5h=200_000, token_limit_week=1_000_000,
         allowed_model_ids=[], enabled=True, sort_order=0,
     ),
     SubscriptionTierForm(
