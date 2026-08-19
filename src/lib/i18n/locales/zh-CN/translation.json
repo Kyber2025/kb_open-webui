@@ -2485,5 +2485,5 @@
 	"to open the terminal.": "进入终端。",
 	"Windows also needs Git for Windows (Git Bash), which Claude Code uses to run commands.": "Windows 还需要安装 Git for Windows（Git Bash），Claude Code 靠它执行命令。",
 	"Direct downloads:": "直接下载：",
-	"macOS: unzip and double-click kividas (it offers to install itself). Linux: chmod +x kividas, then ./kividas. Windows: if SmartScreen warns, choose \"More info\" → \"Run anyway\".": "macOS：解压后双击 kividas（它会提示安装到 PATH）；Linux：chmod +x kividas 后运行 ./kividas；Windows：若 SmartScreen 提示，点\"更多信息\"→\"仍要运行\"。"
+	"macOS: unzip and double-click \"Kividas CLI\" — it installs the command and opens a Terminal. Linux: chmod +x kividas, then ./kividas. Windows: if SmartScreen warns, choose \"More info\" → \"Run anyway\".": "macOS：解压后双击\"Kividas CLI\"，它会安装 kividas 命令并打开终端；Linux：chmod +x kividas 后运行 ./kividas；Windows：若 SmartScreen 提示，点\"更多信息\"→\"仍要运行\"。"
 }

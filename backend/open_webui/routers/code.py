@@ -169,10 +169,17 @@ async def code_cli(user=Depends(get_verified_user)):
     for feed_key, out_key in _CLI_PLATFORM_KEYS.items():
         raw = (launcher.get('platforms') or {}).get(feed_key)
         if isinstance(raw, dict) and raw.get('url'):
-            # macOS: prefer the zip (Finder keeps the exec bit on unzip; the bare
-            # file a browser saves is not executable). The binary is notarized.
-            url = raw.get('zip_url') if out_key == 'mac' and raw.get('zip_url') else raw['url']
-            platforms[out_key] = {'url': str(url), 'sha256': raw.get('zip_sha256') if url == raw.get('zip_url') else raw.get('sha256')}
+            # macOS: the browser download is "Kividas CLI.app" (signed, notarized,
+            # stapled) — Gatekeeper lets Finder open only bundles, never a bare
+            # executable, however it is signed. Double-clicking the app installs
+            # the CLI into ~/.kividas/bin and opens a Terminal.
+            url, sha = raw['url'], raw.get('sha256')
+            if out_key == 'mac':
+                if raw.get('app_url'):
+                    url, sha = raw['app_url'], raw.get('app_sha256')
+                elif raw.get('zip_url'):
+                    url, sha = raw['zip_url'], raw.get('zip_sha256')
+            platforms[out_key] = {'url': str(url), 'sha256': sha}
     payload = {
         **base,
         'version': launcher.get('version'),

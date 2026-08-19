@@ -218,13 +218,13 @@
 				{#if Object.keys(cli.platforms ?? {}).length > 0}
 					<div class="mt-4 text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
 						<span>{$i18n.t('Direct downloads:')}</span>
-						{#if cli.platforms.mac}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.mac.url}>macOS (.zip)</a>{/if}
+						{#if cli.platforms.mac}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.mac.url}>macOS (.app)</a>{/if}
 						{#if cli.platforms.windows}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.windows.url}>Windows (.exe)</a>{/if}
 						{#if cli.platforms.linux_x64}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.linux_x64.url}>Linux x64</a>{/if}
 						{#if cli.platforms.linux_arm64}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.linux_arm64.url}>Linux arm64</a>{/if}
 					</div>
 					<div class="mt-1 text-xs text-gray-400">
-						{$i18n.t('macOS: unzip and double-click kividas (it offers to install itself). Linux: chmod +x kividas, then ./kividas. Windows: if SmartScreen warns, choose "More info" → "Run anyway".')}
+						{$i18n.t('macOS: unzip and double-click "Kividas CLI" — it installs the command and opens a Terminal. Linux: chmod +x kividas, then ./kividas. Windows: if SmartScreen warns, choose "More info" → "Run anyway".')}
 					</div>
 				{/if}
 			</div>
