@@ -169,7 +169,10 @@ async def code_cli(user=Depends(get_verified_user)):
     for feed_key, out_key in _CLI_PLATFORM_KEYS.items():
         raw = (launcher.get('platforms') or {}).get(feed_key)
         if isinstance(raw, dict) and raw.get('url'):
-            platforms[out_key] = {'url': str(raw['url']), 'sha256': raw.get('sha256')}
+            # macOS: prefer the zip (Finder keeps the exec bit on unzip; the bare
+            # file a browser saves is not executable). The binary is notarized.
+            url = raw.get('zip_url') if out_key == 'mac' and raw.get('zip_url') else raw['url']
+            platforms[out_key] = {'url': str(url), 'sha256': raw.get('zip_sha256') if url == raw.get('zip_url') else raw.get('sha256')}
     payload = {
         **base,
         'version': launcher.get('version'),
