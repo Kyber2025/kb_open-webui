@@ -2478,5 +2478,11 @@
 	"resets soon": "即将重置",
 	"resets in ~{{n}}m": "约 {{n}} 分钟后重置",
 	"resets in ~{{n}}h": "约 {{n}} 小时后重置",
-	"resets in ~{{n}}d": "约 {{n}} 天后重置"
+	"resets in ~{{n}}d": "约 {{n}} 天后重置",
+	"The Kividas Code terminal on its own — run Claude Code with your Kividas account from any terminal on macOS, Windows or Linux. No Node.js or npm required.": "独立的 Kividas Code 终端：在 macOS / Windows / Linux 的任意终端里，用你的 Kividas 账号运行 Claude Code。无需安装 Node.js 或 npm。",
+	"Then run": "然后运行",
+	"with the same account as chat.kividas.com, and": "（与 chat.kividas.com 同一账号登录），再运行",
+	"to open the terminal.": "进入终端。",
+	"Windows also needs Git for Windows (Git Bash), which Claude Code uses to run commands.": "Windows 还需要安装 Git for Windows（Git Bash），Claude Code 靠它执行命令。",
+	"Direct downloads:": "直接下载："
 }

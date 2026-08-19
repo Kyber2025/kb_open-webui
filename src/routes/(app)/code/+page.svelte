@@ -48,7 +48,41 @@
 		} catch (e) {
 			// keep the fallback constants
 		}
+
+		// Standalone CLI (Kividas terminal without the desktop app). The one-line
+		// installers never change; version + direct links come from the feed.
+		try {
+			const res = await fetch(`${WEBUI_API_BASE_URL}/code/cli`, {
+				headers: { Authorization: `Bearer ${localStorage.token}` }
+			});
+			if (res.ok) {
+				const d = await res.json();
+				cli = { ...cli, ...d, install: { ...cli.install, ...(d?.install ?? {}) } };
+			}
+		} catch (e) {
+			// keep the defaults
+		}
 	});
+
+	const CLI_BASE = 'https://dl.kividas.com/cli';
+	let cli = {
+		version: null,
+		claude_version: null,
+		install: { sh: `curl -fsSL ${CLI_BASE}/install.sh | sh`, ps1: `irm ${CLI_BASE}/install.ps1 | iex` },
+		platforms: {}
+	};
+	let copied = '';
+	const copy = async (text, key) => {
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = key;
+			setTimeout(() => {
+				if (copied === key) copied = '';
+			}, 1500);
+		} catch (e) {
+			// clipboard unavailable — the text is selectable anyway
+		}
+	};
 </script>
 
 <svelte:head>
@@ -134,6 +168,62 @@
 					{/each}
 				</div>
 
+			</div>
+
+			<!-- Standalone terminal: same account, no desktop app -->
+			<div class="mt-6 rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+				<div class="flex items-baseline justify-between gap-3">
+					<div class="text-lg font-semibold">Kividas CLI</div>
+					<div class="text-xs text-gray-400">
+						{#if cli.version}
+							{$i18n.t('Version {{version}}', { version: cli.version })}{#if cli.claude_version}
+								· Claude Code {cli.claude_version}{/if}
+						{/if}
+					</div>
+				</div>
+				<div class="mt-1 text-sm text-gray-500">
+					{$i18n.t('The Kividas Code terminal on its own — run Claude Code with your Kividas account from any terminal on macOS, Windows or Linux. No Node.js or npm required.')}
+				</div>
+
+				<div class="mt-4 flex flex-col gap-3">
+					<div>
+						<div class="text-xs text-gray-400 mb-1">macOS / Linux</div>
+						<div class="flex items-center gap-2">
+							<code class="flex-1 min-w-0 overflow-x-auto whitespace-nowrap text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-850 select-all">{cli.install.sh}</code>
+							<button
+								type="button"
+								class="shrink-0 px-3 py-2 rounded-lg text-xs border border-gray-100 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-850"
+								on:click={() => copy(cli.install.sh, 'sh')}>{copied === 'sh' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+						</div>
+					</div>
+					<div>
+						<div class="text-xs text-gray-400 mb-1">Windows (PowerShell)</div>
+						<div class="flex items-center gap-2">
+							<code class="flex-1 min-w-0 overflow-x-auto whitespace-nowrap text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-850 select-all">{cli.install.ps1}</code>
+							<button
+								type="button"
+								class="shrink-0 px-3 py-2 rounded-lg text-xs border border-gray-100 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-850"
+								on:click={() => copy(cli.install.ps1, 'ps1')}>{copied === 'ps1' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-4 text-xs text-gray-500">
+					{$i18n.t('Then run')} <code class="px-1 rounded bg-gray-50 dark:bg-gray-850">kividas login</code>
+					{$i18n.t('with the same account as chat.kividas.com, and')} <code class="px-1 rounded bg-gray-50 dark:bg-gray-850">kividas</code>
+					{$i18n.t('to open the terminal.')}
+					{$i18n.t('Windows also needs Git for Windows (Git Bash), which Claude Code uses to run commands.')}
+				</div>
+
+				{#if Object.keys(cli.platforms ?? {}).length > 0}
+					<div class="mt-4 text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
+						<span>{$i18n.t('Direct downloads:')}</span>
+						{#if cli.platforms.mac}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.mac.url}>macOS</a>{/if}
+						{#if cli.platforms.windows}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.windows.url}>Windows</a>{/if}
+						{#if cli.platforms.linux_x64}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.linux_x64.url}>Linux x64</a>{/if}
+						{#if cli.platforms.linux_arm64}<a class="underline hover:text-gray-600 dark:hover:text-gray-300" href={cli.platforms.linux_arm64.url}>Linux arm64</a>{/if}
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
