@@ -316,9 +316,12 @@
 		};
 		setupKeyboardShortcuts();
 
-		if ($user?.role === 'admin' && ($settings?.showChangelog ?? true)) {
-			showChangelog.set($settings?.version !== $config.version);
-		}
+		// Kividas: upstream auto-pops the "What's New in Open WebUI" changelog at the
+		// admin's first visit after every version bump. We ship this as our own
+		// product, so an upstream release-notes dialog naming Open WebUI is wrong for
+		// our users — removed deliberately, do NOT restore when merging upstream.
+		// The modal itself stays reachable on demand from Settings → About and from
+		// Admin → Settings → General, which is where release notes belong.
 
 		if ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true)) {
 			if ($page.url.searchParams.get('temporary-chat') === 'true') {
