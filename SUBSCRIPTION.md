@@ -7,7 +7,8 @@ limit, price). Models are served by **KyberRouter** (the OpenAI-compatible upstr
 Plan line-up (since 2026-08-18) mirrors Anthropic's own: Pro **$20** / Max **$100** (= Max 5x) /
 Ultra **$200** (= Max 20x), with the official usage multipliers Pro : Max : Ultra = 1 : 5 : 20.
 Token caps (KyberRouter's cache-weighted count, rolling windows): Free 200K/5h · 1M/wk (= Pro/5,
-Anthropic's "Pro ≥ 5× Free"), Pro 1M · 5M, Max 5M · 25M, Ultra 20M · 100M — the Ultra base is one
+Anthropic's "Pro ≥ 5× Free"), Pro 1M · 5M, Max 5M · 25M, Max+ 10M · 50M ($150, added
+2026-08-19 — half of Ultra at 3/4 of its price), Ultra 20M · 100M — the Ultra base is one
 Max 20x account's measured capacity on our own bridge fleet.
 The live values are the `subscription_tier` rows (edit at `/admin/subscriptions`);
 `DEFAULT_TIERS` in `utils/subscription.py` only seeds an empty table.

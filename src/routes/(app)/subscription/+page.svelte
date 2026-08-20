@@ -274,7 +274,7 @@
 
 				<!-- tiers -->
 				<div class="text-sm font-medium text-gray-500 mb-3">{$i18n.t('Available plans')}</div>
-				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
 					{#each tiers as tier (tier.id)}
 						{@const isCurrent = me?.tier?.id === tier.id}
 						<div

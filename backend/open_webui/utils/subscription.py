@@ -622,7 +622,8 @@ async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
 # 7 days at the fleet's Opus/Fable-dominated model mix. Ultra = one Max 20x account,
 # Max = ¼ of that, Pro = 1/20, Free = Pro/5 (Anthropic: "Pro gets at least 5× the
 # usage of Free"). Live values live in the subscription_tier table and are
-# admin-editable; these seeds only apply to an empty table.
+# admin-editable; these seeds only apply to an empty table. Max+ (2026-08-19)
+# sits between Max and Ultra: half of Ultra's caps at 3/4 of its price.
 DEFAULT_TIERS = [
     SubscriptionTierForm(
         id='free', name='Free', description='Get started — a small token quota.',
@@ -643,10 +644,16 @@ DEFAULT_TIERS = [
         allowed_model_ids=[], enabled=True, sort_order=2,
     ),
     SubscriptionTierForm(
+        id='max_plus', name='Max+', description='Between Max and Ultra.',
+        price_usd=150.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=10_000_000, token_limit_week=50_000_000,
+        allowed_model_ids=[], enabled=True, sort_order=3,
+    ),
+    SubscriptionTierForm(
         id='ultra', name='Ultra', description='Unlimited messages.',
         price_usd=200.0, duration_days=30, daily_message_limit=None,
         token_limit_5h=20_000_000, token_limit_week=100_000_000,
-        allowed_model_ids=[], enabled=True, sort_order=3,
+        allowed_model_ids=[], enabled=True, sort_order=4,
     ),
 ]
 
