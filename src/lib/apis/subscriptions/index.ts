@@ -2,6 +2,23 @@ import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 type Json = Record<string, any>;
 
+/**
+ * Send an expired/rejected session back to the sign-in page.
+ *
+ * `+layout.svelte` already signs out proactively from `$user.expires_at`, but that
+ * only covers the case where the frontend HOLDS a usable expiry: a token revoked
+ * server-side, a tab that slept through its 15s interval, or a session that was
+ * already dead on load all reach the API and come back 401 with nothing watching.
+ * The subscription dialog then renders normally while every call fails, which is
+ * how a user ended up staring at "兑换失败 (401)" on a perfectly valid gift card.
+ */
+const redirectToSignIn = () => {
+	if (typeof window === 'undefined') return;
+	localStorage.removeItem('token');
+	const here = window.location.pathname + window.location.search;
+	window.location.href = `/auth?redirect=${encodeURIComponent(here)}`;
+};
+
 const request = async (
 	token: string,
 	path: string,
@@ -19,6 +36,10 @@ const request = async (
 		...(body ? { body: JSON.stringify(body) } : {})
 	})
 		.then(async (res) => {
+			if (res.status === 401) {
+				redirectToSignIn();
+				throw { detail: 'Your session has expired. Please sign in again.' };
+			}
 			if (!res.ok) throw await res.json();
 			return res.json();
 		})
