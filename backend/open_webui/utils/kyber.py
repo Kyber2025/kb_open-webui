@@ -395,6 +395,73 @@ async def kyber_set_user_rate_limits(
         return False
 
 
+async def _internal_request(
+    request: Request, method: str, path: str, payload: Optional[dict] = None
+) -> tuple[int, dict]:
+    """Call KyberRouter's shared-secret internal API (`X-Internal-Secret`). Returns
+    (status, data); status 0 means the call never left this process (no secret
+    configured / transport error) — see `data['error']`."""
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        return 0, {'error': 'KyberRouter internal secret is not configured'}
+    url = f'{kyber_base(request)}{path}'
+    headers = {'Content-Type': 'application/json', 'X-Internal-Secret': KYBER_INTERNAL_SECRET}
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.request(method, url, json=(payload or {}), headers=headers) as resp:
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {}
+                return resp.status, (data if isinstance(data, dict) else {})
+    except Exception as e:
+        log.warning('KyberRouter internal %s %s failed: %s', method, path, e)
+        return 0, {'error': str(e)}
+
+
+async def kyber_get_users_usage_limits(
+    request: Request, kyber_user_ids: list[str]
+) -> dict[str, dict]:
+    """Batch-read OTHER users' 5h/weekly token windows for the admin user list, keyed
+    by KyberRouter user id: {id: {tp5h: {used, limit, resetAt}, tpw: {...}, ...}}.
+
+    Best-effort — returns {} when the internal secret is missing or KyberRouter is
+    unreachable, so the admin list still renders (with no usage) instead of failing.
+    Unlike get_user_usage_limits this needs no per-user API key, which is why it can
+    read a whole page in one call."""
+    ids = [i for i in dict.fromkeys(kyber_user_ids) if i]
+    if not ids:
+        return {}
+    status_code, data = await _internal_request(
+        request, 'POST', '/internal/users/usage-limits', {'userIds': ids}
+    )
+    if status_code != 200:
+        log.info('KyberRouter batch usage-limits non-200 (%s): %s', status_code, _err_message(data))
+        return {}
+    usage = data.get('usage')
+    return usage if isinstance(usage, dict) else {}
+
+
+async def kyber_reset_user_usage(
+    request: Request, kyber_user_id: str, windows: Optional[list[str]] = None
+) -> dict:
+    """Clear a user's rolling 5h and/or weekly token window ('5h' | 'week'; both when
+    omitted). Unlike the read above this RAISES KyberError on failure: an admin who
+    clicked "reset" must never be told it worked when the counter is still there."""
+    status_code, data = await _internal_request(
+        request,
+        'POST',
+        f'/internal/users/{kyber_user_id}/usage-reset',
+        {'windows': windows} if windows else {},
+    )
+    if status_code == 200:
+        return data
+    if status_code == 0:
+        raise KyberError(data.get('error') or 'Could not reach the account service', 502)
+    raise KyberError(_err_message(data, 'Could not reset the usage window'), status_code)
+
+
 async def kyber_sync_user_password_hash(
     request: Request, owui_user_id: str, email: str, password_hash: str
 ) -> str:

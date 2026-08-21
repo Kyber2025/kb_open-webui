@@ -76,6 +76,21 @@ Effective tier = active `user_subscription` (status active & `expires_at > now`,
 - `POST /admin/resync-rate-limits?tier_id=` (admin) — re-push every linked user's effective caps to KyberRouter (or only
   users on `tier_id`); returns `{total_linked, matched, synced, failed}`. Use after SQL edits or an internal-secret outage.
 - `GET  /admin/subscriptions` (admin) — list user subscriptions (basic).
+- `POST /admin/users/overview` `{user_ids[]}` (admin) — plan + expiry + live 5h/weekly token usage for one page of
+  users (≤ 500). Per user: `{tier, subscription, expires_at, kyber_linked, usage}`; `usage` is KyberRouter's window
+  payload (`{tp5h:{used,limit,resetAt}, tpw:{…}, subscriptionManaged, extraUsageEnabled, extraUsageMultiplier,
+  credits}`) or `null` when unlinked / KyberRouter didn't answer. Costs 3 queries + 1 KyberRouter call for the whole
+  page — never one lookup per row.
+- `POST /admin/users/{user_id}/subscription` `{tier_id, expires_at?|duration_days?}` (admin) — put a user on a plan.
+  `expires_at` (epoch **seconds**) is SET, not added, so an admin can shorten a plan; omitted → now + `duration_days`
+  or the tier's own duration. `tier_id: 'free'` revokes instead (Free is the absence of a subscription). Re-syncs the
+  caps to KyberRouter and returns the new state plus `{rate_limits_synced, token_billing_enabled}` — the UI warns when
+  the sync silently failed (see the INTERNAL_API_SECRET trap below).
+- `DELETE /admin/users/{user_id}/subscription` (admin) — cancel every active subscription (back to Free) + re-sync.
+- `POST /admin/users/{user_id}/usage/reset` `{windows?: ['5h'|'week']}` (admin) — clear the user's rolling token
+  windows on KyberRouter (both when omitted) so they can send again immediately. History and wallet untouched.
+  **Fails loudly** (400 unlinked / 502 unreachable) — unlike the cap sync, a reset must never be reported as done
+  when it wasn't.
 - `POST /admin/gift-cards` `{tier_id, count, duration_days?, note?}` (admin) — generate a batch of single-use codes; returns the new `GiftCardModel[]`.
 - `GET  /admin/gift-cards?status_filter=&batch_id=` (admin) — recent cards (capped 500) + `{counts:{total,available,redeemed,disabled}}`.
 - `POST /admin/gift-cards/{code}/status` `{enabled}` (admin) — enable/disable a code.
@@ -86,6 +101,29 @@ Effective tier = active `user_subscription` (status active & `expires_at > now`,
 - `src/routes/(app)/subscription/+page.svelte` — tiers, current plan + usage bar, **redeem-a-gift-card box**, subscribe → QR + address + countdown + status poll.
 - `src/lib/components/admin/Subscriptions.svelte` — per-tier config (price, daily limit, allowed models multiselect from `$models`, enabled).
 - `src/lib/components/admin/GiftCards.svelte` — gift card generator + list/manage. Rendered together with `Subscriptions.svelte` from `src/routes/(app)/admin/subscriptions/+page.svelte`.
+- `src/lib/components/admin/Users/UserList.svelte` — **Plan** and **Usage (5h / week)** columns on the admin user list
+  (one `/admin/users/overview` call per page, loaded after the table so a slow KyberRouter never delays it).
+- `src/lib/components/admin/Users/UserList/UserSubscriptionModal.svelte` — per-user panel: tier picker, exact expiry
+  (`datetime-local`, +30/+90/+365d shortcuts), revoke, and the two token windows with per-window / both reset buttons.
+
+### Per-user admin panel ↔ KyberRouter
+
+The 5h/weekly counters are Redis keys `rl:tp5h:<bucket>` / `rl:tpw:<bucket>` owned by KyberRouter's limiter, so
+reading or clearing them for **another** user needs the internal API (the user's own `sk-or-` key can only read their
+own). Added there:
+
+- `POST /api/internal/users/usage-limits` `{userIds[]}` — batch read, `{usage: {userId: {bucket, tp5h, tpw, …}}}`.
+- `POST /api/internal/users/{userId}/usage-reset` `{windows?}` — `DEL` the counters (the rolling TTL is set `NX` on
+  the next increment, so the user starts a fresh window).
+
+Both resolve the bucket through `rateLimitIdFor()` / `effectiveLimitsFor()` in `middleware/rateLimit.ts` — the
+stored-state twins of the request-scoped `rateLimitId()` / `getEffectiveLimits()`. Keep them delegating to the same
+rules: if they drift, the admin panel shows (and clears) numbers the limiter does not actually enforce. Buckets:
+`org-seat:<orgId>:<userId>` → `sub:<userId>` → `key:<apiKeyId>` → `user:<userId>`.
+
+Both endpoints need `INTERNAL_API_SECRET` (KyberRouter) == `KYBER_INTERNAL_SECRET` (owui). When it's missing the read
+degrades to "usage unavailable" and the reset returns 502 — and the plan-save path reports `rate_limits_synced: false`
+so the panel can say the caps never reached the limiter.
 - Link to `/subscription` + remaining-quota hint in the user menu.
 
 ## Gift cards / redemption codes

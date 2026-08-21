@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -12,8 +13,15 @@ from open_webui.models.subscriptions import (
     SubscriptionTiers,
     UserSubscriptions,
 )
+from open_webui.models.users import Users
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.kyber import (
+    KyberError,
+    kyber_get_users_usage_limits,
+    kyber_reset_user_usage,
+)
 from open_webui.utils.subscription import (
+    DEFAULT_TIER_ID,
     create_subscription_order,
     generate_gift_cards,
     get_subscription_state,
@@ -53,6 +61,23 @@ class GiftCardGenerateForm(BaseModel):
 
 class GiftCardStatusForm(BaseModel):
     enabled: bool
+
+
+class AdminUserIdsForm(BaseModel):
+    user_ids: list[str]
+
+
+class AdminSubscriptionForm(BaseModel):
+    tier_id: str
+    # Exact expiry, epoch seconds. Omitted → now + `duration_days` (or the tier's own
+    # duration), which is what "grant this plan" means from the admin panel.
+    expires_at: Optional[int] = None
+    duration_days: Optional[int] = None
+
+
+class UsageResetForm(BaseModel):
+    # '5h' | 'week'; both windows when omitted.
+    windows: Optional[list[str]] = None
 
 
 ############################
@@ -171,8 +196,6 @@ async def admin_resync_rate_limits(
 
 @router.delete('/admin/tiers/{tier_id}')
 async def admin_delete_tier(tier_id: str, user=Depends(get_admin_user)):
-    from open_webui.utils.subscription import DEFAULT_TIER_ID
-
     if tier_id == DEFAULT_TIER_ID:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='The default free tier cannot be deleted')
     ok = await SubscriptionTiers.delete_tier(tier_id)
@@ -189,6 +212,173 @@ async def admin_seed_tiers(user=Depends(get_admin_user)):
 @router.get('/admin/subscriptions')
 async def admin_list_subscriptions(user=Depends(get_admin_user)):
     return await UserSubscriptions.list_all()
+
+
+############################
+# Admin — per-user plan & usage
+############################
+
+
+async def _admin_user_snapshot(request: Request, user_ids: list[str]) -> dict[str, dict]:
+    """{user_id: {tier, subscription, expires_at, kyber_linked, usage}} for a page of
+    users, in a fixed number of round trips (3 queries + 1 KyberRouter call) — the
+    admin list must not fan out per row.
+
+    `tier` is the EFFECTIVE tier and mirrors get_user_tier's fallback exactly: a
+    subscription whose tier was deleted or disabled counts for nothing, so the user
+    shows as Free. `usage` is the live 5h/weekly token window from KyberRouter, or
+    None when the user has no wallet link (or KyberRouter did not answer)."""
+    ids = list(dict.fromkeys([u for u in user_ids if u]))
+    if not ids:
+        return {}
+
+    subs = await UserSubscriptions.list_active_for_users(ids)
+    tiers = {t.id: t for t in await SubscriptionTiers.list_tiers(enabled_only=False)}
+    kyber_ids = await UserKyberAccounts.kyber_ids_for_users(ids)
+    usage_by_kyber = await kyber_get_users_usage_limits(request, list(kyber_ids.values()))
+
+    out: dict[str, dict] = {}
+    for uid in ids:
+        sub = subs.get(uid)
+        tier = None
+        if sub is not None:
+            candidate = tiers.get(sub.tier_id)
+            if candidate is not None and candidate.enabled:
+                tier = candidate
+            else:
+                sub = None  # same as get_user_tier: unusable tier → default, no sub
+        if tier is None:
+            tier = tiers.get(DEFAULT_TIER_ID)
+
+        kyber_id = kyber_ids.get(uid)
+        out[uid] = {
+            'tier': tier.model_dump() if tier else None,
+            'subscription': sub.model_dump() if sub else None,
+            'expires_at': sub.expires_at if sub else None,
+            'kyber_linked': bool(kyber_id),
+            'usage': usage_by_kyber.get(kyber_id) if kyber_id else None,
+        }
+    return out
+
+
+def _sync_result(request: Request, snapshot: dict, synced: bool) -> dict:
+    """Attach the outcome of the KyberRouter cap sync to an admin response. The sync is
+    best-effort by design (it must never fail a payment), which is exactly why the
+    admin panel has to SHOW when it did not happen — a tier the limiter never heard
+    about is the one bug this whole feature exists to catch."""
+    return {
+        **snapshot,
+        'rate_limits_synced': synced,
+        'token_billing_enabled': bool(
+            getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False)
+        ),
+    }
+
+
+@router.post('/admin/users/overview')
+async def admin_users_overview(
+    request: Request, form_data: AdminUserIdsForm, user=Depends(get_admin_user)
+):
+    """Plan, expiry and live 5h/weekly token usage for the given users (one admin page
+    at a time). Users without a KyberRouter link come back with `usage: null`."""
+    if len(form_data.user_ids) > 500:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Too many users in one request'
+        )
+    return {'users': await _admin_user_snapshot(request, form_data.user_ids)}
+
+
+@router.post('/admin/users/{user_id}/subscription')
+async def admin_set_user_subscription(
+    request: Request, user_id: str, form_data: AdminSubscriptionForm, user=Depends(get_admin_user)
+):
+    """Put a user on a plan until a chosen instant, then push the tier's caps to
+    KyberRouter. Unlike a payment or a gift card this SETS the expiry (it can shorten
+    it); selecting the default free plan revokes the subscription instead, since Free
+    is the absence of one."""
+    target = await Users.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+
+    tier_id = (form_data.tier_id or '').strip().lower()
+    tier = await SubscriptionTiers.get_tier(tier_id)
+    if tier is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
+
+    if tier_id == DEFAULT_TIER_ID:
+        await UserSubscriptions.revoke_for_user(user_id)
+    else:
+        now = int(time.time())
+        expires_at = form_data.expires_at
+        if expires_at is None:
+            days = form_data.duration_days or tier.duration_days or 30
+            if days <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail='Duration must be at least one day'
+                )
+            expires_at = now + int(days) * 86400
+        if int(expires_at) <= now:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Expiry must be in the future — switch the user to the free plan to end it now',
+            )
+        await UserSubscriptions.set_for_user(
+            user_id, tier_id, int(expires_at), order_id=f'admin:{user.id}'
+        )
+
+    synced = await sync_user_rate_limits_to_kyber(request, user_id)
+    log.info(
+        'admin %s set subscription of %s to %s (synced=%s)', user.id, user_id, tier_id, synced
+    )
+    snapshot = await _admin_user_snapshot(request, [user_id])
+    return _sync_result(request, snapshot.get(user_id, {}), synced)
+
+
+@router.delete('/admin/users/{user_id}/subscription')
+async def admin_revoke_user_subscription(
+    request: Request, user_id: str, user=Depends(get_admin_user)
+):
+    """Cancel the user's active subscription (back to the default free tier) and
+    re-sync the free caps to KyberRouter."""
+    target = await Users.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+
+    revoked = await UserSubscriptions.revoke_for_user(user_id)
+    synced = await sync_user_rate_limits_to_kyber(request, user_id)
+    log.info('admin %s revoked %s subscription(s) of %s (synced=%s)', user.id, revoked, user_id, synced)
+    snapshot = await _admin_user_snapshot(request, [user_id])
+    return {**_sync_result(request, snapshot.get(user_id, {}), synced), 'revoked': revoked}
+
+
+@router.post('/admin/users/{user_id}/usage/reset')
+async def admin_reset_user_usage(
+    request: Request, user_id: str, form_data: UsageResetForm, user=Depends(get_admin_user)
+):
+    """Clear a user's rolling 5h and/or weekly token window on KyberRouter (both when
+    `windows` is omitted), so they can send again immediately. Their usage history and
+    wallet are untouched — this only zeroes the rate-limit counters. Fails loudly:
+    unlike the tier sync, an admin must never be told a reset worked when it didn't."""
+    target = await Users.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+
+    link = await UserKyberAccounts.get_by_user_id(user_id)
+    if not link or not link.kyber_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='This user is not linked to a wallet yet.',
+        )
+
+    windows = [w for w in (form_data.windows or []) if w in ('5h', 'week')]
+    try:
+        result = await kyber_reset_user_usage(request, link.kyber_user_id, windows or None)
+    except KyberError as e:
+        raise HTTPException(status_code=e.status or 502, detail=e.message)
+
+    log.info('admin %s reset %s window(s) of %s', user.id, windows or 'all', user_id)
+    snapshot = await _admin_user_snapshot(request, [user_id])
+    return {**snapshot.get(user_id, {}), 'reset': result.get('windows', windows or ['5h', 'week'])}
 
 
 ############################

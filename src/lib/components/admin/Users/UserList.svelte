@@ -13,6 +13,7 @@
 	import { toast } from 'svelte-sonner';
 
 	import { updateUserRole, getUsers, deleteUserById } from '$lib/apis/users';
+	import { getAdminUsersOverview } from '$lib/apis/subscriptions';
 
 	import Pagination from '$lib/components/common/Pagination.svelte';
 	import ChatBubbles from '$lib/components/icons/ChatBubbles.svelte';
@@ -21,6 +22,7 @@
 	import EditUserModal from '$lib/components/admin/Users/UserList/EditUserModal.svelte';
 	import UserChatsModal from '$lib/components/admin/Users/UserList/UserChatsModal.svelte';
 	import AddUserModal from '$lib/components/admin/Users/UserList/AddUserModal.svelte';
+	import UserSubscriptionModal from '$lib/components/admin/Users/UserList/UserSubscriptionModal.svelte';
 
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import RoleUpdateConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -56,6 +58,46 @@
 	let showUserChatsModal = false;
 	let showEditUserModal = false;
 	let showUserPreviewModal = false;
+	let showUserSubscriptionModal = false;
+
+	// { [user_id]: { tier, subscription, expires_at, kyber_linked, usage } } for the
+	// rows on screen — one call per page, loaded after the user list so a slow (or
+	// unreachable) account service never delays the table itself.
+	let plans = {};
+
+	const compactTokens = new Intl.NumberFormat(undefined, {
+		notation: 'compact',
+		maximumFractionDigits: 1
+	});
+
+	// limit 0 / missing = unlimited (KyberRouter's convention) → no percentage to show.
+	const usagePercent = (w) =>
+		w && w.limit > 0 ? Math.min(100, Math.round((w.used / w.limit) * 1000) / 10) : null;
+
+	const usageBarClass = (p) =>
+		p === null
+			? 'bg-gray-300 dark:bg-gray-700'
+			: p >= 90
+				? 'bg-red-500'
+				: p >= 70
+					? 'bg-yellow-500'
+					: 'bg-green-500';
+
+	// Guards against a slow response for a previous page landing after a newer one and
+	// blanking the columns (the rows read `plans[user.id]`, so stale data shows as '—').
+	let plansRequestId = 0;
+
+	const loadPlans = async () => {
+		const requestId = ++plansRequestId;
+		const ids = (users ?? []).map((u) => u.id);
+		if (ids.length === 0) {
+			plans = {};
+			return;
+		}
+		const res = await getAdminUsersOverview(localStorage.token, ids).catch(() => null);
+		if (requestId !== plansRequestId) return;
+		plans = res?.users ?? {};
+	};
 
 	const deleteUserHandler = async (id) => {
 		const res = await deleteUserById(localStorage.token, id).catch((error) => {
@@ -94,6 +136,7 @@
 			if (res) {
 				users = res.users;
 				total = res.total;
+				loadPlans();
 			}
 		} catch (err) {
 			console.error(err);
@@ -142,6 +185,14 @@
 
 {#if selectedUser}
 	<UserChatsModal bind:show={showUserChatsModal} user={selectedUser} />
+
+	<UserSubscriptionModal
+		bind:show={showUserSubscriptionModal}
+		{selectedUser}
+		on:save={async () => {
+			await loadPlans();
+		}}
+	/>
 {/if}
 
 {#if ($config?.license_metadata?.seats ?? null) !== null && total && total > $config?.license_metadata?.seats}
@@ -305,6 +356,18 @@
 						</div>
 					</th>
 
+					<th scope="col" class="px-2.5 py-2 select-none">
+						<div class="flex gap-1.5 items-center">
+							{$i18n.t('Plan')}
+						</div>
+					</th>
+
+					<th scope="col" class="px-2.5 py-2 select-none">
+						<div class="flex gap-1.5 items-center">
+							{$i18n.t('Usage (5h / week)')}
+						</div>
+					</th>
+
 					<th
 						scope="col"
 						class="px-2.5 py-2 cursor-pointer select-none"
@@ -401,6 +464,63 @@
 							</div>
 						</td>
 						<td class=" px-3 py-1 max-w-48 truncate"> {user.email} </td>
+
+						<td class="px-3 py-1">
+							<Tooltip content={$i18n.t('Edit plan & usage')}>
+								<button
+									class="flex flex-col items-start gap-0.5 py-0.5"
+									on:click={() => {
+										selectedUser = user;
+										showUserSubscriptionModal = true;
+									}}
+								>
+									<Badge
+										type={(plans[user.id]?.subscription ?? null) === null ? 'muted' : 'info'}
+										content={plans[user.id]?.tier?.name ?? '—'}
+									/>
+									{#if plans[user.id]?.expires_at}
+										<span
+											class="text-[10px] {plans[user.id].expires_at * 1000 - Date.now() <
+											3 * 86400000
+												? 'text-yellow-600 dark:text-yellow-400'
+												: 'text-gray-400'}"
+										>
+											{dayjs(plans[user.id].expires_at * 1000).format('ll')}
+										</span>
+									{/if}
+								</button>
+							</Tooltip>
+						</td>
+
+						<td class="px-3 py-1 min-w-[7.5rem]">
+							{#if plans[user.id]?.usage}
+								{#each [{ key: '5h', window: plans[user.id].usage.tp5h }, { key: '7d', window: plans[user.id].usage.tpw }] as row (row.key)}
+									{@const p = usagePercent(row.window)}
+									<Tooltip
+										content={`${compactTokens.format(row.window?.used ?? 0)} / ${
+											row.window?.limit > 0 ? compactTokens.format(row.window.limit) : '∞'
+										}`}
+									>
+										<div class="flex items-center gap-1.5 my-0.5">
+											<span class="text-[10px] text-gray-400 w-4">{row.key}</span>
+											<div
+												class="h-1 w-12 rounded-full bg-gray-100 dark:bg-gray-850 overflow-hidden"
+											>
+												<div
+													class="h-full rounded-full {usageBarClass(p)}"
+													style="width: {p === null ? 0 : p}%"
+												></div>
+											</div>
+											<span class="text-[10px] text-gray-500 w-8"
+												>{p === null ? '∞' : `${Math.round(p)}%`}</span
+											>
+										</div>
+									</Tooltip>
+								{/each}
+							{:else}
+								<span class="text-gray-400">—</span>
+							{/if}
+						</td>
 
 						<td class=" px-3 py-1">
 							{dayjs(user.last_active_at * 1000).fromNow()}

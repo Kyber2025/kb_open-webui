@@ -89,6 +89,23 @@ class UserKyberAccountsTable:
             )
             return [row[0] for row in result.all()]
 
+    async def kyber_ids_for_users(
+        self, user_ids: list[str], db: Optional[AsyncSession] = None
+    ) -> dict[str, str]:
+        """{open-webui user_id: KyberRouter user id} for the given users, skipping the
+        unlinked ones. One query for a whole admin page, so the user list can show each
+        user's token-window usage without a lookup per row."""
+        if not user_ids:
+            return {}
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(UserKyberAccount.user_id, UserKyberAccount.kyber_user_id).filter(
+                    UserKyberAccount.user_id.in_(user_ids),
+                    UserKyberAccount.kyber_user_id.isnot(None),
+                )
+            )
+            return {row[0]: row[1] for row in result.all()}
+
     async def upsert(
         self,
         user_id: str,

@@ -93,6 +93,31 @@ export const seedTiers = (token: string) => request(token, '/admin/seed', 'POST'
 
 export const getAdminSubscriptions = (token: string) => request(token, '/admin/subscriptions');
 
+// ── Admin: per-user plan & usage ─────────────────────────────
+
+// Plan + expiry + live 5h/weekly token usage for one page of users (one call, no
+// fan-out per row). Users with no KyberRouter link come back with `usage: null`.
+export const getAdminUsersOverview = (token: string, userIds: string[]) =>
+	request(token, '/admin/users/overview', 'POST', { user_ids: userIds });
+
+// Put a user on a plan. `expires_at` is epoch SECONDS and is set exactly (it can
+// shorten a subscription); omit it to grant `duration_days` (or the tier's own
+// duration) from now. Choosing the free tier revokes instead.
+export const setUserSubscription = (
+	token: string,
+	userId: string,
+	payload: { tier_id: string; expires_at?: number | null; duration_days?: number | null }
+) => request(token, `/admin/users/${encodeURIComponent(userId)}/subscription`, 'POST', payload);
+
+export const revokeUserSubscription = (token: string, userId: string) =>
+	request(token, `/admin/users/${encodeURIComponent(userId)}/subscription`, 'DELETE');
+
+// Clear the rolling token windows on KyberRouter (both when `windows` is omitted).
+export const resetUserUsage = (token: string, userId: string, windows?: ('5h' | 'week')[]) =>
+	request(token, `/admin/users/${encodeURIComponent(userId)}/usage/reset`, 'POST', {
+		windows: windows ?? null
+	});
+
 // ── Admin: gift cards ────────────────────────────────────────
 
 export const generateGiftCards = (

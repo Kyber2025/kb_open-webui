@@ -313,6 +313,104 @@ class UserSubscriptionsTable:
             )
             return [UserSubscriptionModel.model_validate(s) for s in result.scalars().all()]
 
+    async def list_active_for_users(
+        self, user_ids: list[str], db: Optional[AsyncSession] = None
+    ) -> dict[str, UserSubscriptionModel]:
+        """{user_id: active subscription} for the given users (latest expiry wins).
+        One query for a whole admin page — the list view needs every row's plan."""
+        if not user_ids:
+            return {}
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            result = await db.execute(
+                select(UserSubscription)
+                .filter(
+                    UserSubscription.user_id.in_(user_ids),
+                    UserSubscription.status == 'active',
+                    UserSubscription.expires_at > now,
+                )
+                .order_by(UserSubscription.expires_at.asc())
+            )
+            # ascending expiry → the last write per user is the furthest-out one,
+            # matching get_active_for_user's "order by expires_at desc, limit 1".
+            return {s.user_id: UserSubscriptionModel.model_validate(s) for s in result.scalars().all()}
+
+    async def set_for_user(
+        self,
+        user_id: str,
+        tier_id: str,
+        expires_at: int,
+        order_id: Optional[str] = None,
+        db: Optional[AsyncSession] = None,
+    ) -> Optional[UserSubscriptionModel]:
+        """Admin override: put the user on `tier_id` until exactly `expires_at`.
+
+        Unlike create_or_extend (which ADDS a duration and is driven by payments and
+        gift cards), this SETS the expiry to the given instant — an admin correcting a
+        plan needs to be able to shorten it, not only extend. Any other active
+        subscription is superseded, so the user always has at most one."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            result = await db.execute(
+                select(UserSubscription)
+                .filter(
+                    UserSubscription.user_id == user_id,
+                    UserSubscription.status == 'active',
+                    UserSubscription.expires_at > now,
+                )
+                .order_by(UserSubscription.expires_at.desc())
+            )
+            active = result.scalars().all()
+
+            target = next((s for s in active if s.tier_id == tier_id), None)
+            for s in active:
+                if s is not target:
+                    s.status = 'expired'
+                    s.updated_at = now
+
+            if target is None:
+                target = UserSubscription(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    tier_id=tier_id,
+                    status='active',
+                    started_at=now,
+                    expires_at=expires_at,
+                    order_id=order_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(target)
+            else:
+                target.expires_at = expires_at
+                target.updated_at = now
+                if order_id:
+                    target.order_id = order_id
+
+            await db.commit()
+            await db.refresh(target)
+            return UserSubscriptionModel.model_validate(target)
+
+    async def revoke_for_user(self, user_id: str, db: Optional[AsyncSession] = None) -> int:
+        """Cancel every active subscription of a user (admin downgrade to the default
+        tier). Returns how many rows were cancelled. Idempotent."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            result = await db.execute(
+                select(UserSubscription).filter(
+                    UserSubscription.user_id == user_id,
+                    UserSubscription.status == 'active',
+                    UserSubscription.expires_at > now,
+                )
+            )
+            subs = result.scalars().all()
+            for s in subs:
+                s.status = 'cancelled'
+                s.expires_at = now
+                s.updated_at = now
+            await db.commit()
+            return len(subs)
+
     async def create_or_extend(
         self,
         user_id: str,
