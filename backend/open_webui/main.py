@@ -2956,10 +2956,19 @@ async def get_manifest_json():
                     'sizes': '500x500',
                     'purpose': 'any',
                 },
+                # a maskable icon is cropped to the inner safe zone, so it points at
+                # the padded exports — logo.png runs the mark to the edge and loses
+                # the outer arc of the swirl on Android
                 {
-                    'src': '/static/logo.png',
+                    'src': '/static/web-app-manifest-192x192.png',
                     'type': 'image/png',
-                    'sizes': '500x500',
+                    'sizes': '192x192',
+                    'purpose': 'maskable',
+                },
+                {
+                    'src': '/static/web-app-manifest-512x512.png',
+                    'type': 'image/png',
+                    'sizes': '512x512',
                     'purpose': 'maskable',
                 },
             ],
