@@ -714,6 +714,12 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(scheduler_worker_loop(app))
 
+    # Expiry is the one subscription transition no user action triggers, so caps
+    # have to be reconciled on a timer — see subscription_reconcile_loop.
+    from open_webui.utils.subscription import subscription_reconcile_loop
+
+    asyncio.create_task(subscription_reconcile_loop(app))
+
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
         try:
             await get_all_models(

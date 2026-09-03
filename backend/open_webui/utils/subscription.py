@@ -19,6 +19,7 @@ from open_webui.models.subscriptions import (
     SubscriptionTierModel,
     SubscriptionTiers,
     SubscriptionUsage,
+    UserSubscription,
     UserSubscriptionModel,
     UserSubscriptions,
 )
@@ -110,12 +111,66 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool
         link = await UserKyberAccounts.get_by_user_id(user_id)
         extra_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
         multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0)
-        return await kyber_set_user_rate_limits(
+
+        # Did the user's caps actually change? Read what KyberRouter holds BEFORE
+        # overwriting it. This runs on every sync (login included), so comparing is
+        # the only way to tell a real tier change from a routine re-push — resetting
+        # unconditionally would clear the window on every login.
+        #
+        # Comparing stored-vs-new caps rather than tracking the last synced tier
+        # keeps this self-correcting: a cap changed out of band (SQL, a missed sync,
+        # an edited tier) still counts as a change and still gets a clean window.
+        caps_changed = await _caps_differ(request, link, override)
+
+        ok = await kyber_set_user_rate_limits(
             request, user_id, override, subscription_managed=True,
             extra_usage_enabled=extra_enabled, extra_usage_multiplier=multiplier,
         )
+
+        # Tier changed → the 5h/weekly counters start fresh (user decision
+        # 2026-09-03). Without this an upgrade inherits the old plan's consumption
+        # and reads as a nonsense percentage of the new cap, and an expiring user
+        # stays locked out of their free window for days by tokens they paid for.
+        # Best-effort and strictly after the caps land: a failed reset leaves the
+        # correct caps in place, which is the safe half.
+        if ok and caps_changed:
+            try:
+                from open_webui.utils.kyber import kyber_reset_user_usage
+
+                kyber_uid = getattr(link, 'kyber_user_id', None)
+                if kyber_uid:
+                    await kyber_reset_user_usage(request, kyber_uid)
+                    log.info('rate-limit windows reset for %s (caps changed)', user_id)
+            except Exception:
+                log.warning('caps changed for %s but window reset failed', user_id, exc_info=True)
+        return ok
     except Exception:
         log.exception('Failed to sync rate limits to KyberRouter for %s', user_id)
+        return False
+
+
+async def _caps_differ(request: Request, link, override: dict) -> bool:
+    """True when KyberRouter's stored 5h/weekly caps differ from the ones about to be
+    written. False on any read failure — an unreadable cap must not be mistaken for a
+    tier change and wipe a live counter."""
+    kyber_uid = getattr(link, 'kyber_user_id', None)
+    if not kyber_uid:
+        return False
+    try:
+        from open_webui.utils.kyber import kyber_get_users_usage_limits
+
+        current = (await kyber_get_users_usage_limits(request, [kyber_uid])).get(kyber_uid)
+        if not current:
+            return False  # unknown/unreadable: never reset on a guess
+        for window, key in (('tp5h', 'tp5h'), ('tpw', 'tpw')):
+            stored = (current.get(window) or {}).get('limit')
+            if stored is None:
+                return False
+            if int(stored or 0) != int(override.get(key) or 0):
+                return True
+        return False
+    except Exception:
+        log.warning('could not read current caps for %s; skipping window reset', kyber_uid)
         return False
 
 
@@ -151,6 +206,71 @@ async def sync_all_user_rate_limits_to_kyber(
     await asyncio.gather(*(_one(uid) for uid in user_ids))
     log.info('rate-limit resync tier=%s: %s', tier_id, stats)
     return stats
+
+
+async def expire_lapsed_subscriptions() -> int:
+    """Flip `status` to 'expired' on rows whose expires_at has passed.
+
+    get_user_tier already ignores lapsed rows, so nothing depended on this column
+    being accurate — which is why it silently drifted: rows sat at 'active' months
+    past their end date, and the admin list showed a state the limiter did not
+    share. Returns the number of rows corrected.
+    """
+    try:
+        from sqlalchemy import update
+
+        from open_webui.internal.db import get_async_db_context
+
+        now = int(time.time())
+        async with get_async_db_context(None) as db:
+            result = await db.execute(
+                update(UserSubscription)
+                .where(UserSubscription.status == 'active')
+                .where(UserSubscription.expires_at.isnot(None))
+                .where(UserSubscription.expires_at < now)
+                .values(status='expired', updated_at=now)
+            )
+            await db.commit()
+            n = int(result.rowcount or 0)
+        if n:
+            log.info('marked %s lapsed subscription(s) expired', n)
+        return n
+    except Exception:
+        log.exception('failed to expire lapsed subscriptions')
+        return 0
+
+
+async def subscription_reconcile_loop(app, interval_seconds: int = 900) -> None:
+    """Periodically re-push every linked user's effective caps to KyberRouter.
+
+    The five per-user sync events (login, redeem, payment, extra-usage toggle, gift
+    invalidate) all fire on something the USER does. Expiry is the one transition
+    nobody triggers: a lapsed subscriber who stays signed in or drives the API by
+    key kept their old paid caps indefinitely — four accounts were found holding
+    Ultra's 100M weekly cap on the free tier, 100x over.
+
+    The resync recomputes each user's effective tier (which does account for
+    expiry) and pushes it, so this closes that hole without a new code path — and,
+    because sync now resets the windows when caps change, an expiring user also
+    gets their free-tier window instead of staying locked out by tokens they used
+    while paying.
+    """
+    from starlette.requests import Request as StarletteRequest
+
+    # sync_all_user_rate_limits_to_kyber only ever reads request.app.state.config,
+    # so a minimal scope is enough — there is no live HTTP request here.
+    request = StarletteRequest({'type': 'http', 'app': app, 'headers': []})
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            await expire_lapsed_subscriptions()
+            stats = await sync_all_user_rate_limits_to_kyber(request, None)
+            if stats.get('failed'):
+                log.warning('subscription reconcile: %s', stats)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception('subscription reconcile pass failed')
 
 
 async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
