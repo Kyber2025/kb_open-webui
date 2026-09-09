@@ -85,6 +85,34 @@ export const updateUserDefaultPermissions = async (token: string, permissions: o
 	return res;
 };
 
+export const banUserById = async (token: string, id: string, banned: boolean, reason?: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/users/${id}/ban`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ banned, reason: reason ?? null })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const updateUserRole = async (token: string, id: string, role: string) => {
 	let error = null;
 

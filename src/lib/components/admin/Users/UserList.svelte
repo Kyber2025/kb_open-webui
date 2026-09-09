@@ -12,7 +12,7 @@
 
 	import { toast } from 'svelte-sonner';
 
-	import { updateUserRole, getUsers, deleteUserById } from '$lib/apis/users';
+	import { updateUserRole, getUsers, deleteUserById, banUserById } from '$lib/apis/users';
 	import { getAdminUsersOverview } from '$lib/apis/subscriptions';
 
 	import Pagination from '$lib/components/common/Pagination.svelte';
@@ -53,6 +53,7 @@
 	let selectedUser = null;
 
 	let showDeleteConfirmDialog = false;
+	let showBanConfirmDialog = false;
 	let showAddUserModal = false;
 
 	let showUserChatsModal = false;
@@ -97,6 +98,19 @@
 		const res = await getAdminUsersOverview(localStorage.token, ids).catch(() => null);
 		if (requestId !== plansRequestId) return;
 		plans = res?.users ?? {};
+	};
+
+	const isBanned = (u) => !!(u?.info && typeof u.info === 'object' && u.info.banned_at);
+
+	const banUserHandler = async (id, banned) => {
+		const res = await banUserById(localStorage.token, id, banned).catch((error) => {
+			toast.error(`${error}`);
+			return null;
+		});
+		if (res) {
+			toast.success(banned ? $i18n.t('User banned') : $i18n.t('User unbanned'));
+			getUserList();
+		}
 	};
 
 	const deleteUserHandler = async (id) => {
@@ -164,6 +178,19 @@
 	bind:show={showDeleteConfirmDialog}
 	on:confirm={() => {
 		deleteUserHandler(selectedUser.id);
+	}}
+/>
+
+<ConfirmDialog
+	bind:show={showBanConfirmDialog}
+	title={$i18n.t('Ban User')}
+	message={$i18n.t(
+		'Ban {{name}}? They will immediately lose chat, the desktop app and the API. You can unban later.',
+		{ name: selectedUser?.name ?? selectedUser?.email ?? '' }
+	)}
+	confirmLabel={$i18n.t('Ban User')}
+	on:confirm={() => {
+		banUserHandler(selectedUser.id, true);
 	}}
 />
 
@@ -430,10 +457,14 @@
 									showEditUserModal = !showEditUserModal;
 								}}
 							>
-								<Badge
-									type={user.role === 'admin' ? 'info' : user.role === 'user' ? 'success' : 'muted'}
-									content={$i18n.t(user.role)}
-								/>
+								{#if isBanned(user)}
+									<Badge type="error" content={$i18n.t('Banned')} />
+								{:else}
+									<Badge
+										type={user.role === 'admin' ? 'info' : user.role === 'user' ? 'success' : 'muted'}
+										content={$i18n.t(user.role)}
+									/>
+								{/if}
 							</button>
 						</td>
 						<td class="px-3 py-1 font-medium text-gray-900 dark:text-white max-w-48">
@@ -607,6 +638,58 @@
 								</Tooltip>
 
 								{#if user.role !== 'admin'}
+									{#if isBanned(user)}
+										<Tooltip content={$i18n.t('Unban User')}>
+											<button
+												class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl text-green-600 dark:text-green-400"
+												aria-label={$i18n.t('Unban User')}
+												on:click={async () => {
+													banUserHandler(user.id, false);
+												}}
+											>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+													stroke-width="1.5"
+													stroke="currentColor"
+													class="w-4 h-4"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+													/>
+												</svg>
+											</button>
+										</Tooltip>
+									{:else}
+										<Tooltip content={$i18n.t('Ban User')}>
+											<button
+												class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl text-red-600 dark:text-red-400"
+												aria-label={$i18n.t('Ban User')}
+												on:click={async () => {
+													selectedUser = user;
+													showBanConfirmDialog = true;
+												}}
+											>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+													stroke-width="1.5"
+													stroke="currentColor"
+													class="w-4 h-4"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"
+													/>
+												</svg>
+											</button>
+										</Tooltip>
+									{/if}
 									<Tooltip content={$i18n.t('Delete User')}>
 										<button
 											class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"

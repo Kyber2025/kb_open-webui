@@ -38,7 +38,7 @@ from open_webui.utils.auth import (
     get_verified_user,
     validate_password,
 )
-from open_webui.utils.kyber import kyber_sync_user_password_hash
+from open_webui.utils.kyber import KyberError, kyber_set_user_banned, kyber_sync_user_password_hash
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -646,6 +646,65 @@ async def update_user_by_id(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=ERROR_MESSAGES.USER_NOT_FOUND,
     )
+
+
+############################
+# BanUserById
+############################
+
+
+class BanUserForm(BaseModel):
+    banned: bool
+    reason: Optional[str] = None
+
+
+@router.post('/{user_id}/ban', response_model=UserModel | None)
+async def ban_user_by_id(
+    request: Request,
+    user_id: str,
+    form_data: BanUserForm,
+    session_user: UserModel = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """封号 / 解封. Suspends the account everywhere: KyberRouter first (ai.kividas.com,
+    API keys, the desktop client refuse with 403 account_banned), then here the role
+    becomes `pending` (chat UI + API refuse) with the ban recorded in `info` so the
+    list can tell a banned account from a fresh signup, and live sockets are dropped.
+    Unban restores the pre-ban role. Never for admins, the primary admin or yourself."""
+    user = await Users.get_user_by_id(user_id, db=db)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+    first_user = await Users.get_first_user(db=db)
+    if user.id == session_user.id or user.role == 'admin' or (first_user and user.id == first_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACTION_PROHIBITED)
+
+    try:
+        await kyber_set_user_banned(request, user.id, user.email, form_data.banned, form_data.reason)
+    except KyberError as e:
+        raise HTTPException(status_code=e.status if 400 <= e.status < 600 else 502, detail=e.message)
+
+    info = dict(user.info) if isinstance(user.info, dict) else {}
+    if form_data.banned:
+        if user.role != 'pending':
+            info['role_before_ban'] = user.role
+        info['banned_at'] = int(time.time())
+        info['ban_reason'] = (form_data.reason or '').strip()
+        info['banned_by'] = session_user.email
+        new_role = 'pending'
+    else:
+        new_role = info.pop('role_before_ban', None) or 'user'
+        if new_role == 'admin':
+            new_role = 'user'
+        for k in ('banned_at', 'ban_reason', 'banned_by'):
+            info.pop(k, None)
+
+    updated = await Users.update_user_by_id(user.id, {'role': new_role, 'info': info}, db=db)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=ERROR_MESSAGES.DEFAULT())
+    if form_data.banned:
+        await disconnect_user_sessions(user.id)
+    log.warning('admin %s %s user %s (%s)', session_user.email, 'banned' if form_data.banned else 'unbanned', user.email, user.id)
+    return updated
 
 
 ############################

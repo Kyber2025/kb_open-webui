@@ -462,6 +462,29 @@ async def kyber_reset_user_usage(
     raise KyberError(_err_message(data, 'Could not reset the usage window'), status_code)
 
 
+async def kyber_set_user_banned(
+    request: Request, owui_user_id: str, email: str, banned: bool, reason: Optional[str] = None
+) -> None:
+    """Suspend or restore the user's KyberRouter account — the side that gates
+    ai.kividas.com, every API key and the desktop client. RAISES KyberError unless
+    KyberRouter confirmed the change; a 404 (no linked account there) is fine: the
+    user is chat-only and the caller proceeds with the local role change."""
+    payload: dict = {'banned': banned}
+    if reason:
+        payload['reason'] = reason
+    link = await UserKyberAccounts.get_by_user_id(owui_user_id)
+    if link and link.kyber_user_id:
+        payload['kyberUserId'] = link.kyber_user_id
+    else:
+        payload['email'] = email
+    status_code, data = await _internal_request(request, 'PUT', '/internal/users/ban', payload)
+    if status_code in (200, 404):
+        return
+    if status_code == 0:
+        raise KyberError(data.get('error') or 'Could not reach the account service', 502)
+    raise KyberError(_err_message(data, 'Could not update the account status'), status_code)
+
+
 async def kyber_sync_user_password_hash(
     request: Request, owui_user_id: str, email: str, password_hash: str
 ) -> str:
