@@ -1,4 +1,3 @@
-from open_webui.utils.consumption import conversation_headers
 from __future__ import annotations
 
 import asyncio
@@ -41,6 +40,7 @@ from open_webui.models.users import UserModel
 from open_webui.utils.access_control import check_model_access, has_connection_access
 from open_webui.utils.anthropic import get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.consumption import conversation_headers
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
 from open_webui.utils.kyber import get_kyber_billing_key
 from open_webui.utils.misc import (

@@ -42,6 +42,13 @@ class ConsumptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(m.conversation_headers('https://other.example', 'https://ai.kividas.com', {'chat_id': 'real'}), {})
 
 class ResponsesConversionTests(unittest.TestCase):
+    def test_complete_modules_compile(self):
+        root = Path(__file__).parents[1] / 'open_webui'
+        for relative in ('config.py', 'routers/openai.py', 'routers/tasks.py', 'utils/consumption.py'):
+            source = root / relative
+            with self.subTest(module=relative):
+                compile(source.read_text(), str(source), 'exec')
+
     def test_instructions_are_not_overwritten_or_moved_before_history(self):
         source = Path(__file__).parents[1] / 'open_webui/routers/openai.py'
         tree = ast.parse(source.read_text())
