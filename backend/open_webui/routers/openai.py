@@ -1,3 +1,4 @@
+from open_webui.utils.consumption import conversation_headers
 from __future__ import annotations
 
 import asyncio
@@ -173,6 +174,9 @@ async def get_headers_and_cookies(
         headers = include_user_info_headers(headers, user)
         if metadata and metadata.get('chat_id'):
             headers[FORWARD_SESSION_INFO_HEADER_CHAT_ID] = metadata.get('chat_id')
+
+    if request.app.state.config.ENABLE_KYBER_TOKEN_BILLING:
+        headers.update(conversation_headers(url, str(request.app.state.config.KYBER_BILLING_BASE_URL), metadata))
 
     token = None
     auth_type = config.get('auth_type')
@@ -883,7 +887,7 @@ def convert_to_responses_payload(payload: dict) -> dict:
     """
     messages = payload.pop('messages', [])
 
-    system_content = ''
+    system_parts = []
     input_items = []
 
     for msg in messages:
@@ -896,11 +900,13 @@ def convert_to_responses_payload(payload: dict) -> dict:
             input_items.extend(_normalize_stored_item(item) for item in stored_output)
             continue
 
-        if role == 'system':
-            if isinstance(content, str):
-                system_content = content
-            elif isinstance(content, list):
-                system_content = '\n'.join(p.get('text', '') for p in content if p.get('type') == 'text')
+        if role in ('system', 'developer'):
+            text = content if isinstance(content, str) else '\n'.join(p.get('text', '') for p in content if p.get('type') == 'text') if isinstance(content, list) else ''
+            if text:
+                if not input_items:
+                    system_parts.append(text)
+                else:
+                    input_items.append({'type': 'message', 'role': 'developer', 'content': [{'type': 'input_text', 'text': text}]})
             continue
 
         # Handle assistant messages with tool_calls (from convert_output_to_messages)
@@ -971,8 +977,8 @@ def convert_to_responses_payload(payload: dict) -> dict:
     if previous_response_id:
         responses_payload['previous_response_id'] = previous_response_id
 
-    if system_content:
-        responses_payload['instructions'] = system_content
+    if system_parts:
+        responses_payload['instructions'] = '\n\n'.join(system_parts)
 
     if 'max_tokens' in responses_payload:
         responses_payload['max_output_tokens'] = responses_payload.pop('max_tokens')

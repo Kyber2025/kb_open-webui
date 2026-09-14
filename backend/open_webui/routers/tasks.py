@@ -1,3 +1,4 @@
+from open_webui.utils.consumption import title_messages, title_once
 import logging
 import re
 from typing import Optional
@@ -195,9 +196,9 @@ async def generate_title(request: Request, form_data: dict, user=Depends(get_ver
     else:
         template = DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE
 
-    content = await title_generation_template(template, form_data['messages'], user)
+    content = await title_generation_template(template, title_messages(form_data.get('messages')), user)
 
-    max_tokens = models[task_model_id].get('info', {}).get('params', {}).get('max_tokens', 1000)
+    max_tokens = min(128, int(models[task_model_id].get('info', {}).get('params', {}).get('max_tokens') or 128))
 
     payload = {
         'model': task_model_id,
@@ -225,7 +226,8 @@ async def generate_title(request: Request, form_data: dict, user=Depends(get_ver
         raise e
 
     try:
-        return await generate_chat_completion(request, form_data=payload, user=user)
+        return await title_once(request.app.state.redis, user.id, form_data.get('chat_id'),
+            lambda: generate_chat_completion(request, form_data=payload, user=user))
     except Exception as e:
         log.error('Exception occurred', exc_info=True)
         return JSONResponse(

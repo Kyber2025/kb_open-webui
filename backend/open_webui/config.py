@@ -3324,13 +3324,13 @@ JSON format: { "follow_ups": ["Question 1?", "Question 2?", "Question 3?"] }
 ENABLE_FOLLOW_UP_GENERATION = ConfigVar(
     'ENABLE_FOLLOW_UP_GENERATION',
     'task.follow_up.enable',
-    os.getenv('ENABLE_FOLLOW_UP_GENERATION', 'True').lower() == 'true',
+    os.getenv('ENABLE_FOLLOW_UP_GENERATION', 'False').lower() == 'true',
 )
 
 ENABLE_TAGS_GENERATION = ConfigVar(
     'ENABLE_TAGS_GENERATION',
     'task.tags.enable',
-    os.getenv('ENABLE_TAGS_GENERATION', 'True').lower() == 'true',
+    os.getenv('ENABLE_TAGS_GENERATION', 'False').lower() == 'true',
 )
 
 ENABLE_TITLE_GENERATION = ConfigVar(
