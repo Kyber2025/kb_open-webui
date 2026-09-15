@@ -1585,15 +1585,12 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
     models = await get_filtered_models(models, user)
 
     # Subscription tier model allow-list (UX: hide models not in the user's plan).
-    # The hard gate is enforced at completion time. Admins see all models.
+    # The hard gate is enforced at completion time, including for administrators.
     # Two-stage filtering by design: KyberRouter defines the platform model pool
     # (what the connection exposes at all); the tier's checked models are the
     # second filter — applied in BOTH billing modes, so unchecking a model in
     # the plan hides it from the picker even with token billing on.
-    if (
-        getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True)
-        and user.role != 'admin'
-    ):
+    if getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         # Enterprise (KyberRouter org-seat) members see ALL models on the web —
         # desktop parity — instead of being narrowed to their fallback tier.
         from open_webui.utils.kyber import is_kyber_enterprise_member
@@ -1771,7 +1768,7 @@ async def chat_completion(
             model_info = await Models.get_model_by_id(model_id)
 
             # Subscription tier enforcement: model allow-list + daily message quota.
-            # No-op for admins / when subscriptions are disabled. Internal task
+            # Applies to administrators too. No-op when subscriptions are disabled. Internal task
             # completions (title/tag generation) use the tasks router, so they are
             # not counted against the user's quota here.
             await enforce_subscription_access(request, user, model_id)

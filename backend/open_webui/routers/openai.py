@@ -1147,7 +1147,7 @@ async def generate_chat_completion(
 
     # P2 per-user token billing: when enabled, bill this completion against the
     # user's own KyberRouter wallet by swapping in their personal sk-or- key.
-    # Returns None (keep the shared key) for non-billed upstreams or unlinked users.
+    # Unlinked signed-in users are rejected; administrators use their own allowance.
     billing_key = await get_kyber_billing_key(request, user, url)
     if billing_key:
         key = billing_key
@@ -1172,6 +1172,13 @@ async def generate_chat_completion(
             payload['logit_bias'] = json.loads(logit_bias)
 
     headers, cookies = await get_headers_and_cookies(request, url, key, api_config, metadata, user=user)
+
+    if billing_key:
+        # A connection's custom Authorization header/auth type must not replace
+        # the personal billing identity with the shared connection credential.
+        headers = {k: v for k, v in headers.items() if k.lower() != 'authorization'}
+        headers['Authorization'] = f'Bearer {billing_key}'
+        cookies = {}
 
     is_responses = api_config.get('api_type') == 'responses'
 

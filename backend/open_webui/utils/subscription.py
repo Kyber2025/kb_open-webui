@@ -274,7 +274,7 @@ async def subscription_reconcile_loop(app, interval_seconds: int = 900) -> None:
 async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
     """State for the /me endpoint: effective tier, today's usage, remaining, expiry."""
     tier, sub = await get_user_tier(user_id)
-    limit = None if (is_admin or tier is None) else tier.daily_message_limit
+    limit = None if tier is None else tier.daily_message_limit
     used = 0
     if limit is not None:
         used = await SubscriptionUsage.get_count(user_id, utc_date())
@@ -308,8 +308,8 @@ async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
 
 async def enforce_subscription_access(request: Request, user, model_id: str) -> None:
     """Raise HTTP 403 (model not in tier) or 429 (daily quota reached) for a
-    non-admin user's managed chat completion. Increments the daily counter when a
-    finite limit applies. Admins and disabled subscriptions are no-ops."""
+    user's managed chat completion, including administrators. Increments the daily
+    counter when a finite limit applies. Disabled subscriptions are a no-op."""
     if not getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         return
     # Guests are gated separately (per-IP/device, not per-user) by
@@ -318,9 +318,6 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
 
     if is_guest_user(user):
         return
-    if getattr(user, 'role', None) == 'admin':
-        return
-
     # Enterprise (KyberRouter org-seat) members get desktop parity: skip the
     # per-tier model allow-list AND the daily message cap — KyberRouter's seat
     # quota + org wallet govern usage instead (same as the desktop client).
@@ -595,6 +592,9 @@ async def generate_gift_cards(
     tier = await SubscriptionTiers.get_tier(tier_id)
     if tier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
+
+    if not tier.enabled or tier.id not in ('pro', 'max', 'ultra'):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='请选择有效的付费订阅档位')
 
     try:
         count = int(count)

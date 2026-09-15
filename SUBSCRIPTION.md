@@ -1,15 +1,20 @@
 # Subscription / USDT Billing (Kividas fork)
 
-Adds Free/Pro/Max/Ultra **monthly subscriptions** to open-webui, paid in USDT via the
+Adds Free/Max 7x/Max 10x/Max 20x **monthly subscriptions** to open-webui, paid in USDT via the
 Java `payment_service`. Tiers are **admin-configurable** (allowed models, daily message
 limit, price). Models are served by **KyberRouter** (the OpenAI-compatible upstream).
 
-Plan line-up (since 2026-08-18) mirrors Anthropic's own: Pro **$20** / Max **$100** (= Max 5x) /
-Ultra **$200** (= Max 20x), with the official usage multipliers Pro : Max : Ultra = 1 : 5 : 20.
-Token caps (KyberRouter's cache-weighted count, rolling windows): Free 200K/5h · 1M/wk (= Pro/5,
-Anthropic's "Pro ≥ 5× Free"), Pro 1M · 5M, Max 5M · 25M, Max+ 10M · 50M ($150, added
-2026-08-19 — half of Ultra at 3/4 of its price), Ultra 20M · 100M — the Ultra base is one
-Max 20x account's measured capacity on our own bridge fleet.
+Platform plans (since 2026-09-15): Max 7x **$90** (`pro`, 7M/5h · 35M/week),
+Max 10x **$130** (`max`, 10M/5h · 50M/week), and Max 20x **$260** (`ultra`,
+20M/5h · 100M/week). Max+ is disabled. Free retains **200K/5h · 1M/week**.
+These are platform token allowances, not Anthropic's published quotas: official Free
+has a five-hour session limit with dynamic capacity and no published fixed token count.
+The platform deliberately keeps its Free weekly cap to control usage costs.
+
+Free Claude requests use CometAPI. Paid Claude bindings use s1–s5 (3 users/account),
+s6–s10 (2 users/account), and s11–s20 (1 user/account), respectively. Existing desktop
+versions use the same server-side routing, quota and redemption checks; updating is
+only needed for new client UI/features. Account management roles do not grant usage.
 The live values are the `subscription_tier` rows (edit at `/admin/subscriptions`);
 `DEFAULT_TIERS` in `utils/subscription.py` only seeds an empty table.
 
@@ -57,11 +62,13 @@ we gate *which* managed models a user may call and *how many* messages/day.
 - `backend/open_webui/main.py` — import models + router include; seed tiers on startup; **enforcement** in `chat_completion` (after model_info load, ~line 1688); **visible-model filter** in `/api/models` (~line 1481).
 
 ### Tier resolution
-Effective tier = active `user_subscription` (status active & `expires_at > now`, max `expires_at`); else default tier `free`. **Admins bypass all enforcement.**
+Effective tier = active `user_subscription` (status active & `expires_at > now`, max `expires_at`); else default tier `free`. Administrators follow the same tier model allow-list and usage limits.
 
-### Enforcement (in `main.py chat_completion`, non-direct models, non-admin)
+### Enforcement (in `main.py chat_completion`, non-direct models, including admins)
 1. Model allow-list: if `tier.allowed_model_ids` non-empty and `model_id` not in it → **403**.
 2. Daily quota: if `tier.daily_message_limit` not null and today's count ≥ limit → **429**; else increment. Day = UTC `YYYY-MM-DD`. Internal title/tag completions go through the `tasks` router, **not** counted.
+3. With KyberRouter token billing enabled, token windows are enforced upstream using the user's own billing key. An unlinked signed-in user receives **403**, including local administrators; the shared connection key cannot substitute for their identity. The separately rate-limited guest flow is unchanged.
+4. Gift cards can only be generated for enabled paid plans (`pro`, `max`, `ultra`). Deleting a code makes it invalid for every client version.
 
 ## API (`/api/v1/subscriptions`)
 - `GET  /tiers` (verified user) — enabled tiers for the subscription page.

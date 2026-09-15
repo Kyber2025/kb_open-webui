@@ -19,6 +19,8 @@
 	let generating = false;
 
 	let tiers = [];
+
+	$: giftTiers = tiers.filter((tier) => tier.enabled && ['pro', 'max', 'ultra'].includes(tier.id));
 	let cards = [];
 	let counts = { total: 0, available: 0, redeemed: 0, disabled: 0 };
 	let statusFilter = 'all';
@@ -54,8 +56,8 @@
 
 	const loadTiers = async () => {
 		tiers = (await getAdminTiers(localStorage.token).catch(() => [])) ?? [];
-		if (!genTierId) {
-			const preferred = tiers.find((t) => (t.price_usd ?? 0) > 0) ?? tiers[0];
+		if (!tiers.some((t) => t.id === genTierId && t.enabled && ['pro', 'max', 'ultra'].includes(t.id))) {
+			const preferred = tiers.find((t) => t.enabled && ['pro', 'max', 'ultra'].includes(t.id));
 			genTierId = preferred?.id ?? '';
 		}
 	};
@@ -233,7 +235,7 @@
 					class="px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-sm text-black dark:text-white outline-none"
 					bind:value={genTierId}
 				>
-					{#each tiers as t (t.id)}
+					{#each giftTiers as t (t.id)}
 						<option value={t.id}>{t.name}</option>
 					{/each}
 				</select>

@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import aiohttp
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from open_webui.models.kyber_accounts import UserKyberAccounts
 from open_webui.utils.oauth import decrypt_data, encrypt_data
@@ -231,19 +231,24 @@ async def get_kyber_billing_key(request: Request, user, url: str) -> Optional[st
     """P2: return the user's own sk-or- key for a chat completion to the KyberRouter
     model API, so usage is metered/limited against their wallet (402 on empty balance).
 
-    Returns None — and the caller keeps the shared connection key, so chat never
-    breaks — when token billing is off, the upstream isn't KyberRouter, or the user
-    has no linked key yet (e.g. local admins, pre-bridge accounts)."""
+    The shared connection key is only used for non-billed upstreams and the
+    separately limited guest account. An unlinked signed-in user must not borrow
+    it: that would bypass their subscription, including for local admins."""
     cfg = request.app.state.config
     if not getattr(cfg, 'ENABLE_KYBER_TOKEN_BILLING', False):
         return None
     base = getattr(cfg, 'KYBER_BILLING_BASE_URL', '') or ''
     if not _host_matches(url, base):
         return None
-    user_id = getattr(user, 'id', None)
-    if not user_id:
+    from open_webui.utils.guest import is_guest_user
+
+    if is_guest_user(user):
         return None
-    return await get_user_kyber_api_key(user_id)
+    user_id = getattr(user, 'id', None)
+    key = await get_user_kyber_api_key(user_id) if user_id else None
+    if not key:
+        raise HTTPException(403, '账号尚未关联平台计费，请使用平台账号重新登录；管理员也需遵守订阅额度。')
+    return key
 
 
 async def _drop_rejected_api_key(user_id: str, status_code: int, what: str) -> None:
