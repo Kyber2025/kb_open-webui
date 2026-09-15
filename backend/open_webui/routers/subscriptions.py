@@ -1,10 +1,10 @@
-from open_webui.utils.subscription_models import sync_subscription_model_policy
+from open_webui.utils.subscription_models import sync_subscription_model_policy, load_model_catalog, models_for_tier
 from open_webui.utils.claude_allocation import change_subscription, cancel_reservation
 import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from open_webui.models.kyber_accounts import UserKyberAccounts
@@ -91,6 +91,16 @@ class UsageResetForm(BaseModel):
 async def get_tiers(user=Depends(get_verified_user)):
     """Enabled tiers for the subscription page."""
     return await SubscriptionTiers.list_tiers(enabled_only=True)
+
+
+@router.get('/tiers/{tier_id}/models')
+async def get_tier_models(tier_id: str, request: Request, response: Response, user=Depends(get_verified_user)):
+    """Preview any published plan without granting access to its models."""
+    tier = await SubscriptionTiers.get_tier(tier_id)
+    if tier is None or not tier.enabled:
+        raise HTTPException(status_code=404, detail='Subscription plan not found')
+    response.headers['Cache-Control'] = 'private, no-store'
+    return models_for_tier(tier, await available_model_catalog(request))
 
 
 @router.get('/chains')
@@ -187,19 +197,12 @@ async def admin_list_tiers(user=Depends(get_admin_user)):
 @router.get('/admin/models')
 async def admin_model_catalog(request: Request, user=Depends(get_admin_user)):
     """Configuration catalog; never use the administrator's personal plan filter."""
-    import aiohttp
-    from open_webui.utils.kyber import kyber_base
+    return await available_model_catalog(request)
 
+
+async def available_model_catalog(request):
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-            # The gateway publishes a public catalog without credentials. This
-            # authenticated admin endpoint exposes metadata only, no inference.
-            async with session.get(f'{kyber_base(request)}/v1/models') as response:
-                if response.status != 200:
-                    raise ValueError('Catalog unavailable')
-                data = await response.json()
-                return [{'id': m['id'], 'name': m.get('name', m['id'])}
-                        for m in data.get('data', []) if isinstance(m, dict) and m.get('id')]
+        return await load_model_catalog(request)
     except Exception:
         raise HTTPException(status_code=503, detail='完整模型目录暂时不可用，请稍后重试。')
 

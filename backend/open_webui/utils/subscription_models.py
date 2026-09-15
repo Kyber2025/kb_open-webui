@@ -5,6 +5,28 @@ import aiohttp
 log = logging.getLogger(__name__)
 
 
+async def load_model_catalog(request):
+    """Public model metadata, independent of the viewer's inference entitlement."""
+    from open_webui.utils.kyber import kyber_base
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+        async with session.get(f'{kyber_base(request)}/v1/models') as response:
+            if response.status != 200:
+                raise ValueError('Catalog unavailable')
+            data = await response.json()
+            if not isinstance(data.get('data'), list):
+                raise ValueError('Invalid catalog')
+            return [{'id': m['id'], 'name': m.get('name') or m['id']}
+                    for m in data['data'] if isinstance(m, dict) and isinstance(m.get('id'), str)]
+
+
+def models_for_tier(tier, catalog):
+    def canonical(value):
+        return value.strip().lower().split('/', 1)[-1]
+    allowed = {canonical(value) for value in (tier.allowed_model_ids or [])}
+    return {'tier_id': tier.id, 'tier_name': tier.name, 'all_models': not allowed,
+            'models': [m for m in catalog if not allowed or canonical(m['id']) in allowed]}
+
+
 async def sync_subscription_model_policy(request, removed_tier=None) -> bool:
     from open_webui.config import KYBER_INTERNAL_SECRET
     from open_webui.models.subscriptions import SubscriptionTiers

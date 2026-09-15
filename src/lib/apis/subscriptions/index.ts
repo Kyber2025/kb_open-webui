@@ -59,6 +59,8 @@ const request = async (
 // ── User-facing ──────────────────────────────────────────────
 
 export const getSubscriptionTiers = (token: string) => request(token, '/tiers');
+export const getTierModels = (token: string, tierId: string) =>
+	request(token, `/tiers/${encodeURIComponent(tierId)}/models`);
 
 export const getSubscriptionChains = (token: string) => request(token, '/chains');
 

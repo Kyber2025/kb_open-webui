@@ -120,5 +120,24 @@ class SubscriptionPolicySyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload['tiers'][-1], removed)
 
 
+class TierModelPreviewTests(unittest.TestCase):
+    def test_preview_uses_the_selected_tier_not_viewer_permissions(self):
+        from open_webui.utils.subscription_models import models_for_tier
+        catalog = [{'id': 'gpt-5.5', 'name': 'GPT-5.5'}, {'id': 'claude-sonnet-5', 'name': 'Sonnet 5'}]
+        tier = SimpleNamespace(id='ultra', name='Max 20x', allowed_model_ids=['OpenAI/GPT-5.5', 'missing'])
+        result = models_for_tier(tier, catalog)
+        self.assertEqual(result['models'], [catalog[0]])
+        self.assertEqual(result['tier_id'], 'ultra')
+        self.assertFalse(result['all_models'])
+        self.assertEqual(tier.allowed_model_ids, ['OpenAI/GPT-5.5', 'missing'])
+
+    def test_unrestricted_plan_previews_the_full_catalog(self):
+        from open_webui.utils.subscription_models import models_for_tier
+        catalog = [{'id': 'gpt-5.5', 'name': 'GPT-5.5'}]
+        tier = SimpleNamespace(id='custom', name='Custom', allowed_model_ids=[])
+        self.assertEqual(models_for_tier(tier,catalog), {
+            'tier_id':'custom','tier_name':'Custom','all_models':True,'models':catalog})
+
+
 if __name__ == '__main__':
     unittest.main()

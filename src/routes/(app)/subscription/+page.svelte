@@ -14,6 +14,7 @@
 
 	import {
 		getSubscriptionTiers,
+		getTierModels,
 		getSubscriptionChains,
 		getMySubscription,
 		subscribe,
@@ -35,6 +36,28 @@
 	let usage = null;
 	/** @type {string | null} */
 	let selectedTierId = null;
+	let showModels = false;
+	let modelsTier = null;
+	let supportedModels = [];
+	let modelsLoading = false;
+	let modelsError = '';
+	let modelsRequest = 0;
+	const openModels = async (tier) => {
+		modelsTier = tier;
+		showModels = true;
+		supportedModels = [];
+		modelsError = '';
+		modelsLoading = true;
+		const requestId = ++modelsRequest;
+		try {
+			const result = await getTierModels(localStorage.token, tier.id);
+			if (requestId === modelsRequest) supportedModels = result.models;
+		} catch (error) {
+			if (requestId === modelsRequest) modelsError = `${error}`;
+		} finally {
+			if (requestId === modelsRequest) modelsLoading = false;
+		}
+	};
 
 	// gift card redemption
 	let redeemCode = '';
@@ -443,6 +466,9 @@
 								</div>
 
 								<div class="mt-auto pt-4">
+									<button type="button" class="mb-3 text-sm font-medium text-violet-600 dark:text-violet-300 hover:underline" aria-haspopup="dialog"
+										aria-label={`${tier.name} — ${$i18n.t('Models')}`}
+										on:click|stopPropagation={() => openModels(tier)}>{$i18n.t('Models')} →</button>
 									{#if isCurrent}
 										<button
 											class="w-full py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm font-semibold cursor-default"
@@ -627,3 +653,28 @@
 </style>
 
 <Modal bind:show={showResourceError} size="sm"><div class="p-6 space-y-4"><h2 class="text-lg font-semibold">{$i18n.t('Subscription')}</h2><p class="text-sm">{resourceError}</p><button class="rounded-xl bg-violet-500 px-4 py-2 text-white" on:click={() => showResourceError = false}>{$i18n.t('Close')}</button></div></Modal>
+
+<Modal bind:show={showModels} size="sm">
+	<div class="p-6">
+		<div class="flex items-center justify-between gap-4 mb-4">
+			<h2 class="text-lg font-semibold">{modelsTier?.name} · {$i18n.t('Models')}</h2>
+			<button type="button" class="rounded-lg px-2 py-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label={$i18n.t('Close')} on:click={() => showModels = false}>✕</button>
+		</div>
+		<div aria-live="polite" aria-busy={modelsLoading} class="max-h-[55dvh] overflow-y-auto">
+			{#if modelsLoading}
+				<p class="py-6 text-sm text-gray-500">{$i18n.t('Loading...')}</p>
+			{:else if modelsError}
+				<p class="text-sm text-red-500">{modelsError}</p>
+				<button type="button" class="mt-3 text-sm text-violet-600" on:click={() => openModels(modelsTier)}>{$i18n.t('Retry')}</button>
+			{:else if supportedModels.length}
+				<ul class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+					{#each supportedModels as model (model.id)}
+						<li class="rounded-xl border border-gray-100 dark:border-gray-800 px-3 py-2 text-sm break-words">{model.name}</li>
+					{/each}
+				</ul>
+			{:else}
+				<p class="py-6 text-sm text-gray-500">{$i18n.t('No models available')}</p>
+			{/if}
+		</div>
+	</div>
+</Modal>
