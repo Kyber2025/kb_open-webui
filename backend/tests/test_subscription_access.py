@@ -2,7 +2,7 @@
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -80,6 +80,44 @@ class SubscriptionAccessTests(unittest.IsolatedAsyncioTestCase):
                     with self.assertRaises(HTTPException) as caught:
                         await subscription.generate_gift_cards(self.admin, tier_id, 1)
                     self.assertEqual(caught.exception.status_code, 409)
+
+
+class SubscriptionPolicySyncTests(unittest.IsolatedAsyncioTestCase):
+    async def run_sync(self, status=200, removed=None):
+        from open_webui.utils import subscription_models
+        from open_webui import config
+        from open_webui.models.subscriptions import SubscriptionTiers
+        tier = SimpleNamespace(id='free', name='Free', enabled=True,
+                               allowed_model_ids=['gpt-5.2'], updated_at=10)
+        response = MagicMock(status=status)
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=response)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        session = MagicMock()
+        session.put.return_value = ctx
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=False)
+        with patch.object(config, 'KYBER_INTERNAL_SECRET', 'isolated-test-secret'), \
+                patch.object(SubscriptionTiers, 'list_tiers', AsyncMock(return_value=[tier])), \
+                patch.object(subscription_models.aiohttp, 'ClientSession', return_value=session):
+            ok = await subscription_models.sync_subscription_model_policy(request(), removed)
+        return ok, session.put.call_args.kwargs['json']
+
+    async def test_policy_transmits_whitelist_and_revision(self):
+        ok, payload = await self.run_sync()
+        self.assertTrue(ok)
+        self.assertEqual(payload['tiers'][0]['allowedModelIds'], ['gpt-5.2'])
+        self.assertEqual(payload['tiers'][0]['updatedAt'], 10)
+
+    async def test_failed_sync_is_reported(self):
+        ok, _ = await self.run_sync(status=503)
+        self.assertFalse(ok)
+
+    async def test_deleted_tier_publishes_disabled_policy(self):
+        removed = dict(id='pro', name='Max 7x', enabled=False, allowedModelIds=[], updatedAt=11)
+        ok, payload = await self.run_sync(removed=removed)
+        self.assertTrue(ok)
+        self.assertEqual(payload['tiers'][-1], removed)
 
 
 if __name__ == '__main__':

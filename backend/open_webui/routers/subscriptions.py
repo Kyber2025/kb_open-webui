@@ -1,3 +1,4 @@
+from open_webui.utils.subscription_models import sync_subscription_model_policy
 from open_webui.utils.claude_allocation import change_subscription, cancel_reservation
 import logging
 import time
@@ -183,6 +184,26 @@ async def admin_list_tiers(user=Depends(get_admin_user)):
     return await SubscriptionTiers.list_tiers(enabled_only=False)
 
 
+@router.get('/admin/models')
+async def admin_model_catalog(request: Request, user=Depends(get_admin_user)):
+    """Configuration catalog; never use the administrator's personal plan filter."""
+    import aiohttp
+    from open_webui.utils.kyber import kyber_base
+
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+            # The gateway publishes a public catalog without credentials. This
+            # authenticated admin endpoint exposes metadata only, no inference.
+            async with session.get(f'{kyber_base(request)}/v1/models') as response:
+                if response.status != 200:
+                    raise ValueError('Catalog unavailable')
+                data = await response.json()
+                return [{'id': m['id'], 'name': m.get('name', m['id'])}
+                        for m in data.get('data', []) if isinstance(m, dict) and m.get('id')]
+    except Exception:
+        raise HTTPException(status_code=503, detail='完整模型目录暂时不可用，请稍后重试。')
+
+
 @router.post('/admin/tiers')
 async def admin_upsert_tier(
     request: Request,
@@ -193,8 +214,8 @@ async def admin_upsert_tier(
     """Create/update a tier. When the token caps or the extra-usage multiplier of an
     EXISTING tier change, every user currently on that tier is re-synced to
     KyberRouter in the background, so the limiter and the usage ring pick up the new
-    caps immediately — not just the plan card. (Price/description/model-list edits
-    don't touch KyberRouter and skip the resync.)"""
+    caps immediately. Model policies are always acknowledged by the gateway
+    before reporting success, independently of per-user token-cap sync."""
     tier_id = (form_data.id or '').strip().lower()
     if not tier_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tier id is required')
@@ -203,6 +224,8 @@ async def admin_upsert_tier(
     tier = await SubscriptionTiers.upsert_tier(form_data)
     if tier is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Failed to save tier')
+    if not await sync_subscription_model_policy(request):
+        raise HTTPException(status_code=503, detail='订阅设置已保存，但模型权限尚未同步到网关；请重试保存。后台会继续重试同步。')
     if previous is not None and (
         previous.token_limit_5h != tier.token_limit_5h
         or previous.token_limit_week != tier.token_limit_week
@@ -226,9 +249,12 @@ async def admin_resync_rate_limits(
 
 
 @router.delete('/admin/tiers/{tier_id}')
-async def admin_delete_tier(tier_id: str, user=Depends(get_admin_user)):
+async def admin_delete_tier(tier_id: str, request: Request, user=Depends(get_admin_user)):
     if tier_id == DEFAULT_TIER_ID:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='The default free tier cannot be deleted')
+    import time
+    if not await sync_subscription_model_policy(request, {'id': tier_id, 'name': tier_id, 'enabled': False, 'allowedModelIds': [], 'updatedAt': int(time.time())}):
+        raise HTTPException(status_code=503, detail='模型权限同步失败，请重试删除。')
     ok = await SubscriptionTiers.delete_tier(tier_id)
     return {'success': ok}
 

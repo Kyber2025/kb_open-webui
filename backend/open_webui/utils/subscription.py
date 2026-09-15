@@ -186,9 +186,12 @@ async def sync_all_user_rate_limits_to_kyber(
     from the admin resync endpoint. Best-effort per user; returns counts."""
     from open_webui.models.kyber_accounts import UserKyberAccounts
 
+    from open_webui.utils.subscription_models import sync_subscription_model_policy
+
+    policy_synced = await sync_subscription_model_policy(request)
     user_ids = await UserKyberAccounts.list_user_ids()
     sem = asyncio.Semaphore(max(1, concurrency))
-    stats = {'tier_id': tier_id, 'total_linked': len(user_ids), 'matched': 0, 'synced': 0, 'failed': 0}
+    stats = {'model_policy_synced': policy_synced, 'tier_id': tier_id, 'total_linked': len(user_ids), 'matched': 0, 'synced': 0, 'failed': 0}
 
     async def _one(uid: str) -> None:
         async with sem:
@@ -263,7 +266,7 @@ async def subscription_reconcile_loop(app, interval_seconds: int = 900) -> None:
             await reconcile_allocations(request)
             await expire_lapsed_subscriptions()
             stats = await sync_all_user_rate_limits_to_kyber(request, None)
-            if stats.get('failed'):
+            if stats.get('failed') or not stats.get('model_policy_synced'):
                 log.warning('subscription reconcile: %s', stats)
         except asyncio.CancelledError:
             raise

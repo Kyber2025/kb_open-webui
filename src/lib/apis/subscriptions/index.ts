@@ -82,6 +82,7 @@ export const setExtraUsage = (token: string, enabled: boolean) =>
 // ── Admin ────────────────────────────────────────────────────
 
 export const getAdminTiers = (token: string) => request(token, '/admin/tiers');
+export const getAdminModelCatalog = (token: string) => request(token, '/admin/models');
 
 export const upsertTier = (token: string, tier: Json) =>
 	request(token, '/admin/tiers', 'POST', tier);

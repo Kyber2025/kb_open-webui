@@ -4,12 +4,12 @@
 
 	const i18n = getContext('i18n');
 
-	import { models } from '$lib/stores';
-	import { getAdminTiers, upsertTier, deleteTier, seedTiers } from '$lib/apis/subscriptions';
+	import { getAdminTiers, getAdminModelCatalog, upsertTier, deleteTier, seedTiers } from '$lib/apis/subscriptions';
 
 	let loading = true;
 	let savingId = null;
 	let tiers = [];
+	let catalogModels = [];
 	let newCounter = 0;
 
 	const blankTier = () => ({
@@ -32,6 +32,10 @@
 		loading = true;
 		tiers = (await getAdminTiers(localStorage.token).catch(() => [])) ?? [];
 		tiers = tiers.map((t) => ({ ...t, allowed_model_ids: t.allowed_model_ids ?? [], _uid: t.id }));
+		catalogModels = (await getAdminModelCatalog(localStorage.token).catch((e) => {
+			toast.error(`${e}`);
+			return [];
+		})) ?? [];
 		loading = false;
 	};
 
@@ -251,10 +255,10 @@
 					<div
 						class="max-h-40 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-800 p-2 mb-3 grid grid-cols-1 sm:grid-cols-2 gap-1"
 					>
-						{#if ($models ?? []).length === 0}
+						{#if catalogModels.length === 0}
 							<div class="text-xs text-gray-400">{$i18n.t('No models loaded.')}</div>
 						{:else}
-							{#each $models.filter((m) => m?.id) as m (m.id)}
+							{#each catalogModels.filter((m) => m?.id) as m (m.id)}
 								<label class="flex items-center gap-1.5 text-xs truncate">
 									<input
 										type="checkbox"
