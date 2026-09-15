@@ -181,7 +181,8 @@ async def redeem(request: Request, form_data: RedeemForm, user=Depends(get_verif
 
 @router.get('/admin/tiers')
 async def admin_list_tiers(user=Depends(get_admin_user)):
-    return await SubscriptionTiers.list_tiers(enabled_only=False)
+    return [tier for tier in await SubscriptionTiers.list_tiers(enabled_only=False)
+            if tier.id != 'max_plus']
 
 
 @router.get('/admin/models')
@@ -219,6 +220,8 @@ async def admin_upsert_tier(
     tier_id = (form_data.id or '').strip().lower()
     if not tier_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tier id is required')
+    if tier_id == 'max_plus':
+        raise HTTPException(status_code=409, detail='Max+ 已下架，请使用 Max 7x、Max 10x 或 Max 20x。')
     form_data.id = tier_id
     previous = await SubscriptionTiers.get_tier(tier_id)
     tier = await SubscriptionTiers.upsert_tier(form_data)
