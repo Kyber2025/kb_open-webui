@@ -4,7 +4,8 @@ import uuid
 from typing import Optional
 
 from open_webui.internal.db import Base, JSONField, get_async_db_context
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from open_webui.utils.subscription_model_ids import normalize_model_ids
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -119,7 +120,16 @@ class GiftCard(Base):
 ####################
 
 
-class SubscriptionTierModel(BaseModel):
+class SubscriptionModelSelection(BaseModel):
+    allowed_model_ids: Optional[list[str]] = None
+
+    @field_validator('allowed_model_ids')
+    @classmethod
+    def normalize_allowed_models(cls, values):
+        return normalize_model_ids(values)
+
+
+class SubscriptionTierModel(SubscriptionModelSelection):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -138,7 +148,7 @@ class SubscriptionTierModel(BaseModel):
     updated_at: int
 
 
-class SubscriptionTierForm(BaseModel):
+class SubscriptionTierForm(SubscriptionModelSelection):
     id: str
     name: str
     description: Optional[str] = None

@@ -35,6 +35,19 @@ class SubscriptionAccessTests(unittest.IsolatedAsyncioTestCase):
                 await subscription.enforce_subscription_access(request(), self.admin, 'excluded')
             self.assertEqual(caught.exception.status_code, 403)
 
+    async def test_provider_aliases_match_in_chat_and_reject_after_removal(self):
+        self.tier.allowed_model_ids = ['openai/gpt-4o', 'claude-sonnet-5']
+        with patch.object(subscription, 'get_user_tier', AsyncMock(return_value=(self.tier, None))), \
+                patch.object(kyber, 'is_kyber_enterprise_member', AsyncMock(return_value=False)):
+            await subscription.enforce_subscription_access(request(), self.admin, 'gpt-4o')
+            self.assertEqual(subscription.filter_models_by_tier([{'id': 'gpt-4o'}], self.tier), [{'id': 'gpt-4o'}])
+            self.tier.allowed_model_ids = ['claude-sonnet-5']
+            for model in ['gpt-4o', 'openai/gpt-4o']:
+                with self.assertRaises(HTTPException) as caught:
+                    await subscription.enforce_subscription_access(request(), self.admin, model)
+                self.assertEqual(caught.exception.status_code, 403)
+
+
     async def test_admin_obeys_daily_limit_when_message_billing_enabled(self):
         with patch.object(subscription, 'get_user_tier', AsyncMock(return_value=(self.tier, None))), \
                 patch.object(kyber, 'is_kyber_enterprise_member', AsyncMock(return_value=False)), \
@@ -81,6 +94,23 @@ class SubscriptionAccessTests(unittest.IsolatedAsyncioTestCase):
                         await subscription.generate_gift_cards(self.admin, tier_id, 1)
                     self.assertEqual(caught.exception.status_code, 409)
 
+
+class SubscriptionModelIdentityTests(unittest.TestCase):
+    def test_saved_aliases_and_admin_forms_use_one_model_identity(self):
+        from open_webui.models.subscriptions import SubscriptionTierModel, SubscriptionTierForm
+        values = dict(id='custom', name='Custom', created_at=1, updated_at=1,
+                      allowed_model_ids=['openai/gpt-4o', 'gpt-4o', 'claude-sonnet-5'])
+        tier = SubscriptionTierModel(**values)
+        self.assertEqual(tier.allowed_model_ids, ['gpt-4o', 'claude-sonnet-5'])
+        form = SubscriptionTierForm(**tier.model_dump())
+        form.allowed_model_ids.remove('gpt-4o')
+        self.assertEqual(form.allowed_model_ids, ['claude-sonnet-5'])
+
+    def test_blank_model_id_cannot_turn_a_restricted_plan_into_all_models(self):
+        from pydantic import ValidationError
+        from open_webui.models.subscriptions import SubscriptionTierForm
+        with self.assertRaises(ValidationError):
+            SubscriptionTierForm(id='custom', name='Custom', allowed_model_ids=[' '])
 
 class SubscriptionPolicySyncTests(unittest.IsolatedAsyncioTestCase):
     async def run_sync(self, status=200, removed=None):

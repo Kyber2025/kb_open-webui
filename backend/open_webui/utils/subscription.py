@@ -7,6 +7,7 @@ import secrets
 import time
 import uuid
 from typing import Optional
+from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids
 
 from open_webui.utils.claude_allocation import change_subscription, reserve_order, cancel_reservation, reconcile_allocations, latest_change, propagate
 
@@ -337,8 +338,8 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
     # 1) Model allow-list (empty / None = all models allowed). Applies in BOTH
     # billing modes: KyberRouter defines the platform model pool (first filter);
     # the tier's checked models are the second filter — what this plan may use.
-    allowed = tier.allowed_model_ids
-    if allowed and model_id not in allowed:
+    allowed = normalize_model_ids(tier.allowed_model_ids)
+    if allowed and canonical_model_id(model_id) not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The model '{model_id}' isn't included in your {tier.name} plan. Upgrade to use it.",
@@ -370,11 +371,12 @@ def filter_models_by_tier(models: list, tier: Optional[SubscriptionTierModel]) -
     Each item is a model dict with an 'id'. Empty/None allow-list = no filtering."""
     if tier is None:
         return models
-    allowed = tier.allowed_model_ids
+    allowed = normalize_model_ids(tier.allowed_model_ids)
     if not allowed:
         return models
     allowed_set = set(allowed)
-    return [m for m in models if (m.get('id') if isinstance(m, dict) else getattr(m, 'id', None)) in allowed_set]
+    return [m for m in models if canonical_model_id(
+        (m.get('id') if isinstance(m, dict) else getattr(m, 'id', None)) or '') in allowed_set]
 
 
 ####################

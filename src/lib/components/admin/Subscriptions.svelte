@@ -1,6 +1,7 @@
 <script>
 	import { getContext, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { normalizeModelIds, setModelSelected, configuredModelOptions } from '$lib/utils/subscription-models';
 
 	const i18n = getContext('i18n');
 
@@ -31,7 +32,7 @@
 	const load = async () => {
 		loading = true;
 		tiers = (await getAdminTiers(localStorage.token).catch(() => [])) ?? [];
-		tiers = tiers.map((t) => ({ ...t, allowed_model_ids: t.allowed_model_ids ?? [], _uid: t.id }));
+		tiers = tiers.map((t) => ({ ...t, allowed_model_ids: normalizeModelIds(t.allowed_model_ids), _uid: t.id }));
 		catalogModels = (await getAdminModelCatalog(localStorage.token).catch((e) => {
 			toast.error(`${e}`);
 			return [];
@@ -49,11 +50,8 @@
 		toast.success($i18n.t('Default plans created'));
 	};
 
-	const toggleModel = (tier, modelId) => {
-		const set = new Set(tier.allowed_model_ids ?? []);
-		if (set.has(modelId)) set.delete(modelId);
-		else set.add(modelId);
-		tier.allowed_model_ids = Array.from(set);
+	const toggleModel = (tier, modelId, selected) => {
+		tier.allowed_model_ids = setModelSelected(tier.allowed_model_ids, modelId, selected);
 		tiers = tiers;
 	};
 
@@ -83,7 +81,7 @@
 					tier.extra_usage_multiplier === '' || tier.extra_usage_multiplier == null
 						? 1
 						: Number(tier.extra_usage_multiplier),
-				allowed_model_ids: tier.allowed_model_ids ?? [],
+				allowed_model_ids: normalizeModelIds(tier.allowed_model_ids),
 				enabled: !!tier.enabled,
 				sort_order: Number(tier.sort_order) || 0
 			};
@@ -258,14 +256,15 @@
 						{#if catalogModels.length === 0}
 							<div class="text-xs text-gray-400">{$i18n.t('No models loaded.')}</div>
 						{:else}
-							{#each catalogModels.filter((m) => m?.id) as m (m.id)}
+							{#each configuredModelOptions(catalogModels, tier.allowed_model_ids) as m (m.id)}
 								<label class="flex items-center gap-1.5 text-xs truncate">
 									<input
 										type="checkbox"
 										checked={(tier.allowed_model_ids ?? []).includes(m.id)}
-										on:change={() => toggleModel(tier, m.id)}
+										on:change={(event) => toggleModel(tier, m.id, event.currentTarget.checked)}
 									/>
 									<span class="truncate">{m.name ?? m.id}</span>
+									{#if m.unavailable}<span class="text-gray-400">({$i18n.t('Unavailable')})</span>{/if}
 								</label>
 							{/each}
 						{/if}

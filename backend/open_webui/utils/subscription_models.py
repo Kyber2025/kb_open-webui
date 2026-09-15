@@ -1,6 +1,7 @@
 """Publish the subscription editor's model policies to the inference gateway."""
 import logging
 import aiohttp
+from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids
 
 log = logging.getLogger(__name__)
 
@@ -20,11 +21,9 @@ async def load_model_catalog(request):
 
 
 def models_for_tier(tier, catalog):
-    def canonical(value):
-        return value.strip().lower().split('/', 1)[-1]
-    allowed = {canonical(value) for value in (tier.allowed_model_ids or [])}
+    allowed = set(normalize_model_ids(tier.allowed_model_ids) or [])
     return {'tier_id': tier.id, 'tier_name': tier.name, 'all_models': not allowed,
-            'models': [m for m in catalog if not allowed or canonical(m['id']) in allowed]}
+            'models': [m for m in catalog if not allowed or canonical_model_id(m['id']) in allowed]}
 
 
 async def sync_subscription_model_policy(request, removed_tier=None) -> bool:
