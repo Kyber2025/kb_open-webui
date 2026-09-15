@@ -8,6 +8,8 @@ import time
 import uuid
 from typing import Optional
 
+from open_webui.utils.claude_allocation import change_subscription, reserve_order, cancel_reservation, reconcile_allocations, latest_change, propagate
+
 import aiohttp
 from fastapi import HTTPException, Request, status
 
@@ -66,14 +68,16 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool
     convention) so the managed flag and a concrete cap are always set. The non-tier
     token windows (tph/tp4h/tpd) are pinned to 0 so a managed user is bound only by the
     per-tier 5h/weekly caps, never by KyberRouter's global hourly/4h/daily defaults.
-    Admins are subscription-managed but get a fully-unlimited override (all caps 0) so a
-    bridge-provisioned admin isn't accidentally token-rate-capped by the Free tier. No-op
+    Admin roles do not bypass subscription token allowances. No-op
     when token billing is off; best-effort (never raises into the subscription/login flow).
     Returns True only when KyberRouter acknowledged the PUT (False on skip/failure) so
     bulk callers can report how many users actually got the new caps."""
     try:
         if not getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False):
             return False
+        change = await latest_change(user_id)
+        if change and not change.synced:
+            await propagate(request, change.id)
         tier, _ = await get_user_tier(user_id)
         from open_webui.utils.kyber import kyber_set_user_rate_limits
 
@@ -81,28 +85,20 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool
             # No tier configured/seeded yet → clear any override, leave management off.
             return await kyber_set_user_rate_limits(request, user_id, None)
 
-        # Admins are subscription-managed (skip the wallet 402) but never token-rate-capped:
-        # a bridge-provisioned admin would otherwise inherit the Free tier's caps.
-        from open_webui.models.users import Users
-
-        user = await Users.get_user_by_id(user_id)
-        is_admin = getattr(user, 'role', None) == 'admin'
+        # Roles are preserved; token allowances follow the effective subscription.
 
         # Always send a NON-NULL override + subscription_managed=True. 0 = unlimited.
         # Pin the non-tier token windows (tph/tp4h/tpd) to 0 so a managed user is bound
         # ONLY by the per-tier 5h/weekly caps, never by a global hourly/4h/daily default
         # (KyberRouter merges any window absent from the override over its GLOBAL defaults).
         # Don't send rpm (KyberRouter requires rpm>=1) — let it inherit the global.
-        if is_admin:
-            override = {'tp5h': 0, 'tpw': 0, 'tph': 0, 'tp4h': 0, 'tpd': 0}
-        else:
-            override = {
-                'tp5h': int(tier.token_limit_5h or 0),
-                'tpw': int(tier.token_limit_week or 0),
-                'tph': 0,
-                'tp4h': 0,
-                'tpd': 0,
-            }
+        override = {
+            'tp5h': int(tier.token_limit_5h or 0),
+            'tpw': int(tier.token_limit_week or 0),
+            'tph': 0,
+            'tp4h': 0,
+            'tpd': 0,
+        }
         # Extra-usage (paid overflow): the per-tier multiplier + the user's opt-in
         # (stored on the kyber link). Synced alongside the caps so KyberRouter can
         # bill the wallet at `model price * multiplier` when the user overflows.
@@ -125,6 +121,7 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool
         ok = await kyber_set_user_rate_limits(
             request, user_id, override, subscription_managed=True,
             extra_usage_enabled=extra_enabled, extra_usage_multiplier=multiplier,
+            subscription_version=change.version if change else 0, subscription_tier=tier.id,
         )
 
         # Tier changed → the 5h/weekly counters start fresh (user decision
@@ -262,7 +259,8 @@ async def subscription_reconcile_loop(app, interval_seconds: int = 900) -> None:
     request = StarletteRequest({'type': 'http', 'app': app, 'headers': []})
     while True:
         try:
-            await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(min(interval_seconds, 60))
+            await reconcile_allocations(request)
             await expire_lapsed_subscriptions()
             stats = await sync_all_user_rate_limits_to_kyber(request, None)
             if stats.get('failed'):
@@ -438,10 +436,23 @@ async def create_subscription_order(request: Request, user, tier_id: str, chain_
 
     logical_id = f'owui-{uuid.uuid4().hex}'
     amount = _fmt_amount(tier.price_usd)
+    # Reopening checkout reuses its address and reservation instead of locking the
+    # same user out behind a second order. A different tier must be cancelled first.
+    pending_orders = await SubscriptionOrders.list_for_user(user.id)
+    pending = next((o for o in pending_orders if o.status == 'PENDING' and (o.expires_at or 0) > int(time.time())), None)
+    if pending:
+        if pending.tier_id != tier_id or pending.chain_id != chain_id:
+            raise HTTPException(409, '已有待支付订单，请先完成或取消原订单再更换档位或支付网络')
+        return {'order_id': pending.id, 'tier_id': tier_id, 'tier_name': tier.name,
+                'chain_id': chain_id, 'amount': pending.amount, 'address': pending.address,
+                'status': pending.status, 'expires_at': pending.expires_at}
+    reserved = await reserve_order(request, user.id, tier_id, logical_id, int(time.time()) + ORDER_TTL_SECONDS)
 
     try:
         data = await _payment_create(request, logical_id, chain_id, amount)
     except Exception as e:
+        if reserved:
+            await cancel_reservation(request, user.id, logical_id)
         log.exception('payment_service create failed')
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -450,11 +461,15 @@ async def create_subscription_order(request: Request, user, tier_id: str, chain_
 
     err = _is_payment_error(data)
     if err:
+        if reserved:
+            await cancel_reservation(request, user.id, logical_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=err)
 
     composite_id = data.get('orderId') or f'{logical_id}_{chain_id}'
     address = data.get('address')
     if not address:
+        if reserved:
+            await cancel_reservation(request, user.id, logical_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Payment service did not return an address')
 
     qr = data.get('qrCodeImage')
@@ -492,6 +507,8 @@ async def sync_order(request: Request, user, order_id: str) -> dict:
     order = await SubscriptionOrders.get(order_id)
     if order is None or order.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found')
+    if order.status == 'CANCELLED':
+        return {'order_id': order_id, 'status': 'CANCELLED', 'activated': False}
 
     activated_now = False
     current_status = order.status
@@ -514,12 +531,16 @@ async def sync_order(request: Request, user, order_id: str) -> dict:
         if current_status == 'PAID':
             tier = await SubscriptionTiers.get_tier(order.tier_id)
             duration = tier.duration_days if tier else 30
-            await UserSubscriptions.create_or_extend(user.id, order.tier_id, duration, order_id=order_id)
-            await SubscriptionOrders.update_status(order_id, 'PAID', tx_hash=tx_hash, activated=True)
+            await change_subscription(request, user.id, order.tier_id, duration_days=duration,
+                                      operation_id=order.logical_order_id, order_id=order_id)
             # P4: push the new tier's rate limits to KyberRouter.
             await sync_user_rate_limits_to_kyber(request, user.id)
             activated_now = True
 
+    if current_status in ('EXPIRED', 'FAILED'):
+        await cancel_reservation(request, user.id, order.logical_order_id)
+    if order.activated:
+        await propagate(request, order.logical_order_id)
     state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
     return {
         'order_id': order_id,
@@ -637,41 +658,14 @@ async def redeem_gift_card(request: Request, user, raw_code: str) -> dict:
             status_code=status.HTTP_400_BAD_REQUEST, detail='Please enter a valid gift card code'
         )
 
-    claimed = await GiftCards.claim(code, user.id)
+    claimed = await GiftCards.get(code)
     if claimed is None:
-        existing = await GiftCards.get(code)
-        if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Invalid gift card code')
-        if not existing.enabled:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail='This gift card has been deactivated'
-            )
-        if existing.redeemed_by == user.id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail='You have already redeemed this gift card'
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail='This gift card has already been redeemed'
-        )
-
+        raise HTTPException(404, 'Invalid gift card code')
     tier = await SubscriptionTiers.get_tier(claimed.tier_id)
-    if tier is None:
-        await GiftCards.release(code)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail='The plan for this gift card no longer exists'
-        )
-
-    try:
-        sub = await UserSubscriptions.create_or_extend(
-            user.id, claimed.tier_id, claimed.duration_days, order_id=f'gift:{code}'
-        )
-    except Exception:
-        log.exception('gift card grant failed; releasing claim for %s', code)
-        await GiftCards.release(code)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail='Could not activate your subscription. Please try again.',
-        )
+    if tier is None or not tier.enabled:
+        raise HTTPException(409, '此兑换码的订阅档位已停用，请联系管理员处理')
+    sub = await change_subscription(request, user.id, claimed.tier_id,
+        operation_id=f'gift:{code}', gift_code=code)
 
     # P4: push the granted tier's rate limits to KyberRouter.
     await sync_user_rate_limits_to_kyber(request, user.id)
@@ -712,7 +706,11 @@ async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
     await GiftCards.set_enabled(code, False)
 
     # 2) Revoke the subscription this redemption granted (tagged 'gift:<code>').
-    affected = await UserSubscriptions.revoke_by_order_id(f'gift:{code}')
+    current = await UserSubscriptions.get_active_for_user(card.redeemed_by)
+    affected = [card.redeemed_by] if current and current.order_id == f'gift:{code}' else []
+    if affected:
+        await change_subscription(request, card.redeemed_by, 'free',
+                                  operation_id=f'refund:{code}', revoke_order_id=f'gift:{code}')
 
     # 3) Re-sync each affected user's rate limits to KyberRouter (tier reverts to Free).
     # Fall back to the card's redeemed_by if no subscription row was found (e.g. it was
@@ -733,17 +731,7 @@ async def invalidate_gift_card(request: Request, raw_code: str) -> dict:
 # Seeding
 ####################
 
-# Mirrors Anthropic's own plan line-up: Pro $20 / Max 5x $100 / Max 20x $200 (our
-# "Ultra"), and the official usage multipliers Pro : Max : Ultra = 1 : 5 : 20.
-# Anthropic publishes no token figures, so the absolute base is calibrated from our
-# own Max 20x bridge fleet (2026-08-18): the gateway's cache-weighted token count
-# (fresh + 0.1×cache-read + 1.25×cache-write + output — what KyberRouter's limiter
-# meters) reaches Anthropic's 100% mark at ≈20M per rolling 5h and ≈100M per rolling
-# 7 days at the fleet's Opus/Fable-dominated model mix. Ultra = one Max 20x account,
-# Max = ¼ of that, Pro = 1/20, Free = Pro/5 (Anthropic: "Pro gets at least 5× the
-# usage of Free"). Live values live in the subscription_tier table and are
-# admin-editable; these seeds only apply to an empty table. Max+ (2026-08-19)
-# sits between Max and Ultra: half of Ultra's caps at 3/4 of its price.
+# Platform subscription quotas. These are local limits, not upstream usage guarantees.
 DEFAULT_TIERS = [
     SubscriptionTierForm(
         id='free', name='Free', description='Get started — a small token quota.',
@@ -752,28 +740,22 @@ DEFAULT_TIERS = [
         allowed_model_ids=[], enabled=True, sort_order=0,
     ),
     SubscriptionTierForm(
-        id='pro', name='Pro', description='For regular use.',
-        price_usd=20.0, duration_days=30, daily_message_limit=None,
-        token_limit_5h=1_000_000, token_limit_week=5_000_000,
+        id='pro', name='Max 7x', description='For regular use.',
+        price_usd=90.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=7_000_000, token_limit_week=35_000_000,
         allowed_model_ids=[], enabled=True, sort_order=1,
     ),
     SubscriptionTierForm(
-        id='max', name='Max', description='For power users.',
-        price_usd=100.0, duration_days=30, daily_message_limit=None,
-        token_limit_5h=5_000_000, token_limit_week=25_000_000,
+        id='max', name='Max 10x', description='For power users.',
+        price_usd=130.0, duration_days=30, daily_message_limit=None,
+        token_limit_5h=10_000_000, token_limit_week=50_000_000,
         allowed_model_ids=[], enabled=True, sort_order=2,
     ),
     SubscriptionTierForm(
-        id='max_plus', name='Max+', description='Between Max and Ultra.',
-        price_usd=150.0, duration_days=30, daily_message_limit=None,
-        token_limit_5h=10_000_000, token_limit_week=50_000_000,
-        allowed_model_ids=[], enabled=True, sort_order=3,
-    ),
-    SubscriptionTierForm(
-        id='ultra', name='Ultra', description='Unlimited messages.',
-        price_usd=200.0, duration_days=30, daily_message_limit=None,
+        id='ultra', name='Max 20x', description='Dedicated Claude account.',
+        price_usd=260.0, duration_days=30, daily_message_limit=None,
         token_limit_5h=20_000_000, token_limit_week=100_000_000,
-        allowed_model_ids=[], enabled=True, sort_order=4,
+        allowed_model_ids=[], enabled=True, sort_order=3,
     ),
 ]
 

@@ -143,3 +143,5 @@ export const invalidateGiftCard = (token: string, code: string) =>
 
 export const deleteGiftCard = (token: string, code: string) =>
 	request(token, `/admin/gift-cards/${encodeURIComponent(code)}`, 'DELETE');
+
+export const cancelSubscriptionOrder = (token: string, orderId: string) => request(token, `/order/${encodeURIComponent(orderId)}`, 'DELETE');

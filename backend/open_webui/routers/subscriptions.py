@@ -1,3 +1,4 @@
+from open_webui.utils.claude_allocation import change_subscription, cancel_reservation
 import logging
 import time
 from typing import Optional
@@ -134,6 +135,36 @@ async def get_order(request: Request, order_id: str, user=Depends(get_verified_u
 @router.get('/orders')
 async def list_my_orders(user=Depends(get_verified_user)):
     return await SubscriptionOrders.list_for_user(user.id)
+
+
+@router.delete('/order/{order_id}')
+async def cancel_order(request: Request, order_id: str, user=Depends(get_verified_user)):
+    order = await SubscriptionOrders.get(order_id)
+    if order is None or order.user_id != user.id:
+        raise HTTPException(404, 'Order not found')
+    if order.activated or order.status == 'PAID':
+        raise HTTPException(409, '该订单已支付，不能取消')
+    if order.status != 'CANCELLED':
+        from open_webui.utils.subscription import _payment_status, _is_payment_error
+        try:
+            payment = await _payment_status(request, order_id)
+        except Exception:
+            raise HTTPException(503, '无法确认付款状态，请稍后再试')
+        if _is_payment_error(payment) or payment.get('status') not in ('PENDING', 'EXPIRED', 'FAILED'):
+            raise HTTPException(409, '付款状态不允许取消，请刷新订单状态')
+        from open_webui.internal.db import get_async_db
+        from open_webui.models.subscriptions import SubscriptionOrder
+        from sqlalchemy import update
+        async with get_async_db() as db:
+            changed = await db.execute(update(SubscriptionOrder).where(
+                SubscriptionOrder.id == order_id, SubscriptionOrder.activated == False,
+                SubscriptionOrder.status.in_(['PENDING', 'EXPIRED', 'FAILED']))
+                .values(status='CANCELLED', updated_at=int(time.time())))
+            await db.commit()
+            if changed.rowcount != 1:
+                raise HTTPException(409, '订单状态已变化，请刷新')
+    await cancel_reservation(request, user.id, order.logical_order_id)
+    return {'cancelled': True}
 
 
 @router.post('/redeem')
@@ -302,11 +333,11 @@ async def admin_set_user_subscription(
 
     tier_id = (form_data.tier_id or '').strip().lower()
     tier = await SubscriptionTiers.get_tier(tier_id)
-    if tier is None:
+    if tier is None or not tier.enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
 
     if tier_id == DEFAULT_TIER_ID:
-        await UserSubscriptions.revoke_for_user(user_id)
+        await change_subscription(request, user_id, 'free')
     else:
         now = int(time.time())
         expires_at = form_data.expires_at
@@ -322,9 +353,7 @@ async def admin_set_user_subscription(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail='Expiry must be in the future — switch the user to the free plan to end it now',
             )
-        await UserSubscriptions.set_for_user(
-            user_id, tier_id, int(expires_at), order_id=f'admin:{user.id}'
-        )
+        await change_subscription(request, user_id, tier_id, expires_at=int(expires_at))
 
     synced = await sync_user_rate_limits_to_kyber(request, user_id)
     log.info(
@@ -344,7 +373,8 @@ async def admin_revoke_user_subscription(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
 
-    revoked = await UserSubscriptions.revoke_for_user(user_id)
+    await change_subscription(request, user_id, 'free')
+    revoked = 1
     synced = await sync_user_rate_limits_to_kyber(request, user_id)
     log.info('admin %s revoked %s subscription(s) of %s (synced=%s)', user.id, revoked, user_id, synced)
     snapshot = await _admin_user_snapshot(request, [user_id])

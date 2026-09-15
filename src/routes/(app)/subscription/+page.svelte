@@ -3,10 +3,14 @@
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
+	let resourceError = '';
+	let showResourceError = false;
+	const displayError = (e) => { resourceError = `${e}`; showResourceError = true; };
 
 	import { showSidebar } from '$lib/stores';
 	import Sidebar from '$lib/components/icons/Sidebar.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import Modal from '$lib/components/common/Modal.svelte';
 
 	import {
 		getSubscriptionTiers,
@@ -14,6 +18,7 @@
 		getMySubscription,
 		subscribe,
 		getSubscriptionOrder,
+        cancelSubscriptionOrder,
 		redeemGiftCard
 	} from '$lib/apis/subscriptions';
 	import { getKyberUsageLimits } from '$lib/apis/kyber';
@@ -75,7 +80,7 @@
 			redeemCode = '';
 			await loadState();
 		} catch (e) {
-			toast.error(`${e}`);
+			displayError(e);
 		} finally {
 			redeeming = false;
 		}
@@ -163,7 +168,7 @@
 				stopPolling();
 				toast.success($i18n.t('Payment received — your plan is active!'));
 				await loadState();
-			} else if (res.status === 'EXPIRED' || res.status === 'FAILED') {
+			} else if (res.status === 'EXPIRED' || res.status === 'FAILED' || res.status === 'CANCELLED') {
 				stopPolling();
 				toast.error($i18n.t('Payment {{status}}', { status: res.status }));
 			}
@@ -181,11 +186,19 @@
 			stopPolling();
 			pollTimer = setInterval(poll, 6000);
 		} catch (e) {
-			toast.error(`${e}`);
+			displayError(e);
 		} finally {
 			creating = false;
 		}
 	};
+
+    const cancelOrder = async () => {
+        if (!order) return;
+        creating = true;
+        try { await cancelSubscriptionOrder(localStorage.token, order.order_id); closeCheckout(); }
+        catch (e) { displayError(e); }
+        finally { creating = false; }
+    };
 
 	const copyAddress = async () => {
 		if (!order?.address) return;
@@ -363,7 +376,7 @@
 					</span>
 					<span class="text-sm font-semibold">{$i18n.t('Available plans')}</span>
 				</div>
-				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
 					{#each tiers as tier (tier.id)}
 						{@const isCurrent = me?.tier?.id === tier.id}
 						{@const isFree = !(tier.price_usd > 0)}
@@ -382,8 +395,8 @@
 									? 'bg-gray-100 dark:bg-gray-800'
 									: 'bg-violet-50 dark:bg-violet-500/10'}"
 							>
-								<span class="text-sm font-bold">{tier.name}</span>
-								{#if tier.name === 'Max'}
+								<span class="text-sm font-bold whitespace-nowrap">{tier.name}</span>
+								{#if tier.id === 'max'}
 									<span class="text-[11px] text-violet-600 dark:text-violet-300 bg-white dark:bg-gray-900 rounded-full px-2 py-0.5 whitespace-nowrap">
 										👍 {$i18n.t('Recommended')}
 									</span>
@@ -483,6 +496,10 @@
 					</div>
 					<button class="text-gray-400 hover:text-gray-700 dark:hover:text-white" on:click={closeCheckout}>✕</button>
 				</div>
+
+                {#if order && !paid}
+                    <button class="mb-3 text-sm text-red-500" disabled={creating} on:click={cancelOrder}>{$i18n.t('Cancel order')}</button>
+                {/if}
 
 				{#if !order}
 					<!-- chain selection -->
@@ -608,3 +625,5 @@
 		box-shadow: 0 18px 36px rgba(124, 92, 240, 0.16);
 	}
 </style>
+
+<Modal bind:show={showResourceError} size="sm"><div class="p-6 space-y-4"><h2 class="text-lg font-semibold">{$i18n.t('Subscription')}</h2><p class="text-sm">{resourceError}</p><button class="rounded-xl bg-violet-500 px-4 py-2 text-white" on:click={() => showResourceError = false}>{$i18n.t('Close')}</button></div></Modal>

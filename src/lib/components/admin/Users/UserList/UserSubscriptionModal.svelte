@@ -22,6 +22,9 @@
 	import XMark from '$lib/components/icons/XMark.svelte';
 
 	const i18n = getContext('i18n');
+	let resourceError = '';
+	let showResourceError = false;
+	const displayError = (e) => { resourceError = `${e}`; showResourceError = true; };
 	const dispatch = createEventDispatcher();
 
 	export let show = false;
@@ -65,12 +68,12 @@
 		const [tierList, overview] = await Promise.all([
 			getAdminTiers(localStorage.token).catch(() => []),
 			getAdminUsersOverview(localStorage.token, [selectedUser.id]).catch((e) => {
-				toast.error(`${e}`);
+				displayError(e);
 				return null;
 			})
 		]);
 
-		tiers = tierList ?? [];
+		tiers = (tierList ?? []).filter(t => t.enabled && t.id !== 'max_plus');
 		state = overview?.users?.[selectedUser.id] ?? null;
 
 		tierId = state?.subscription?.tier_id ?? state?.tier?.id ?? DEFAULT_TIER_ID;
@@ -128,7 +131,7 @@
 			tier_id: tierId,
 			expires_at: expiry.unix()
 		}).catch((e) => {
-			toast.error(`${e}`);
+			displayError(e);
 			return null;
 		});
 		saving = false;
@@ -143,7 +146,7 @@
 	const revokeHandler = async () => {
 		saving = true;
 		const res = await revokeUserSubscription(localStorage.token, selectedUser.id).catch((e) => {
-			toast.error(`${e}`);
+			displayError(e);
 			return null;
 		});
 		saving = false;
@@ -158,7 +161,7 @@
 	const resetHandler = async (windows) => {
 		resetting = windows?.[0] ?? 'all';
 		const res = await resetUserUsage(localStorage.token, selectedUser.id, windows).catch((e) => {
-			toast.error(`${e}`);
+			displayError(e);
 			return null;
 		});
 		resetting = '';
@@ -378,3 +381,5 @@
 		</div>
 	</div>
 </Modal>
+
+<Modal bind:show={showResourceError} size="sm"><div class="p-6 space-y-4"><h2 class="text-lg font-semibold">{$i18n.t('Subscription')}</h2><p class="text-sm">{resourceError}</p><button class="rounded-xl bg-violet-500 px-4 py-2 text-white" on:click={() => showResourceError = false}>{$i18n.t('Close')}</button></div></Modal>

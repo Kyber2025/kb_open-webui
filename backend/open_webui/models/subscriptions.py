@@ -553,6 +553,8 @@ class SubscriptionOrdersTable:
             order = await db.get(SubscriptionOrder, order_id)
             if order is None:
                 return None
+            if order.status == 'CANCELLED':
+                return SubscriptionOrderModel.model_validate(order)
             order.status = status
             if tx_hash is not None:
                 order.tx_hash = tx_hash

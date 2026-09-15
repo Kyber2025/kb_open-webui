@@ -344,6 +344,8 @@ async def kyber_set_user_rate_limits(
     subscription_managed: Optional[bool] = None,
     extra_usage_enabled: Optional[bool] = None,
     extra_usage_multiplier: Optional[float] = None,
+    subscription_version: Optional[int] = None,
+    subscription_tier: Optional[str] = None,
 ) -> bool:
     """P4: set or clear the user's per-tier rate-limit override on KyberRouter via
     the shared-secret internal endpoint. ``override`` is a dict like
@@ -364,6 +366,9 @@ async def kyber_set_user_rate_limits(
         return False
     url = f'{kyber_base(request)}/internal/users/{link.kyber_user_id}/rate-limits'
     body = {'rateLimits': override}
+    if subscription_version is not None:
+        body['subscriptionVersion'] = subscription_version
+        body['subscriptionTier'] = subscription_tier
     # Tell KyberRouter which key is the open-webui-linked subscription key, so ONLY
     # chat traffic via it is metered against the subscription token window — the user's
     # own keys + the playground stay plain pay-as-you-go. Best-effort: omitted when no
