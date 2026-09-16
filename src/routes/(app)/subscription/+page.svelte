@@ -23,6 +23,7 @@
 		redeemGiftCard
 	} from '$lib/apis/subscriptions';
 	import { getKyberUsageLimits } from '$lib/apis/kyber';
+	import { refreshAccountModels } from '$lib/utils/refresh-account-models';
 
 	let loaded = false;
 	/** @type {any[]} */
@@ -89,6 +90,15 @@
 		await loadState();
 	};
 
+	const refreshAccess = async () => {
+		await Promise.all([
+			loadState(),
+			refreshAccountModels().catch(() => {
+				toast.error($i18n.t('Your plan is active, but the model list could not refresh. Please reload this page.'));
+			})
+		]);
+	};
+
 	const redeem = async () => {
 		const code = redeemCode.trim();
 		if (!code || redeeming) return;
@@ -101,7 +111,7 @@
 				})
 			);
 			redeemCode = '';
-			await loadState();
+			await refreshAccess();
 		} catch (e) {
 			displayError(e);
 		} finally {
@@ -190,7 +200,7 @@
 				paid = true;
 				stopPolling();
 				toast.success($i18n.t('Payment received — your plan is active!'));
-				await loadState();
+				await refreshAccess();
 			} else if (res.status === 'EXPIRED' || res.status === 'FAILED' || res.status === 'CANCELLED') {
 				stopPolling();
 				toast.error($i18n.t('Payment {{status}}', { status: res.status }));

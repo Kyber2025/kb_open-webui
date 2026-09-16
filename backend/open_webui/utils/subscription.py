@@ -672,8 +672,14 @@ async def redeem_gift_card(request: Request, user, raw_code: str) -> dict:
     sub = await change_subscription(request, user.id, claimed.tier_id,
         operation_id=f'gift:{code}', gift_code=code)
 
-    # P4: push the granted tier's rate limits to KyberRouter.
-    await sync_user_rate_limits_to_kyber(request, user.id)
+    # The grant is durable and idempotent by gift code. Do not report complete
+    # activation while the gateway is still enforcing the previous allowance.
+    synced = await sync_user_rate_limits_to_kyber(request, user.id)
+    if getattr(request.app.state.config, 'ENABLE_KYBER_TOKEN_BILLING', False) and not synced:
+        raise HTTPException(
+            503,
+            '订阅已保存，但使用权限同步尚未完成。请稍后使用同一激活码重试，不会重复扣除或延长订阅。',
+        )
 
     state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
     return {

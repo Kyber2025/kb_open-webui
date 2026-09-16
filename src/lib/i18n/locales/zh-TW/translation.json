@@ -2424,5 +2424,6 @@
 	"Send only USDT on the selected network. This page updates automatically.": "僅向所選網路轉入 USDT，此頁面自動更新。",
 	"Payment {{status}}": "付款{{status}}",
 	"Address copied": "地址已複製",
-	"Failed to copy": "複製失敗"
+	"Failed to copy": "複製失敗",
+	"Your plan is active, but the model list could not refresh. Please reload this page.": "方案已啟用，但模型清單更新失敗，請重新整理目前頁面。"
 }

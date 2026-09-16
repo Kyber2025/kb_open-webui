@@ -9,7 +9,8 @@
 	import { page } from '$app/stores';
 	import { fade } from 'svelte/transition';
 
-	import { getModels, getToolServersData, getVersionUpdates } from '$lib/apis';
+	import { getToolServersData, getVersionUpdates } from '$lib/apis';
+	import { refreshAccountModels } from '$lib/utils/refresh-account-models';
 	import { getTools } from '$lib/apis/tools';
 	import { getBanners } from '$lib/apis/configs';
 	import { getTerminalServers } from '$lib/apis/terminal';
@@ -22,7 +23,6 @@
 		config,
 		user,
 		settings,
-		models,
 		knowledge,
 		tools,
 		functions,
@@ -110,13 +110,11 @@
 		}
 	};
 
-	const setModels = async () => {
-		models.set(
-			await getModels(
-				localStorage.token,
-				$config?.features?.enable_direct_connections ? ($settings?.directConnections ?? null) : null
-			)
-		);
+	const setModels = refreshAccountModels;
+	const refreshModelsOnFocus = () => {
+		if ($user && ['user', 'admin'].includes($user.role)) {
+			void setModels().catch((e) => console.error('Failed to refresh account models:', e));
+		}
 	};
 
 	const setToolServers = async () => {
@@ -378,6 +376,8 @@
 		});
 	};
 </script>
+
+<svelte:window on:focus={refreshModelsOnFocus} />
 
 <SettingsModal bind:show={$showSettings} />
 <ChangelogModal bind:show={$showChangelog} />

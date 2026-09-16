@@ -2551,5 +2551,6 @@
 	"Banned": "已封禁",
 	"User banned": "账号已封禁：聊天、桌面端和 API 立即不可用",
 	"User unbanned": "已解除封禁",
-	"Ban {{name}}? They will immediately lose chat, the desktop app and the API. You can unban later.": "封禁 {{name}}？该账号将立即无法使用聊天、桌面端和 API，之后可以解封。"
+	"Ban {{name}}? They will immediately lose chat, the desktop app and the API. You can unban later.": "封禁 {{name}}？该账号将立即无法使用聊天、桌面端和 API，之后可以解封。",
+	"Your plan is active, but the model list could not refresh. Please reload this page.": "套餐已激活，但模型列表刷新失败，请刷新当前页面。"
 }
