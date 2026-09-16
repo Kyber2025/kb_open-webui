@@ -1,4 +1,5 @@
 {
+	"Weekly · Fable": "每周 · Fable",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 表示无限制，正整数表示具体限制额度",
 	"'s', 'm', 'h', 'd', 'w' or '-1' for no expiration.": "'s'(秒), 'm'(分), 'h'(时), 'd'(天), 'w'(周) 或 '-1' 表示无过期时间",
 	"(e.g. `sh webui.sh --api --api-auth username_password`)": "（例如：`sh webui.sh --api --api-auth username_password`）",

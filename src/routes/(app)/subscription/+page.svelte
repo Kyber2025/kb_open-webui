@@ -360,7 +360,7 @@
 							{/if}
 						</div>
 						<div class="mt-4 space-y-4">
-							{#each [{ label: $i18n.t('Every 5 hours'), w: w5, reset: fmtReset(usage?.tp5h?.resetAt, now) }, { label: $i18n.t('Weekly'), w: ww, reset: fmtReset(usage?.tpw?.resetAt, now) }] as row}
+							{#each [{ label: $i18n.t('Every 5 hours'), w: w5, reset: fmtReset(usage?.tp5h?.resetAt, now) }, { label: $i18n.t('Weekly'), w: ww, reset: fmtReset(usage?.tpw?.resetAt, now) }, ...(usage?.tpwFable ? [{ label: $i18n.t('Weekly · Fable'), w: winView(usage.tpwFable, usage.tpwFable.limit), reset: fmtReset(usage.tpwFable.resetAt, now) }] : [])] as row}
 								<div class="flex items-end gap-4">
 									<div class="w-32 shrink-0">
 										<div class="text-[13px] font-semibold">{row.label}</div>

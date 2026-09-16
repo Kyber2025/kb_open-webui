@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FableUsageRow from '$lib/components/FableUsageRow.svelte';
 	// Settings → Usage (Claude-style). Shows the user's current plan, their token-cap
 	// consumption (5-hour + weekly), the paid extra-usage opt-in + balance, and entry
 	// points to top up or upgrade. Data: /subscriptions/me (plan) + /kyber/usage/limits
@@ -154,6 +155,7 @@
 						{/if}
 					{/if}
 				</div>
+				<FableUsageRow window={limits.tpwFable} reset={fmtReset(limits.tpwFable?.resetAt)} />
 
 				<!-- Extra usage -->
 				<div class="mb-1 mt-5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">

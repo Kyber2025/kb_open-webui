@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FableUsageRow from '$lib/components/FableUsageRow.svelte';
 	// Bottom-right usage indicator (Claude-style). Shows the signed-in user's
 	// subscription token-cap consumption (5-hour + weekly %), wallet balance, and a
 	// paid "extra usage" (overflow) opt-in + top-up. Renders nothing unless token
@@ -216,6 +217,7 @@
 						{/if}
 					{/if}
 				</div>
+				<FableUsageRow window={limits.tpwFable} reset={fmtReset(limits.tpwFable?.resetAt)} />
 
 				<div class="my-2 border-t border-gray-100 dark:border-gray-800"></div>
 

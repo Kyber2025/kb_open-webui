@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FableUsageRow from '$lib/components/FableUsageRow.svelte';
 	// Inline usage indicator for the chat-box bottom toolbar (Claude-style). Shows a
 	// compact % (or an ∞ icon when the plan is unlimited); clicking opens an upward
 	// popup with the 5-hour + weekly progress bars, wallet balance, the paid
@@ -210,6 +211,7 @@
 							{#if limits.tpw?.resetAt}<div class="mt-0.5 text-[10px] text-gray-400">{fmtReset(limits.tpw.resetAt)}</div>{/if}
 						{/if}
 					</div>
+				<FableUsageRow window={limits.tpwFable} reset={fmtReset(limits.tpwFable?.resetAt)} />
 				{/if}
 
 				<div class="my-2 border-t border-gray-100 dark:border-gray-800"></div>

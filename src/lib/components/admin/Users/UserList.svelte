@@ -525,7 +525,7 @@
 
 						<td class="px-3 py-1 min-w-[7.5rem]">
 							{#if plans[user.id]?.usage}
-								{#each [{ key: '5h', window: plans[user.id].usage.tp5h }, { key: '7d', window: plans[user.id].usage.tpw }] as row (row.key)}
+								{#each [{ key: '5h', window: plans[user.id].usage.tp5h }, { key: '7d', window: plans[user.id].usage.tpw }, ...(plans[user.id].usage.tpwFable ? [{ key: 'Fable', window: plans[user.id].usage.tpwFable }] : [])] as row (row.key)}
 									{@const p = usagePercent(row.window)}
 									<Tooltip
 										content={`${compactTokens.format(row.window?.used ?? 0)} / ${
@@ -533,7 +533,7 @@
 										}`}
 									>
 										<div class="flex items-center gap-1.5 my-0.5">
-											<span class="text-[10px] text-gray-400 w-4">{row.key}</span>
+											<span class="text-[10px] text-gray-400 w-7">{row.key}</span>
 											<div
 												class="h-1 w-12 rounded-full bg-gray-100 dark:bg-gray-850 overflow-hidden"
 											>

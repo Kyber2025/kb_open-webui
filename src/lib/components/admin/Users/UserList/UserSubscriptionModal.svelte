@@ -324,7 +324,7 @@
 						{$i18n.t('Usage is unavailable — the account service did not respond.')}
 					</div>
 				{:else}
-					{#each [{ key: '5h', label: $i18n.t('5-hour window'), window: state.usage.tp5h }, { key: 'week', label: $i18n.t('Weekly window'), window: state.usage.tpw }] as row (row.key)}
+					{#each [{ key: '5h', label: $i18n.t('5-hour window'), window: state.usage.tp5h }, { key: 'week', label: $i18n.t('Weekly window'), window: state.usage.tpw }, ...(state.usage.tpwFable ? [{ key: 'fable', label: $i18n.t('Weekly · Fable'), window: state.usage.tpwFable }] : [])] as row (row.key)}
 						{@const p = percent(row.window)}
 						<div class="mb-3">
 							<div class="flex items-center justify-between text-xs mb-1">
@@ -339,6 +339,7 @@
 											<span class="text-gray-500">/ ∞</span>
 										{/if}
 									</span>
+									{#if row.key !== 'fable'}
 									<button
 										class="px-2 py-0.5 rounded-lg bg-gray-50 dark:bg-gray-850 hover:bg-gray-100 dark:hover:bg-gray-800 transition disabled:opacity-50"
 										disabled={resetting !== ''}
@@ -346,6 +347,7 @@
 									>
 										{$i18n.t('Reset')}
 									</button>
+									{/if}
 								</div>
 							</div>
 							<div class="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-850 overflow-hidden">
