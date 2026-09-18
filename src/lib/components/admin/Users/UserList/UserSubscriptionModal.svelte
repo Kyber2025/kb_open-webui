@@ -339,7 +339,6 @@
 											<span class="text-gray-500">/ ∞</span>
 										{/if}
 									</span>
-									{#if row.key !== 'fable'}
 									<button
 										class="px-2 py-0.5 rounded-lg bg-gray-50 dark:bg-gray-850 hover:bg-gray-100 dark:hover:bg-gray-800 transition disabled:opacity-50"
 										disabled={resetting !== ''}
@@ -347,7 +346,6 @@
 									>
 										{$i18n.t('Reset')}
 									</button>
-									{/if}
 								</div>
 							</div>
 							<div class="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-850 overflow-hidden">

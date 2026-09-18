@@ -78,7 +78,7 @@ class AdminSubscriptionForm(BaseModel):
 
 
 class UsageResetForm(BaseModel):
-    # '5h' | 'week'; both windows when omitted.
+    # '5h' | 'week' | 'fable' (the Fable subset of the weekly window); 5h + week when omitted.
     windows: Optional[list[str]] = None
 
 
@@ -414,10 +414,12 @@ async def admin_revoke_user_subscription(
 async def admin_reset_user_usage(
     request: Request, user_id: str, form_data: UsageResetForm, user=Depends(get_admin_user)
 ):
-    """Clear a user's rolling 5h and/or weekly token window on KyberRouter (both when
-    `windows` is omitted), so they can send again immediately. Their usage history and
-    wallet are untouched — this only zeroes the rate-limit counters. Fails loudly:
-    unlike the tier sync, an admin must never be told a reset worked when it didn't."""
+    """Clear a user's rolling 5h / weekly / Fable-weekly token window on KyberRouter
+    (5h + week when `windows` is omitted), so they can send again immediately. 'week'
+    also clears the Fable subset; 'fable' clears only that subset and leaves the weekly
+    total running. Their usage history and wallet are untouched — this only zeroes the
+    rate-limit counters. Fails loudly: unlike the tier sync, an admin must never be
+    told a reset worked when it didn't."""
     target = await Users.get_user_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
@@ -429,7 +431,7 @@ async def admin_reset_user_usage(
             detail='This user is not linked to a wallet yet.',
         )
 
-    windows = [w for w in (form_data.windows or []) if w in ('5h', 'week')]
+    windows = [w for w in (form_data.windows or []) if w in ('5h', 'week', 'fable')]
     try:
         result = await kyber_reset_user_usage(request, link.kyber_user_id, windows or None)
     except KyberError as e:

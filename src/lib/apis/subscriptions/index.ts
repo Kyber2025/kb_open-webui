@@ -116,7 +116,11 @@ export const revokeUserSubscription = (token: string, userId: string) =>
 	request(token, `/admin/users/${encodeURIComponent(userId)}/subscription`, 'DELETE');
 
 // Clear the rolling token windows on KyberRouter (both when `windows` is omitted).
-export const resetUserUsage = (token: string, userId: string, windows?: ('5h' | 'week')[]) =>
+export const resetUserUsage = (
+	token: string,
+	userId: string,
+	windows?: ('5h' | 'week' | 'fable')[]
+) =>
 	request(token, `/admin/users/${encodeURIComponent(userId)}/usage/reset`, 'POST', {
 		windows: windows ?? null
 	});

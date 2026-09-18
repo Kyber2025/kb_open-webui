@@ -456,9 +456,10 @@ async def kyber_get_users_usage_limits(
 async def kyber_reset_user_usage(
     request: Request, kyber_user_id: str, windows: Optional[list[str]] = None
 ) -> dict:
-    """Clear a user's rolling 5h and/or weekly token window ('5h' | 'week'; both when
-    omitted). Unlike the read above this RAISES KyberError on failure: an admin who
-    clicked "reset" must never be told it worked when the counter is still there."""
+    """Clear a user's rolling 5h / weekly / Fable-weekly token window ('5h' | 'week' |
+    'fable'; 5h + week when omitted). Unlike the read above this RAISES KyberError on
+    failure: an admin who clicked "reset" must never be told it worked when the counter
+    is still there."""
     status_code, data = await _internal_request(
         request,
         'POST',
