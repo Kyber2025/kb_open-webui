@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, request } from "../lib/api";
+import { AdminUsage } from "../components/AdminUsage";
 import { activeMessages } from "../lib/domain";
 import {
   usersApi,
@@ -744,47 +745,13 @@ function PlanEditor({
         </div>
       </form>
       <hr />
-      <h3>Usage windows</h3>
-      <Usage plan={plan} />
-      {plan?.usage && (
-        <div className="usage-details">
-          {[
-            { key: "5h", name: "5-hour", w: plan.usage.tp5h },
-            { key: "week", name: "Weekly", w: plan.usage.tpw },
-            ...(plan.usage.tpwFable
-              ? [{ key: "fable", name: "Fable weekly", w: plan.usage.tpwFable }]
-              : []),
-          ].map(({ key, name, w }) => (
-            <div key={key}>
-              <span>
-                {name}: {w?.used.toLocaleString() || 0} /{" "}
-                {w?.limit ? w.limit.toLocaleString() : "Unlimited"}
-                {w?.resetAt && (
-                  <small>Resets {new Date(w.resetAt).toLocaleString()}</small>
-                )}
-              </span>
-              <button
-                className="btn"
-                disabled={busy || !plan.kyber_linked}
-                onClick={() =>
-                  setConfirm({
-                    title: `Reset ${name} usage`,
-                    description: `Clear this usage window for ${user.email}?`,
-                    action: () => update(() => usersApi.reset(user.id, [key])),
-                  })
-                }
-              >
-                Reset
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {!plan?.usage && (
-        <p className="muted">
-          Usage is unavailable or this user is not linked to a wallet.
-        </p>
-      )}
+      <AdminUsage plan={plan} busy={busy} onReset={(windows, title, description) =>
+        setConfirm({
+          title,
+          description: `${user.email}: ${description}`,
+          action: () => update(() => usersApi.reset(user.id, windows)),
+        })
+      } />
       {confirm && (
         <Confirm
           {...confirm}

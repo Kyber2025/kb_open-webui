@@ -2197,18 +2197,25 @@ td code {
   padding: 14px;
   border-radius: 10px;
 }
-.usage-details > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 15px;
-  align-items: center;
-  margin: 14px 0;
-  font-size: 12px;
-}
-.usage-details small {
-  display: block;
-  margin-top: 4px;
-  color: var(--muted);
+.admin-usage { margin-top: 18px; }
+.admin-usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.admin-usage-heading h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.admin-usage-reset-both.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; border-color: transparent; background: var(--soft); }
+.admin-usage-windows { display: grid; gap: 19px; }
+.admin-usage-summary { display: flex; align-items: baseline; gap: 8px; font-size: 12px; line-height: 1.5; }
+.admin-usage-label { font-weight: 500; white-space: nowrap; }
+.admin-usage-reset-time { margin-left: auto; color: var(--muted); font-size: 11px; text-align: right; }
+.admin-usage-percent { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11px; }
+.admin-usage-track { height: 5px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: var(--soft); }
+.admin-usage-track > span { display: block; height: 100%; border-radius: inherit; background: #3882ed; transition: width 180ms ease; }
+.admin-usage-detail { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.admin-usage-reset { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0 4px 8px; color: var(--muted); font-size: 11px; }
+.admin-usage-reset:hover:not(:disabled) { color: var(--text); }
+.admin-usage-reset:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 440px) {
+  .admin-usage-summary { flex-wrap: wrap; gap: 3px 8px; }
+  .admin-usage-reset-time { order: 3; width: 100%; text-align: left; }
+  .admin-usage-percent { margin-left: auto; }
 }
 .admin-chat-list > div {
   display: flex;

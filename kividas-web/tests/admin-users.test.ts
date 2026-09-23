@@ -26,6 +26,7 @@ describe("user administration contracts", () => {
     await usersApi.overview(["a", "b"]);
     await usersApi.setPlan("a/b", { tier_id: "max", expires_at: 2000000000 });
     await usersApi.reset("a/b", ["fable"]);
+    await usersApi.reset("a/b", ["5h", "week"]);
     expect(
       fetchMock.mock.calls.map((call: any) => [
         call[0],
@@ -40,6 +41,10 @@ describe("user administration contracts", () => {
       [
         "/api/v1/subscriptions/admin/users/a%2Fb/usage/reset",
         { windows: ["fable"] },
+      ],
+      [
+        "/api/v1/subscriptions/admin/users/a%2Fb/usage/reset",
+        { windows: ["5h", "week"] },
       ],
     ]);
   });

@@ -125,9 +125,9 @@ export function demoBackend(): Plugin {
               : null,
           kyber_linked: true,
           usage: {
-            tp5h: { used: 180000, limit: 7000000 },
-            tpw: { used: 2100000, limit: 35000000 },
-            tpwFable: { used: 700000, limit: 7000000 },
+            tp5h: { used: 180000, limit: 7000000, resetAt: new Date(Date.now() + 14460000).toISOString() },
+            tpw: { used: 2100000, limit: 35000000, resetAt: new Date(Date.now() + 4 * 86400000).toISOString() },
+            tpwFable: { used: 700000, limit: 7000000, resetAt: new Date(Date.now() + 4 * 86400000).toISOString() },
           },
         };
       let tiers = structuredClone(defaults),
