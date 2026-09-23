@@ -410,9 +410,15 @@ export function demoBackend(): Plugin {
         if (path === "/api/v1/auths/signout") return json({ status: true });
         if (path === "/api/models") return json({ data: models });
         if (path === "/api/v1/kyber/usage/limits")
-          return json({ linked: false });
+          return json({ linked: true, tp5h: { used: 140000, limit: 7000000, resetAt: Date.now() + 4 * 3600000 }, tpw: { used: 1400000, limit: 35000000, resetAt: Date.now() + 5 * 86400000 }, tpwFable: { used: 875000, limit: 17500000, resetAt: Date.now() + 5 * 86400000 } });
+        if (path === "/api/v1/subscriptions/tiers") return json(tiers.filter((t) => t.enabled));
+        const planModels = path.match(/^\/api\/v1\/subscriptions\/tiers\/([^/]+)\/models$/);
+        if (planModels) {
+          const plan = tiers.find((t) => t.id === decodeURIComponent(planModels[1]));
+          return plan ? json({ models: models.filter((m) => !plan.allowed_model_ids.length || plan.allowed_model_ids.includes(m.id)) }) : json({ detail: "Plan not found" }, 404);
+        }
         if (path === "/api/v1/subscriptions/me")
-          return json({ tier: tiers[1], subscription: { tier_id: "pro" } });
+          return json({ tier: tiers[1], expires_at: Math.floor(Date.now() / 1000) + 30 * 86400, subscription: { tier_id: "pro" } });
         if (path === "/api/v1/subscriptions/redeem")
           return json({ success: true });
         if (path === "/api/v1/users/") {

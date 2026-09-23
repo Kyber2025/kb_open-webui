@@ -38,6 +38,7 @@ const Admin = lazy(() =>
 );
 import { RecentChats } from "./components/RecentChats";
 import { SettingsPanel } from "./components/Settings";
+import { Subscription } from "./components/Subscription";
 import { Scheduled } from "./pages/Scheduled";
 import { Customize } from "./pages/Customize";
 import { CodeDownloads } from "./pages/Code";
@@ -562,7 +563,11 @@ export default function App() {
           }}
         />
       )}
-      {subscription && <Subscription onClose={() => setSubscription(false)} />}
+      {subscription && <Subscription onClose={() => setSubscription(false)} onChanged={async () => {
+        const [current, catalog] = await Promise.all([api.me(), api.models()]);
+        setUser(current); setModels(catalog);
+        window.dispatchEvent(new Event("subscription-updated"));
+      }} />}
     </div>
   );
 }
@@ -632,67 +637,6 @@ function Login({
         {error && <ErrorPanel error={error} />}
         <button className="btn primary full-width" disabled={busy}>
           {busy ? "Signing in…" : "Continue"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-function Subscription({ onClose }: { onClose: () => void }) {
-  const [data, setData] = useState<any>(null),
-    [code, setCode] = useState(""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const notify = useNotify();
-  useEffect(() => {
-    api
-      .subscription()
-      .then(setData)
-      .catch((e) => setError(messageOf(e)));
-  }, []);
-  return (
-    <Modal title="Your subscription" onClose={onClose}>
-      {error && <ErrorPanel error={error} />}
-      <div className="subscription-summary">
-        <CreditCard size={26} />
-        <h3>
-          {data
-            ? data.tier?.name || data.subscription?.tier_id || "Free"
-            : "Loading…"}
-        </h3>
-        <p className="muted small">
-          Your existing plan and account remain connected.
-        </p>
-      </div>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            await api.redeem(code.trim());
-            setCode("");
-            setData(await api.subscription());
-            notify("Gift card redeemed");
-          } catch (e) {
-            notify(messageOf(e), true);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Redeem a gift card
-          <input
-            required
-            placeholder="Enter your gift code"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </label>
-        <button
-          className="btn primary full-width"
-          disabled={busy || !code.trim()}
-        >
-          {busy ? "Redeeming…" : "Redeem code"}
         </button>
       </form>
     </Modal>

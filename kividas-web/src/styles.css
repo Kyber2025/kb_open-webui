@@ -780,6 +780,7 @@ form > label {
   margin-top: 4px;
 }
 .message-body {
+  font-size: 15px;
   min-width: 0;
   flex: initial;
 }
@@ -787,10 +788,25 @@ form > label {
   flex: 1;
 }
 .markdown {
-  font-size: 15px;
+  font-size: inherit;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
+.message .markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: normal;
+  margin: 1.15em 0 .55em;
+}
+.message .markdown > :first-child { margin-top: 0; }
+.message .markdown h1 { font-size: 1.333em; }
+.message .markdown h2 { font-size: 1.2em; }
+.message .markdown h3 { font-size: 1.067em; }
+.message .markdown :is(h4, h5, h6) { font-size: 1em; }
+.markdown :is(ul, ol) { padding-left: 1.5em; margin: .65em 0; }
+.markdown li + li { margin-top: .3em; }
+.markdown table { font-size: .9em; line-height: 1.6; }
 .markdown p {
   margin: 0 0 14px;
 }

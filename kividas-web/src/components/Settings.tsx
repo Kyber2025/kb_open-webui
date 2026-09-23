@@ -8,7 +8,7 @@ import {
   type Memory,
 } from "../lib/preferences";
 import type { User, Chat } from "../lib/types";
-import { usagePercent, type UsageWindow } from "../lib/admin-users";
+import { UsageSettings } from "./UsageSettings";
 import {
   Confirm,
   Empty,
@@ -119,7 +119,7 @@ export function SettingsPanel({
           ))}
         </nav>
         <section className="settings-content">
-          <h3>{section}</h3>
+          {section !== "Usage" && <h3>{section}</h3>}
           {error && <ErrorPanel error={error} />}
           {section === "General" && (
             <>
@@ -223,7 +223,7 @@ export function SettingsPanel({
               </button>
             </div>
           )}
-          {section === "Usage" && <Usage />}
+          {section === "Usage" && <UsageSettings billing={billing} />}
           {section === "Memory" && <Memories />}
           {section === "Capabilities" && (
             <>
@@ -262,57 +262,6 @@ export function SettingsPanel({
         </section>
       </div>
     </Modal>
-  );
-}
-function Usage() {
-  const [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
-  function load() {
-    api
-      .usage()
-      .then(setData)
-      .catch((e) => setError(messageOf(e)));
-  }
-  useEffect(load, []);
-  return error ? (
-    <ErrorPanel error={error} retry={load} />
-  ) : !data ? (
-    <Loading />
-  ) : !data.linked ? (
-    <Empty title="Usage is not available for this account" />
-  ) : (
-    <>
-      <h3>Plan usage limits</h3>
-      {[
-        ["tp5h", "Current session"],
-        ["tpw", "Weekly limits"],
-        ["tpwFable", "Fable"],
-      ].map(([key, name]) => {
-        const value = data[key] as UsageWindow | undefined;
-        if (!value) return null;
-        const percent = usagePercent(value);
-        return (
-          <div className="settings-row" key={key}>
-            <div className="row between">
-              <strong>{name}</strong>
-              <span>{percent === null ? "Unlimited" : `${percent}% used`}</span>
-            </div>
-            <progress max={100} value={percent || 0} />
-            <small className="muted">
-              {value.used.toLocaleString()} /{" "}
-              {value.limit > 0 ? value.limit.toLocaleString() : "Unlimited"}{" "}
-              tokens
-              {value.resetAt
-                ? ` · Resets ${new Date(typeof value.resetAt === "number" && value.resetAt < 1e12 ? value.resetAt * 1000 : value.resetAt).toLocaleString()}`
-                : ""}
-            </small>
-          </div>
-        );
-      })}
-      <button className="btn" onClick={load}>
-        Refresh usage
-      </button>
-    </>
   );
 }
 function Privacy() {

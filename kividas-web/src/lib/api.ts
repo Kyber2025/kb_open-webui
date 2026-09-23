@@ -170,6 +170,8 @@ export const api = {
     post<BlacklistEntry>(`${V1}/guest/blacklist`, { ip, reason }),
   unblockIp: (ip: string) =>
     del(`${V1}/guest/blacklist/${encodeURIComponent(ip)}`),
+  plans: () => request<Tier[]>(`${sub}/tiers`),
+  planModels: (id: string) => request<{ models: Model[] }>(`${sub}/tiers/${encodeURIComponent(id)}/models`),
   subscription: () => request<any>(`${sub}/me`),
   publicTiers: () => request<Tier[]>(`${sub}/tiers`),
   redeem: (code: string) => post(`${sub}/redeem`, { code }),

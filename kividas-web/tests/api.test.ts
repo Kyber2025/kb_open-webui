@@ -127,3 +127,13 @@ describe("conversation organization", () => {
     });
   });
 });
+
+it("loads subscription plans and model previews using user-accessible endpoints", async () => {
+  await api.plans();
+  await api.planModels("max/20");
+  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+    "/api/v1/subscriptions/tiers",
+    "/api/v1/subscriptions/tiers/max%2F20/models",
+  ]);
+  expect(fetchMock.mock.calls.every((call) => !call[0].includes("/admin/"))).toBe(true);
+});
