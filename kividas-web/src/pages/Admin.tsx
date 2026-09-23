@@ -84,7 +84,7 @@ export function Admin({ user }: { user: User | null }) {
         <Route path="subscriptions" element={<Subscriptions />} />
         <Route path="gift-cards" element={<GiftCards />} />
         <Route path="guest" element={<GuestAccess />} />
-        <Route path="*" element={<Navigate replace to="subscriptions" />} />
+        <Route path="*" element={<Navigate replace to="/admin/users/overview" />} />
       </Routes>
     </div>
   );

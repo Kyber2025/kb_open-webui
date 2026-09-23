@@ -270,7 +270,7 @@ export default function App() {
                 Get apps and CLI
               </NavLink>
               {isSuperAdmin(user) && (
-                <NavLink className="nav-item" to="/admin/subscriptions">
+                <NavLink className="nav-item" to="/admin/users/overview">
                   <ShieldCheck size={18} />
                   Admin Panel
                 </NavLink>
@@ -314,7 +314,7 @@ export default function App() {
                   Subscription
                 </button>
                 {isSuperAdmin(user) && (
-                  <Link to="/admin/subscriptions">
+                  <Link to="/admin/users/overview">
                     <ShieldCheck size={17} />
                     Admin Panel
                   </Link>
