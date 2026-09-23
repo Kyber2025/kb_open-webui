@@ -69,7 +69,9 @@ npm run build
 
 The signed-in Chrome UI was reviewed and recorded in [CLAUDE-UI-AUDIT.md](CLAUDE-UI-AUDIT.md). The frontend now includes real Skills CRUD and chat selection, authorized connector selection, Scheduled task management, pinned chat menus, project descriptions/instructions, artifact search/download, and settings for profile/instructions/usage/memory/export. Account/server permissions still apply. Claude-specific remote agents, design runtime and marketplace services are not reproduced by frontend menus.
 
-The brand icon comes from the installed Kividas Code application and is used for browser favicon, touch icon, sidebar, greeting and assistant avatar.
+The Kividas Code icon is used for the browser favicon, touch icon, assistant avatar and Code page. The sidebar header displays only the Kividas wordmark; the homepage greeting uses the orange Claude starburst.
+
+Both Admin Panel entry points open `/admin/users/overview`; the `/admin` index and unknown admin routes also redirect to Users.
 
 ### Connectors 与 Plugins 目录
 
