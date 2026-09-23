@@ -971,6 +971,18 @@ def convert_to_responses_payload(payload: dict) -> dict:
 
     responses_payload = {**payload, 'input': input_items}
 
+    # Chat Completions uses a flat field; Responses nests the same setting.
+    # Passing reasoning_effort through verbatim makes Codex reject every request
+    # with an effort selected in the chat UI (including its default Medium).
+    effort = responses_payload.pop('reasoning_effort', None)
+    if effort is not None:
+        reasoning = responses_payload.get('reasoning')
+        if reasoning is None:
+            responses_payload['reasoning'] = {'effort': effort}
+        elif isinstance(reasoning, dict):
+            # Explicit native fields win, and mode/summary remain unchanged.
+            responses_payload['reasoning'] = {'effort': effort, **reasoning}
+
     # Forward previous_response_id when the middleware has set it
     # (only used when ENABLE_RESPONSES_API_STATEFUL is enabled).
     previous_response_id = responses_payload.pop('previous_response_id', None)
