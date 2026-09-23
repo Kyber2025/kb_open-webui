@@ -79,3 +79,7 @@ The brand icon comes from the installed Kividas Code application and is used for
 - Google 等服务需要先提供适配的 MCP 网关；第三方服务的 OAuth 注册和授权取决于供应商支持。目录存在不代表已经连通账号。
 
 来源、适配方式及限制见 [CATALOG-SOURCES.md](CATALOG-SOURCES.md)。
+
+### 仅替换前端的正式发布
+
+`deploy/Dockerfile.release` 可基于线上原后端镜像的精确 digest 构建静态资源升级，保留相同 Python 运行时、后端和入口。构建上下文为此目录，传入 `BASE_IMAGE` 与 `WEB_REVISION`。镜像通过既有 ECR、compose 和 ALB 滚动上线；不使用本地 demo 服务。仓库根 Dockerfile 同时支持从源码完整重建。

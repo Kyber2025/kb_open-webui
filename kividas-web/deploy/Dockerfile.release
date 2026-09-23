@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+# Frontend-only release: pin BASE_IMAGE to the running backend image digest.
+ARG BASE_IMAGE
+FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS web
+WORKDIR /web
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM ${BASE_IMAGE}
+USER root
+RUN rm -rf /app/build
+COPY --from=web /web/dist /app/build
+ARG WEB_REVISION
+LABEL com.kividas.web.revision=${WEB_REVISION}
+# Existing production image runs as root; runtime/env/entrypoint are inherited.
