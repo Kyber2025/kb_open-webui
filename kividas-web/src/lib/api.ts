@@ -9,10 +9,12 @@ import type {
   GiftList,
   GuestConfig,
   Model,
+  Message,
   Tier,
   User,
 } from "./types";
 import { sseEvents } from "./domain";
+import { listenToChat } from "./chat-events";
 const V1 = "/api/v1";
 export class ApiError extends Error {
   constructor(
@@ -42,7 +44,7 @@ export function token() {
 }
 function errorText(data: any): string {
   const value =
-    data?.detail ?? data?.error?.message ?? data?.error ?? data?.message;
+    data?.detail ?? data?.error?.content ?? data?.error?.message ?? data?.error ?? data?.message;
   return typeof value === "string"
     ? value
     : Array.isArray(value)
@@ -206,25 +208,64 @@ export async function complete(
   payload: unknown,
   signal: AbortSignal,
   onDelta: (text: string) => void,
+  onMessage?: (message: Partial<Message>) => void,
 ) {
-  const res = await rawRequest("/api/chat/completions", {
-    method: "POST",
-    body: JSON.stringify(payload),
-    signal,
-  });
-  if (!res.headers.get("content-type")?.includes("text/event-stream")) {
-    const data = await res.json();
-    if (data.error) throw new Error(errorText(data));
-    const content = data.choices?.[0]?.message?.content;
-    if (typeof content !== "string")
-      throw new Error("The server did not return a chat response.");
-    onDelta(content);
-    return;
-  }
-  if (!res.body) throw new Error("The response stream is empty.");
-  for await (const event of sseEvents(res.body)) {
-    if (event.error) throw new Error(errorText(event));
-    const delta = event.choices?.[0]?.delta?.content;
-    if (typeof delta === "string") onDelta(delta);
+  const body = payload as { chat_id?: string; id?: string };
+  let content = "";
+  let eventError: Error | undefined;
+  const delta = (text: string) => { content += text; onDelta(text); };
+  const snapshot = (message: Partial<Message>) => {
+    if (typeof message.content === "string") {
+      if (onMessage) onMessage(message);
+      else if (message.content.startsWith(content)) onDelta(message.content.slice(content.length));
+      content = message.content;
+    } else onMessage?.(message);
+    if (message.error) eventError = new Error(errorText({ error: message.error }));
+  };
+  const close = body.chat_id && body.id
+    ? await listenToChat(token(), body.chat_id, body.id, signal, (type, data) => {
+        if (signal.aborted) return;
+        if (type === "chat:completion") {
+          if (typeof data?.content === "string") snapshot(data);
+          else if (typeof data?.choices?.[0]?.delta?.content === "string") delta(data.choices[0].delta.content);
+          if (data?.error) eventError = new Error(errorText(data));
+        } else if (type === "chat:message:error") {
+          snapshot({ error: data?.error });
+        } else if (type === "chat:message:delta" || type === "message") {
+          if (typeof data?.content === "string") delta(data.content);
+        } else if (type === "chat:message" || type === "replace") snapshot(data);
+      })
+    : () => {};
+  try {
+    const res = await rawRequest("/api/chat/completions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!res.headers.get("content-type")?.includes("text/event-stream")) {
+      const data = await res.json();
+      if (data?.error) throw new Error(errorText(data));
+      const text = data?.choices?.[0]?.message?.content;
+      if (typeof text === "string") snapshot({ content: text });
+      else if (body.chat_id && body.id && data == null) {
+        // Without session_id the server finishes its event-based pipeline before
+        // returning null. Read the canonical message even if the socket dropped.
+        const saved = await request<Chat>(`${V1}/chats/${encodeURIComponent(body.chat_id)}`, { signal });
+        const message = saved.chat?.history?.messages[body.id]
+          ?? saved.chat?.messages?.find((m) => m.id === body.id);
+        if (message) snapshot(message);
+      } else throw new Error("The server did not return a chat response.");
+    } else {
+      if (!res.body) throw new Error("The response stream is empty.");
+      for await (const event of sseEvents(res.body)) {
+        if (event.error) throw new Error(errorText(event));
+        const text = event.choices?.[0]?.delta?.content;
+        if (typeof text === "string") delta(text);
+      }
+    }
+    if (eventError) throw eventError;
+    if (!content) throw new Error("The model returned an empty response. Please try again.");
+  } finally {
+    close();
   }
 }

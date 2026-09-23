@@ -81,6 +81,7 @@ export interface Message {
   childrenIds?: string[];
   timestamp?: number;
   done?: boolean;
+  error?: { content?: string; message?: string } | string;
   model?: string;
   files?: Attachment[];
 }

@@ -443,6 +443,12 @@ export function ChatPage({
             setMessages([...next]);
           }
         },
+        (message) => {
+          if (session.current === generation) {
+            Object.assign(assistant, message);
+            setMessages([...next]);
+          }
+        },
       );
       if (!assistant.content)
         throw new Error(
@@ -453,6 +459,7 @@ export function ChatPage({
         session.current === generation &&
         !(e instanceof DOMException && e.name === "AbortError")
       ) {
+        assistant.error = { content: messageOf(e) };
         setError(messageOf(e));
       }
     } finally {
@@ -600,6 +607,7 @@ export function ChatPage({
                           <span />
                         </div>
                       ) : null}
+                      {m.error && <p className="error" role="alert">{typeof m.error === "string" ? m.error : m.error.content || m.error.message || "Unable to complete this response."}</p>}
                       {m.role === "assistant" && m.content && (
                         <div className="message-actions">
                           <button
