@@ -68,3 +68,14 @@
 - 修复目录渐变使用未定义颜色变量，以及公开技能的多行描述解析；自定义导入包不显示不适用的 Apache 许可证。
 - 尚未执行第三方账号 OAuth 授权、供应商 MCP 工具调用或线上配置写入。公开插件仅导入 Markdown 指令，不执行脚本/代理/Hook。
 - 旧 `kb_open-webui` 工作树仍干净，无生产部署。
+
+## 2026-09-23: subscription, usage and message typography
+
+- Frontend revision `1e4a39a28` includes admin usage revision `fe4791741`. All 74 tests and the TypeScript / Vite production build pass.
+- Subscription reuses Kividas Code's own styles and gift assets. Plans, prices, limits and model lists come from authenticated public subscription endpoints. Live Chrome verified all four plans and the Max 10x model list. Redemption/refresh succeeded in the local demo only; no production gift cards were consumed.
+- Settings Usage now matches Code: current session, weekly all models, optional Fable and organization allowance, reset times, refresh timestamp, refresh control and subscription link. Refreshes every minute and on focus. Failed refresh retains a labelled stale reading instead of displaying zero. The demo now supplies sample usage.
+- Admin usage shows three full progress rows and individual Reset controls plus Reset both. Reset both sends `5h` and `week`; the existing backend also clears the Fable subset on week reset. Resets were tested only in the local demo. Production Linus usage and controls were inspected read-only.
+- Chat body defaults to 15px; Markdown h1/h2/h3 now scale at 1.333/1.2/1.067 times body size with the body font instead of oversized serif headings.
+- The reported desktop failure recovered: the running Kividas Code usage popover and Settings both showed 2% / 4% / 5%. App nodes had 344 / 280 successful usage/limits responses in the preceding 45 minutes, with no associated errors. This does not establish the cause of the earlier transient failure.
+- The current Chrome local administrator kyber is not linked to platform billing, as its chat error explicitly states. Its unavailable personal usage is distinct from a service outage. No identity, billing link or subscription was changed for this account.
+- Release image `web-1e4a39a28fab` was activated on both nodes and rolled with ALB drain. Both containers passed health and served `index-BL45Ybph.js` / `index-CXgwT0if.css`; index SHA-256 is `c19ff6a0282e404dddfc7a4a089916209587ae596bda77d100ffd20814302c51`. Backend image lineage, environment and data were preserved.

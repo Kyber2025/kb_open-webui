@@ -61,7 +61,7 @@ npm run build
 
 同域部署使用现有 API/OAuth/WebSocket 转发，参考 `deploy/nginx.locations.conf`。不要将后端密钥写入前端；旧静态文件保留用于回滚。
 
-本次没有部署或替换 `chat.kividas.com`。完成本地构建、自动测试和示例界面验证；真实后端仍需测试账号验收登录、聊天、附件和管理读写。未为验证而修改线上套餐、用户或访客策略。
+独立前端已部署至 `chat.kividas.com`，沿用原后端和数据。真实账号登录、聊天回复与刷新恢复、套餐目录和管理用量读取已验证；其他验收范围见验证记录。未为验证而修改线上套餐、用户或访客策略。
 
 接口清单见 `API-CONTRACT.md`，验证记录见 `VERIFICATION.md`。
 
