@@ -1,0 +1,5 @@
+Anthropic knowledge-work-plugins
+Source: https://github.com/anthropics/knowledge-work-plugins
+Revision: 1bd4282
+License: Apache-2.0
+Changes: packaged Markdown skills and local Markdown references into JSON for the Kividas web skills backend. Scripts, agents, hooks and runtime are not executed. Source author names are retained; no endorsement is implied.

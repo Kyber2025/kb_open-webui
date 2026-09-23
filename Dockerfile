@@ -27,35 +27,14 @@ ARG GID=0
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
 ARG BUILD_HASH
 
-# Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
-# Raised + enabled for the Kividas fork: the vite build OOMs with the default heap.
-# Build runs natively on the arm64 t4g.xlarge Jenkins node (16GB), so 8GB heap is safe.
-ENV NODE_OPTIONS="--max-old-space-size=6144"
-
-WORKDIR /app
-
-# to store git revision in build
-RUN apk add --no-cache git
-
-COPY package.json package-lock.json ./
-RUN npm ci --force
-
-# Pre-fetch pyodide wheels in a layer cached on package-lock + the fetch script
-# (Kividas fork). Without this, `npm run build` runs `pyodide:fetch` AFTER
-# `COPY . .`, so every source change busts the cache and re-downloads dozens of
-# wheels from the CDN each build. Here the download happens in its own layer
-# that only re-runs when package-lock or the script changes; the later
-# `npm run build` re-runs pyodide:fetch but finds everything already cached in
-# node_modules / static/pyodide and skips the downloads. node_modules is
-# excluded by .dockerignore and the prefetched static/pyodide/*.whl are
-# gitignored, so neither is clobbered by the subsequent `COPY . .`.
-COPY scripts ./scripts
-COPY static/pyodide/pyodide-lock.json ./static/pyodide/pyodide-lock.json
-RUN npm run pyodide:fetch
-
-COPY . .
-ENV APP_BUILD_HASH=${BUILD_HASH}
-RUN npm run build
+# Build the independent Kividas frontend; keep the existing backend runtime.
+WORKDIR /app/kividas-web
+COPY kividas-web/package.json kividas-web/package-lock.json ./
+RUN npm ci
+COPY kividas-web/ ./
+RUN npm run build && mv dist /app/build
+# Backend version/changelog metadata remains the original project's contract.
+COPY package.json CHANGELOG.md /app/
 
 ######## WebUI backend ########
 FROM python:3.11-slim-bookworm AS base
