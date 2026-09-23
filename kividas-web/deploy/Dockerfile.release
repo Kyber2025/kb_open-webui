@@ -10,7 +10,7 @@ RUN npm run build
 
 FROM ${BASE_IMAGE}
 USER root
-RUN rm -rf /app/build
+# Keep previous hashed assets available to tabs opened before the rolling release.
 COPY --from=web /web/dist /app/build
 ARG WEB_REVISION
 LABEL com.kividas.web.revision=${WEB_REVISION}
