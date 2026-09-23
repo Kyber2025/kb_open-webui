@@ -569,7 +569,7 @@ export function ChatPage({
           <div className="chat-scroll">
             {!messages.length ? (
               <div className="greeting">
-                <BrandMark />
+                <img className="brand-mark" src={new URL("../assets/claude.svg", import.meta.url).href} alt="Claude" />
                 <h1>
                   {temporary
                     ? "A little space to think"

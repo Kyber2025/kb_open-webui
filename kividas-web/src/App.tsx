@@ -191,7 +191,6 @@ export default function App() {
       <aside className="sidebar" aria-label="Sidebar">
         <div className="sidebar-brand">
           <Link to="/" className="wordmark">
-            <img src="/kividas-code.png" alt="" />
             Kividas
           </Link>
           <div className="row">
