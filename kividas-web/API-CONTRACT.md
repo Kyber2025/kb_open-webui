@@ -9,7 +9,7 @@ All calls are same-origin, use `credentials: include`, and send the existing bea
 | Login / guest | POST `/api/v1/auths/signin`, POST `/api/v1/auths/guest` |
 | Logout | POST `/api/v1/auths/signout` |
 | Accessible models | GET `/api/models` → `{data: Model[]}` |
-| Stream chat | POST `/api/chat/completions` → OpenAI-compatible SSE |
+| Stream chat | POST `/api/chat/completions`; saved chats use authenticated Socket.IO `events`, guest/temporary chats use OpenAI-compatible SSE |
 | History | GET `/api/v1/chats/`, GET `/api/v1/chats/search`, GET `/api/v1/chats/:id` |
 | Save history | POST `/api/v1/chats/new` or POST `/api/v1/chats/:id` |
 | Projects | GET/POST `/api/v1/folders/`, GET `/api/v1/chats/folder/:id` |
@@ -31,7 +31,7 @@ Guest policy fields: `ENABLE_GUEST_ACCESS`, `GUEST_DAILY_LIMIT`, `GUEST_ALLOWED_
 
 Gift list query: `status_filter` and `search` run on the server so codes outside the newest 500 can be located. Plan and duration filters run on returned records. A redeemed disabled card is displayed as invalidated. Invalidation and disablement remain different operations.
 
-Conversation persistence writes the existing history shape (`history.messages`, `history.currentId`, `messages`, `models`, `title`). Alternative branches are retained. No `session_id` is sent, so the backend returns direct SSE rather than its socket-based background task response.
+Conversation persistence writes the existing history shape (`history.messages`, `history.currentId`, `messages`, `models`, `title`). Alternative branches are retained. Saved chats include `chat_id` and `id`, which select the backend event pipeline even without `session_id`. The client subscribes to `/ws/socket.io` before generation and filters events by both IDs. No `session_id` is sent: the HTTP request waits for processing, then returns JSON `null`. The client reads the canonical saved message after that acknowledgement, recovering from missed socket events and retaining provider errors. Guest and temporary requests omit the chat/message IDs and receive direct SSE. Errors are persisted and displayed after navigation.
 
 ## Additional retained surfaces
 
