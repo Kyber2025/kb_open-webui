@@ -19,6 +19,5 @@ export default defineConfig(({ mode }) => {
           },
     },
     build: { sourcemap: false },
-    test: { environment: "node" },
   };
 });

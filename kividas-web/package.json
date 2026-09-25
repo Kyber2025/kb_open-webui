@@ -8,7 +8,8 @@
     "demo": "KIVIDAS_DEMO=1 vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "vitest run"
+    "test": "node --max-old-space-size=1024 ./node_modules/vitest/vitest.mjs run",
+    "test:runtime-safety": "node --test scripts/test-vitest-safety.mjs"
   },
   "dependencies": {
     "dompurify": "3.4.15",
