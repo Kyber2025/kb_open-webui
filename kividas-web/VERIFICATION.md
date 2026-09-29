@@ -79,3 +79,10 @@
 - The reported desktop failure recovered: the running Kividas Code usage popover and Settings both showed 2% / 4% / 5%. App nodes had 344 / 280 successful usage/limits responses in the preceding 45 minutes, with no associated errors. This does not establish the cause of the earlier transient failure.
 - The current Chrome local administrator kyber is not linked to platform billing, as its chat error explicitly states. Its unavailable personal usage is distinct from a service outage. No identity, billing link or subscription was changed for this account.
 - Release image `web-1e4a39a28fab` was activated on both nodes and rolled with ALB drain. Both containers passed health and served `index-BL45Ybph.js` / `index-CXgwT0if.css`; index SHA-256 is `c19ff6a0282e404dddfc7a4a089916209587ae596bda77d100ffd20814302c51`. Backend image lineage, environment and data were preserved.
+# 2026-09-29 Sonnet 5.5 菜单更新
+
+- 部署源码 `90277a7ff425a3e17fed8bf685f18956ebdf5d6d`，两节点使用 `web-90277a7ff425`；健康检查通过，30 个文件逐字节核对，后端 converter 未变。
+- `model-menu.test.ts` 8 项通过，TypeScript 与 production build 通过。
+- 真实浏览器确认简短名称 `Sonnet 5.5`，主菜单不再展示 Opus 5，More models 保留 Opus 5 与 Sonnet 5。可用列表仍由当前账号权限决定。
+- Free / Pro / Max / Ultra 已同步新模型；网关真实 Free 请求成功，走 cometapi，未绑定付费 Claude 席位。桌面真实订阅账号的 Sonnet 5.5 请求也成功。
+- 当前浏览器里的 kyber 管理员账号未关联平台计费，其网页发送会被既有账号规则拒绝；未改动该账号或登录状态，不能把该账号的网页发送记为通过。
