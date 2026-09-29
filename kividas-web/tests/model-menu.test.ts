@@ -20,6 +20,15 @@ describe("model and effort selection", () => {
   });
   it("does not add unavailable models to a user's menu", () =>
     expect(primaryModels([opus])).toEqual([opus]));
+  it("keeps Opus 5 out of primary without changing its saved id or entitlement", () => {
+    const old = { id: "claude-opus-5", name: "Claude Opus 5" };
+    const sonnet = { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" };
+    const models = [old, sonnet, opus];
+    expect(primaryModels(models)).toEqual([opus, sonnet]);
+    expect(models.filter((m) => !primaryModels(models).includes(m))).toEqual([old]);
+    expect(primaryModels([old])).toEqual([]);
+    expect(modelLabel(sonnet)).toBe("Sonnet 5.5");
+  });
   it("falls back safely for invalid saved effort values", () =>
     expect(validEffort("ultra")).toBe("medium"));
   it("maps the Extra label to the gateway's xhigh value", () =>

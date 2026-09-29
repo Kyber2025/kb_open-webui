@@ -21,11 +21,12 @@ function family(model: Model) {
     ?.toLowerCase();
 }
 export function primaryModels(models: Model[]) {
+  const headline = models.filter((model) => !/^(?:anthropic\/)?claude-opus-5(?:\[1m\])?$/.test(model.id));
   const primary = ["fable", "opus", "sonnet", "haiku"].flatMap((name) => {
-    const model = models.find((m) => family(m) === name);
+    const model = headline.find((m) => family(m) === name);
     return model ? [model] : [];
   });
-  return primary.length ? primary : models.slice(0, 4);
+  return primary.length ? primary : headline.slice(0, 4);
 }
 export function modelDescription(model: Model) {
   const descriptions: Record<string, string> = {
