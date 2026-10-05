@@ -2,16 +2,18 @@
 
 KyberRouter limits code emails (20/hour) and account creation (3/hour, 5/day) per
 client IP, read from X-Forwarded-For. Without the header every user behind one
-app node shares those limits. Runs on the standard library alone: the functions
+app node shares those limits; without skipping our mainland relay, every user
+behind the relay does. Runs on the standard library alone: the functions
 under test are lifted from their modules and given stand-ins for aiohttp,
 FastAPI and the database."""
 import ast
 import ipaddress
+import os
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Optional
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).parents[1] / 'open_webui'
 
@@ -69,7 +71,7 @@ kyber = lift(
     {'ipaddress': ipaddress, 'Optional': Optional, 'aiohttp': SimpleNamespace(ClientSession=FakeSession),
      '_TIMEOUT': None},
 )
-guest = lift('utils/guest.py', {'get_client_ip'}, {'ipaddress': ipaddress, 'Request': object})
+guest = lift('utils/guest.py', {'get_client_ip', '_trusted_relays'}, {'ipaddress': ipaddress, 'os': os, 'Request': object})
 
 
 class HTTPException(Exception):
@@ -139,6 +141,28 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         await auths.password_reset(request, form, db=None)
         for name, mock in relay.items():
             self.assertEqual(mock.await_args.kwargs.get('client_ip'), '8.8.4.4', name)
+
+
+class ClientIpTests(unittest.TestCase):
+    # Real-looking public addresses: documentation ranges count as non-public.
+    RELAY, USER, ALB = '8.210.119.231', '36.112.10.20', '172.31.20.5'
+
+    def ip(self, xff):
+        return guest.get_client_ip(SimpleNamespace(headers={'x-forwarded-for': xff},
+                                                   client=SimpleNamespace(host='172.17.0.1')))
+
+    def test_user_behind_the_mainland_relay(self):
+        # The relay replaces XFF with the address it saw; the ALB appends the relay.
+        self.assertEqual(self.ip(f'{self.USER}, {self.RELAY}, {self.ALB}'), self.USER)
+
+    def test_direct_client_cannot_claim_to_come_through_the_relay(self):
+        self.assertEqual(self.ip(f'1.1.1.1, {self.RELAY}, 156.59.13.20, {self.ALB}'), '156.59.13.20')
+        self.assertEqual(self.ip(f'156.59.13.20, {self.ALB}'), '156.59.13.20')
+
+    def test_relay_list_comes_from_the_environment(self):
+        with patch.dict(os.environ, {'KIVIDAS_TRUSTED_RELAY_IPS': '47.0.0.1, 47.0.0.2'}):
+            self.assertEqual(self.ip(f'{self.USER}, 47.0.0.2, {self.ALB}'), self.USER)
+            self.assertEqual(self.ip(f'{self.USER}, {self.RELAY}, {self.ALB}'), self.RELAY)
 
 
 if __name__ == '__main__':

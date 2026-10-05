@@ -15,6 +15,7 @@ restarts, no DB lookup needed). The device id is supplied by the client in the
 
 import ipaddress
 import logging
+import os
 import time
 import uuid
 
@@ -64,6 +65,14 @@ def _utc_date() -> str:
     return time.strftime('%Y-%m-%d', time.gmtime())
 
 
+def _trusted_relays() -> set:
+    """Public addresses of our own relays in front of the ALB, comma-separated in
+    KIVIDAS_TRUSTED_RELAY_IPS. Default: the mainland relay (Alibaba Cloud HK,
+    kividas-relay.conf), whose egress the ALB records as the client."""
+    raw = os.environ.get('KIVIDAS_TRUSTED_RELAY_IPS', '8.210.119.231')
+    return {part.strip() for part in raw.split(',') if part.strip()}
+
+
 def get_client_ip(request: Request) -> str:
     """Best-effort real client IP behind ALB + nginx.
 
@@ -73,15 +82,24 @@ def get_client_ip(request: Request) -> str:
     the IP the edge proxy actually observed, which a client cannot forge by
     pre-seeding its own X-Forwarded-For (the edge appends the real peer after
     any client-supplied value).
+
+    Mainland users arrive through our relay, which REPLACES X-Forwarded-For with
+    the address it saw before the ALB appends the relay's own: "<real-client>,
+    <relay>, <alb>". The relay hop is skipped like the private ones, so the user
+    behind it is returned; a direct client that writes the relay's address into
+    its own header still meets its real address first.
     """
     xff = request.headers.get('x-forwarded-for', '')
     candidates = [p.strip() for p in xff.split(',') if p.strip()]
+    relays = _trusted_relays()
     for raw in reversed(candidates):
         try:
             ip = ipaddress.ip_address(raw)
         except ValueError:
             continue
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            continue
+        if str(ip) in relays:
             continue
         return raw
     # Fallbacks: first XFF entry, then the socket peer.
