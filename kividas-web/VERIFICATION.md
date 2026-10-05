@@ -86,3 +86,9 @@
 - 真实浏览器确认简短名称 `Sonnet 5.5`，主菜单不再展示 Opus 5，More models 保留 Opus 5 与 Sonnet 5。可用列表仍由当前账号权限决定。
 - Free / Pro / Max / Ultra 已同步新模型；网关真实 Free 请求成功，走 cometapi，未绑定付费 Claude 席位。桌面真实订阅账号的 Sonnet 5.5 请求也成功。
 - 当前浏览器里的 kyber 管理员账号未关联平台计费，其网页发送会被既有账号规则拒绝；未改动该账号或登录状态，不能把该账号的网页发送记为通过。
+
+# 2026-10-05 注册与找回密码
+
+- 部署源码 `c1b709470666edc119d36f4c6ca90c91c10fd01e`，两节点使用 `web-c1b709470666`（ECR digest `sha256:f6dceb2d9b40…`），在运行镜像上叠加前端 dist 与 `utils/kyber.py`、`routers/auths.py`、`tests/test_kyber_client_ip.py`。部署前两节点这两个后端文件与改动前版本逐字节一致；镜像内 34 个文件逐字节核对，py_compile 与 `test_kyber_client_ip.py`（3 项）在镜像和运行容器内均通过，健康检查 200。公网 6 次首页哈希一致，两节点 ALB healthy。
+- 前端：79 项测试、TypeScript 与 production build 通过。demo 模式实际走通注册（发码 → 错误验证码报错 → 两次密码不一致被前端拦下 → 正确验证码完成并登录）和找回密码（重置后回到登录且保留邮箱）。线上下发的 `index-Ba2B0v6y.js` 含 Sign up / Forgot password 文案与接口路径。未在线上提交真实注册或重置，未向任何邮箱发送验证码。
+- IP 转发：部署前经 chat 转发的发码请求在网关日志中 `remoteAddress` 为 `172.18.0.1`；部署后公网 4 次请求（两节点各 2 次）均为客户端真实出口地址，伪造的首段 X-Forwarded-For 被忽略。探针使用已注册邮箱，网关第一步返回「Email already registered」，不发邮件、不计入限额。
