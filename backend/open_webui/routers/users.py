@@ -65,10 +65,11 @@ async def get_users(
     direction: str | None = None,
     page: int | None = 1,
     plan: str | None = None,
+    limit: int | None = None,
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    limit = PAGE_ITEM_COUNT
+    limit = min(max(1, limit), 100) if limit else PAGE_ITEM_COUNT
 
     page = max(1, page)
     skip = (page - 1) * limit

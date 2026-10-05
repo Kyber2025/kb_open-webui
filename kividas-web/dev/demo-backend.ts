@@ -80,6 +80,19 @@ const defaults: Tier[] = [
     enabled: true,
     sort_order: 2,
   },
+  {
+    id: "ultra",
+    name: "Max 20x",
+    description: "Dedicated Claude account.",
+    price_usd: 260,
+    duration_days: 30,
+    token_limit_5h: 20000000,
+    token_limit_week: 100000000,
+    extra_usage_multiplier: 1,
+    allowed_model_ids: [],
+    enabled: true,
+    sort_order: 3,
+  },
 ];
 const demoUser = {
   id: "demo-admin",
@@ -126,9 +139,11 @@ export function demoBackend(): Plugin {
       const demoPlans: Record<string, UserPlan> = {};
       const snapshot = (id: string): UserPlan =>
         demoPlans[id] ?? {
-          tier: defaults[id === "demo-jamie" || /[05]$/.test(id) ? 1 : 0],
+          tier: defaults[
+            id === "demo-jamie" || /[05]$/.test(id) ? 1 : /7$/.test(id) ? 3 : 0
+          ],
           expires_at:
-            id === "demo-jamie" || /[05]$/.test(id)
+            id === "demo-jamie" || /[057]$/.test(id)
               ? Math.floor(Date.now() / 1000) + 86400 * 30
               : null,
           kyber_linked: true,
@@ -468,9 +483,10 @@ export function demoBackend(): Plugin {
                   { numeric: true },
                 ) * sign,
             );
-          const page = Number(url.searchParams.get("page") || 1);
+          const page = Number(url.searchParams.get("page") || 1),
+            limit = Number(url.searchParams.get("limit") || 30);
           return json({
-            users: found.slice((page - 1) * 30, page * 30),
+            users: found.slice((page - 1) * limit, page * limit),
             total: found.length,
           });
         }

@@ -39,11 +39,15 @@ class PlanFilterTests(unittest.IsolatedAsyncioTestCase):
                                         started_at=now, expires_at=exp, created_at=now, updated_at=now))
             await db.commit()
 
-    async def ids(self, plan):
+    async def list(self, plan=None, page=1, limit=None):
         from open_webui.internal.db import get_async_db_context
 
         async with get_async_db_context() as db:
-            result = await get_users(query=None, order_by='name', direction='asc', page=1, plan=plan, user=None, db=db)
+            return await get_users(query=None, order_by='name', direction='asc', page=page,
+                                   plan=plan, limit=limit, user=None, db=db)
+
+    async def ids(self, plan):
+        result = await self.list(plan)
         ids = sorted(u.id for u in result['users'])
         self.assertEqual(result['total'], len(ids))
         return ids
@@ -58,6 +62,12 @@ class PlanFilterTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_plan_is_empty_and_no_plan_is_everyone(self):
         self.assertEqual(await self.ids('nope'), [])
         self.assertEqual(len(await self.ids(None)), 6)
+
+    async def test_page_size(self):
+        first, last = await self.list(limit=4), await self.list(page=2, limit=4)
+        self.assertEqual((len(first['users']), len(last['users']), first['total']), (4, 2, 6))
+        self.assertEqual(len((await self.list(limit=0))['users']), 6)  # 0 → default page size
+        self.assertEqual(len((await self.list(limit=-5))['users']), 1)
 
 
 if __name__ == '__main__':

@@ -20,6 +20,7 @@ import {
   usagePercent,
   pageItems,
   USERS_PAGE_SIZE,
+  USERS_PAGE_SIZES,
   syncWarning,
   type AccessPreview,
   type ManagedUser,
@@ -87,6 +88,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     [plans, setPlans] = useState<Record<string, UserPlan>>({});
   const [total, setTotal] = useState(0),
     [page, setPage] = useState(1),
+    [pageSize, setPageSize] = useState(USERS_PAGE_SIZE),
     [query, setQuery] = useState(""),
     [plan, setPlan] = useState(""),
     [tiers, setTiers] = useState<Tier[]>([]);
@@ -116,7 +118,14 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     setPlanError("");
     setPlans({});
     try {
-      const result = await usersApi.list(page, query, order, direction, plan);
+      const result = await usersApi.list(
+        page,
+        query,
+        order,
+        direction,
+        plan,
+        pageSize,
+      );
       if (turn !== revision.current) return;
       setUsers(result.users);
       setTotal(result.total);
@@ -143,14 +152,14 @@ export function Users({ sessionUser }: { sessionUser: User }) {
       clearTimeout(timer);
       revision.current++;
     };
-  }, [page, query, order, direction, plan]);
+  }, [page, pageSize, query, order, direction, plan]);
   useEffect(() => {
     api
       .tiers()
       .then((all) => setTiers(all.filter((t) => t.enabled)))
       .catch(() => setTiers([]));
   }, []);
-  const pages = Math.max(1, Math.ceil(total / USERS_PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   function sort(key: string) {
     if (order === key) setDirection(direction === "asc" ? "desc" : "asc");
     else {
@@ -389,17 +398,28 @@ export function Users({ sessionUser }: { sessionUser: User }) {
           {!users.length && <Empty title="No matching users" />}
           {total > 0 && (
             <nav className="user-pagination" aria-label="Users pages">
-              <span>
-                {(page - 1) * USERS_PAGE_SIZE + 1}–
-                {Math.min(page * USERS_PAGE_SIZE, total)} of {total}
-              </span>
+              <span>Total {total}</span>
               <div className="pager">
+                <select
+                  aria-label="Users per page"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {USERS_PAGE_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size} / page
+                    </option>
+                  ))}
+                </select>
                 <button
                   aria-label="Previous page"
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
                 >
-                  <ChevronLeft size={15} />
+                  <ChevronLeft size={14} />
                 </button>
                 {pageItems(page, pages).map((item, i) =>
                   item === "…" ? (
@@ -422,7 +442,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
                   disabled={page >= pages}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  <ChevronRight size={15} />
+                  <ChevronRight size={14} />
                 </button>
               </div>
             </nav>
