@@ -429,6 +429,10 @@ class UsersTable:
                 if user_ids:
                     stmt = stmt.filter(User.id.in_(user_ids))
 
+                exclude_user_ids = filter.get('exclude_user_ids')
+                if exclude_user_ids:
+                    stmt = stmt.filter(~User.id.in_(exclude_user_ids))
+
                 if group_ids:
                     stmt = stmt.filter(
                         exists(

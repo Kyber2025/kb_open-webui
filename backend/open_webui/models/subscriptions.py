@@ -323,6 +323,29 @@ class UserSubscriptionsTable:
             )
             return [UserSubscriptionModel.model_validate(s) for s in result.scalars().all()]
 
+    async def paid_tier_by_user(self, db: Optional[AsyncSession] = None) -> dict[str, str]:
+        """{user_id: effective tier id} for every user whose effective plan is not the
+        default one — the admin list's plan filter. Mirrors list_active_for_users /
+        get_user_tier: the furthest-out active subscription wins, and if its tier was
+        deleted or disabled the user counts as Free (absent from this map)."""
+        async with get_async_db_context(db) as db:
+            now = int(time.time())
+            enabled = set(
+                (
+                    await db.execute(select(SubscriptionTier.id).filter_by(enabled=True))
+                ).scalars().all()
+            )
+            result = await db.execute(
+                select(UserSubscription.user_id, UserSubscription.tier_id)
+                .filter(
+                    UserSubscription.status == 'active',
+                    UserSubscription.expires_at > now,
+                )
+                .order_by(UserSubscription.expires_at.asc())
+            )
+            latest = {user_id: tier_id for user_id, tier_id in result.all()}
+            return {uid: tid for uid, tid in latest.items() if tid in enabled}
+
     async def list_active_for_users(
         self, user_ids: list[str], db: Optional[AsyncSession] = None
     ) -> dict[str, UserSubscriptionModel]:

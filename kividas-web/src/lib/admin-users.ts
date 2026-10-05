@@ -41,9 +41,15 @@ const userPath = (id: string) => `/api/v1/users/${encodeURIComponent(id)}`;
 const planPath = (id: string) =>
   `/api/v1/subscriptions/admin/users/${encodeURIComponent(id)}`;
 export const usersApi = {
-  list: (page: number, query: string, order: string, direction: string) =>
+  list: (
+    page: number,
+    query: string,
+    order: string,
+    direction: string,
+    plan = "",
+  ) =>
     request<{ users: ManagedUser[]; total: number }>(
-      `/api/v1/users/?${new URLSearchParams({ page: String(page), query, order_by: order, direction })}`,
+      `/api/v1/users/?${new URLSearchParams({ page: String(page), query, order_by: order, direction, ...(plan ? { plan } : {}) })}`,
     ),
   overview: (ids: string[]) =>
     post<{ users: Record<string, UserPlan> }>(
@@ -73,6 +79,23 @@ export const usersApi = {
       `/api/v1/chats/list/user/${encodeURIComponent(id)}?${new URLSearchParams({ page: String(page), query, order_by: "updated_at", direction: "desc" })}`,
     ),
 };
+/** Server page size of GET /api/v1/users/ (PAGE_ITEM_COUNT). */
+export const USERS_PAGE_SIZE = 30;
+/** Page buttons: always first and last, the current page ±1, "…" for gaps. */
+export function pageItems(page: number, pages: number): (number | "…")[] {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const head = page <= 4,
+    tail = page >= pages - 3;
+  const from = head ? 2 : tail ? pages - 4 : page - 1,
+    to = head ? 5 : tail ? pages - 1 : page + 1;
+  return [
+    1,
+    ...(from > 2 ? ["…" as const] : []),
+    ...Array.from({ length: to - from + 1 }, (_, i) => from + i),
+    ...(to < pages - 1 ? ["…" as const] : []),
+    pages,
+  ];
+}
 export function usagePercent(window: UsageWindow | undefined) {
   return window && window.limit > 0
     ? Math.max(

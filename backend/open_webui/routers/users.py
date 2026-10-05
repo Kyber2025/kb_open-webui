@@ -27,6 +27,7 @@ from open_webui.models.users import (
     UserUpdateForm,
 )
 from open_webui.models.access_grants import AccessGrants
+from open_webui.models.subscriptions import UserSubscriptions
 from open_webui.models.knowledge import Knowledges
 from open_webui.models.models import Models
 from open_webui.models.tools import Tools
@@ -63,6 +64,7 @@ async def get_users(
     order_by: str | None = None,
     direction: str | None = None,
     page: int | None = 1,
+    plan: str | None = None,
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -80,6 +82,21 @@ async def get_users(
         filter['direction'] = direction
 
     filter['direction'] = direction
+
+    # Plan = the EFFECTIVE tier shown in the admin list (see _admin_user_snapshot):
+    # Free is everyone without a usable paid subscription, so it is an exclusion.
+    plan = (plan or '').strip().lower()
+    if plan:
+        from open_webui.utils.subscription import DEFAULT_TIER_ID
+
+        paid = await UserSubscriptions.paid_tier_by_user(db=db)
+        if plan == DEFAULT_TIER_ID:
+            filter['exclude_user_ids'] = list(paid)
+        else:
+            matching = [uid for uid, tier_id in paid.items() if tier_id == plan]
+            if not matching:
+                return {'users': [], 'total': 0}
+            filter['user_ids'] = matching
 
     result = await Users.get_users(filter=filter, skip=skip, limit=limit, db=db)
 

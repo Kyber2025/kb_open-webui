@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Ban,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   MessageSquare,
   Pencil,
@@ -16,6 +18,8 @@ import { activeMessages } from "../lib/domain";
 import {
   usersApi,
   usagePercent,
+  pageItems,
+  USERS_PAGE_SIZE,
   syncWarning,
   type AccessPreview,
   type ManagedUser,
@@ -83,7 +87,9 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     [plans, setPlans] = useState<Record<string, UserPlan>>({});
   const [total, setTotal] = useState(0),
     [page, setPage] = useState(1),
-    [query, setQuery] = useState("");
+    [query, setQuery] = useState(""),
+    [plan, setPlan] = useState(""),
+    [tiers, setTiers] = useState<Tier[]>([]);
   const [order, setOrder] = useState("created_at"),
     [direction, setDirection] = useState("asc");
   const [loading, setLoading] = useState(true),
@@ -110,7 +116,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     setPlanError("");
     setPlans({});
     try {
-      const result = await usersApi.list(page, query, order, direction);
+      const result = await usersApi.list(page, query, order, direction, plan);
       if (turn !== revision.current) return;
       setUsers(result.users);
       setTotal(result.total);
@@ -137,7 +143,14 @@ export function Users({ sessionUser }: { sessionUser: User }) {
       clearTimeout(timer);
       revision.current++;
     };
-  }, [page, query, order, direction]);
+  }, [page, query, order, direction, plan]);
+  useEffect(() => {
+    api
+      .tiers()
+      .then((all) => setTiers(all.filter((t) => t.enabled)))
+      .catch(() => setTiers([]));
+  }, []);
+  const pages = Math.max(1, Math.ceil(total / USERS_PAGE_SIZE));
   function sort(key: string) {
     if (order === key) setDirection(direction === "asc" ? "desc" : "asc");
     else {
@@ -184,17 +197,34 @@ export function Users({ sessionUser }: { sessionUser: User }) {
           </button>
         </div>
       </div>
-      <div className="user-search">
-        <Search size={17} />
-        <input
-          aria-label="Search users"
-          placeholder="Search users by name or email…"
-          value={query}
+      <div className="user-filters">
+        <div className="user-search">
+          <Search size={17} />
+          <input
+            aria-label="Search users"
+            placeholder="Search users by name or email…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <select
+          aria-label="Filter by plan"
+          value={plan}
           onChange={(e) => {
-            setQuery(e.target.value);
+            setPlan(e.target.value);
             setPage(1);
           }}
-        />
+        >
+          <option value="">All plans</option>
+          {tiers.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
       </div>
       {planError && (
         <ErrorPanel
@@ -357,27 +387,46 @@ export function Users({ sessionUser }: { sessionUser: User }) {
             </table>
           </div>
           {!users.length && <Empty title="No matching users" />}
-          <div className="user-pagination">
-            <span>
-              {total} users · Page {page}
-            </span>
-            <div className="row">
-              <button
-                className="btn"
-                disabled={page === 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                Previous
-              </button>
-              <button
-                className="btn"
-                disabled={users.length === 0 || page * 30 >= total}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </button>
-            </div>
-          </div>
+          {total > 0 && (
+            <nav className="user-pagination" aria-label="Users pages">
+              <span>
+                {(page - 1) * USERS_PAGE_SIZE + 1}–
+                {Math.min(page * USERS_PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="pager">
+                <button
+                  aria-label="Previous page"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  <ChevronLeft size={15} />
+                </button>
+                {pageItems(page, pages).map((item, i) =>
+                  item === "…" ? (
+                    <span key={`gap-${i}`} className="pager-gap">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      className={item === page ? "active" : undefined}
+                      aria-current={item === page ? "page" : undefined}
+                      onClick={() => setPage(item)}
+                    >
+                      {item}
+                    </button>
+                  ),
+                )}
+                <button
+                  aria-label="Next page"
+                  disabled={page >= pages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            </nav>
+          )}
         </>
       )}
       {editing && (

@@ -114,13 +114,21 @@ export function demoBackend(): Plugin {
           created_at: 1780001000,
           last_active_at: 1789000000,
         },
+        ...Array.from({ length: 84 }, (_, i) => ({
+          id: `demo-member-${i + 1}`,
+          name: `Member ${i + 1}`,
+          email: `member${i + 1}@example.test`,
+          role: "user",
+          created_at: 1780002000 + i * 600,
+          last_active_at: 1789000000,
+        })),
       ];
       const demoPlans: Record<string, UserPlan> = {};
       const snapshot = (id: string): UserPlan =>
         demoPlans[id] ?? {
-          tier: defaults[id === "demo-jamie" ? 1 : 0],
+          tier: defaults[id === "demo-jamie" || /[05]$/.test(id) ? 1 : 0],
           expires_at:
-            id === "demo-jamie"
+            id === "demo-jamie" || /[05]$/.test(id)
               ? Math.floor(Date.now() / 1000) + 86400 * 30
               : null,
           kyber_linked: true,
@@ -447,6 +455,11 @@ export function demoBackend(): Plugin {
             sign = url.searchParams.get("direction") === "desc" ? -1 : 1;
           const found = demoUsers
             .filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q))
+            .filter(
+              (u) =>
+                !url.searchParams.get("plan") ||
+                (snapshot(u.id).tier?.id || "free") === url.searchParams.get("plan"),
+            )
             .sort(
               (a, b) =>
                 String((a as any)[key]).localeCompare(
