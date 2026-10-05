@@ -5,6 +5,7 @@ is on, open-webui proxies KyberRouter's auth API for signin/signup, provisions a
 shadow user, and stores the user's `sk-or-` API key (Fernet-encrypted) for P2 per-user
 token billing. All functions here are no-ops unless the bridge is enabled by the caller."""
 
+import ipaddress
 import logging
 import time
 from typing import Optional
@@ -58,10 +59,21 @@ def _err_message(data, default: str = 'KyberRouter request failed') -> str:
     return default
 
 
-async def _post(base: str, path: str, payload: dict, jwt: Optional[str] = None):
+async def _post(
+    base: str, path: str, payload: dict, jwt: Optional[str] = None, client_ip: Optional[str] = None
+):
     headers = {'Content-Type': 'application/json'}
     if jwt:
         headers['Authorization'] = f'Bearer {jwt}'
+    # KyberRouter rate-limits code emails and account creation per client IP and
+    # reads it from X-Forwarded-For. Without the end user's address every request
+    # relayed from this node counts against one shared quota. Only a well-formed
+    # address is passed on.
+    if client_ip:
+        try:
+            headers['X-Forwarded-For'] = str(ipaddress.ip_address(client_ip.strip()))
+        except ValueError:
+            pass
     async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
         async with session.post(f'{base}{path}', json=payload, headers=headers) as resp:
             try:
@@ -106,9 +118,11 @@ async def kyber_login(base: str, email: str, password: str) -> Optional[dict]:
     return None
 
 
-async def kyber_send_register_code(base: str, email: str) -> dict:
+async def kyber_send_register_code(base: str, email: str, client_ip: Optional[str] = None) -> dict:
     try:
-        status_code, data = await _post(base, '/auth/register/send-code', {'email': email})
+        status_code, data = await _post(
+            base, '/auth/register/send-code', {'email': email}, client_ip=client_ip
+        )
     except Exception as e:
         raise KyberError('Could not reach the account service. Please try again.', 502) from e
     if status_code in (200, 201):
@@ -117,13 +131,18 @@ async def kyber_send_register_code(base: str, email: str) -> dict:
 
 
 async def kyber_register_verify(
-    base: str, email: str, code: str, password: str, name: Optional[str] = None
+    base: str,
+    email: str,
+    code: str,
+    password: str,
+    name: Optional[str] = None,
+    client_ip: Optional[str] = None,
 ) -> dict:
     payload = {'email': email, 'code': code, 'password': password}
     if name:
         payload['name'] = name
     try:
-        status_code, data = await _post(base, '/auth/register/verify', payload)
+        status_code, data = await _post(base, '/auth/register/verify', payload, client_ip=client_ip)
     except Exception as e:
         raise KyberError('Could not reach the account service. Please try again.', 502) from e
     if status_code in (200, 201) and data.get('accessToken'):
@@ -131,11 +150,13 @@ async def kyber_register_verify(
     raise KyberError(_err_message(data, 'Verification failed'), 400)
 
 
-async def kyber_forgot_password(base: str, email: str) -> dict:
+async def kyber_forgot_password(base: str, email: str, client_ip: Optional[str] = None) -> dict:
     """Ask KyberRouter to email a password-reset code (anti-enumeration: 200 even if
     the email is unknown)."""
     try:
-        status_code, data = await _post(base, '/auth/forgot-password', {'email': email})
+        status_code, data = await _post(
+            base, '/auth/forgot-password', {'email': email}, client_ip=client_ip
+        )
     except Exception as e:
         raise KyberError('Could not reach the account service. Please try again.', 502) from e
     if status_code in (200, 201):
@@ -143,11 +164,13 @@ async def kyber_forgot_password(base: str, email: str) -> dict:
     raise KyberError(_err_message(data, 'Could not send the reset code'), 400)
 
 
-async def kyber_reset_password(base: str, email: str, code: str, new_password: str) -> dict:
+async def kyber_reset_password(
+    base: str, email: str, code: str, new_password: str, client_ip: Optional[str] = None
+) -> dict:
     """Complete a password reset against KyberRouter (the account source of truth)."""
     payload = {'email': email, 'code': code, 'newPassword': new_password}
     try:
-        status_code, data = await _post(base, '/auth/reset-password', payload)
+        status_code, data = await _post(base, '/auth/reset-password', payload, client_ip=client_ip)
     except Exception as e:
         raise KyberError('Could not reach the account service. Please try again.', 502) from e
     if status_code in (200, 201):

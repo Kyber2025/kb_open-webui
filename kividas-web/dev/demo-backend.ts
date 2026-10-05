@@ -268,11 +268,31 @@ export function demoBackend(): Plugin {
               enable_web_search: true,
               enable_memories: true,
               enable_automations: true,
+              enable_kyber_auth_bridge: true,
             },
             default_models: "claude-opus-5-5",
           });
         if (path === "/api/v1/auths/guest" || path === "/api/v1/auths/signin")
           return json({ ...demoUser, token: "local-demo-only" });
+        // Sign-up and password reset: no email is sent here; the code is 123456.
+        if (
+          path === "/api/v1/auths/register/send-code" ||
+          path === "/api/v1/auths/password/forgot"
+        )
+          return json({ success: true, expires_in_sec: 600, cooldown_sec: 60 });
+        if (
+          path === "/api/v1/auths/register/verify" ||
+          path === "/api/v1/auths/password/reset"
+        ) {
+          if (data.code !== "123456")
+            return json(
+              { detail: "Invalid code. 4 attempt(s) remaining." },
+              400,
+            );
+          return path.endsWith("/verify")
+            ? json({ ...demoUser, token: "local-demo-only" })
+            : json({ success: true });
+        }
         if (req.headers.authorization !== "Bearer local-demo-only")
           return json({ detail: "Sign in to the local demo." }, 401);
         if (

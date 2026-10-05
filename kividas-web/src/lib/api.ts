@@ -3,6 +3,7 @@ import type {
   BlacklistEntry,
   Chat,
   ChatData,
+  CodeSent,
   Config,
   Folder,
   GiftCard,
@@ -92,6 +93,24 @@ export const api = {
   me: () => request<User>(`${V1}/auths/`),
   login: (email: string, password: string) =>
     post<User & { token: string }>(`${V1}/auths/signin`, { email, password }),
+  // Sign-up and password reset go through the backend's account-service
+  // bridge, which emails a 6-digit code and creates or updates the account.
+  sendRegisterCode: (email: string) =>
+    post<CodeSent>(`${V1}/auths/register/send-code`, { email }),
+  registerVerify: (form: {
+    email: string;
+    code: string;
+    password: string;
+    name?: string;
+  }) => post<User & { token: string }>(`${V1}/auths/register/verify`, form),
+  forgotPassword: (email: string) =>
+    post<CodeSent>(`${V1}/auths/password/forgot`, { email }),
+  resetPassword: (email: string, code: string, newPassword: string) =>
+    post<{ success: boolean }>(`${V1}/auths/password/reset`, {
+      email,
+      code,
+      new_password: newPassword,
+    }),
   guest: () => {
     let id = localStorage.getItem("guest-device-id");
     if (!id) {

@@ -44,13 +44,8 @@ import { Customize } from "./pages/Customize";
 import { CodeDownloads } from "./pages/Code";
 import { BrandMark, ChatPage } from "./pages/Chat";
 import { Artifacts, Chats, Project, Projects } from "./pages/Library";
-import {
-  ErrorPanel,
-  Loading,
-  Modal,
-  messageOf,
-  useNotify,
-} from "./components/UI";
+import { Login } from "./components/AuthDialog";
+import { ErrorPanel, Loading, messageOf, useNotify } from "./components/UI";
 export default function App() {
   const [user, setUser] = useState<User | null>(null),
     [config, setConfig] = useState<Config>({ name: "Kividas" }),
@@ -535,6 +530,7 @@ export default function App() {
       </main>
       {login && (
         <Login
+          accountService={!!config.features?.enable_kyber_auth_bridge}
           onClose={() => setLogin(false)}
           onSuccess={async (u) => {
             const [catalog, history] = await Promise.all([
@@ -580,64 +576,5 @@ function SignInPrompt({ onLogin }: { onLogin: () => void }) {
         Sign in
       </button>
     </div>
-  );
-}
-function Login({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: (u: User) => Promise<void>;
-}) {
-  const [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  return (
-    <Modal title="Welcome to Kividas" onClose={onClose}>
-      <p className="muted">Sign in with your existing Kividas account.</p>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const session = await api.login(email, password);
-            localStorage.setItem("token", session.token);
-            await onSuccess(await api.me());
-          } catch (e) {
-            setError(messageOf(e));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Email
-          <input
-            type="email"
-            required
-            autoFocus
-            autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        {error && <ErrorPanel error={error} />}
-        <button className="btn primary full-width" disabled={busy}>
-          {busy ? "Signing in…" : "Continue"}
-        </button>
-      </form>
-    </Modal>
   );
 }

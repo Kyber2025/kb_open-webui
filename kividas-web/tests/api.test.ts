@@ -137,3 +137,22 @@ it("loads subscription plans and model previews using user-accessible endpoints"
   ]);
   expect(fetchMock.mock.calls.every((call) => !call[0].includes("/admin/"))).toBe(true);
 });
+
+it("sends sign-up and password-reset requests to the account-service relay", async () => {
+  await api.sendRegisterCode("a@example.com");
+  await api.registerVerify({ email: "a@example.com", code: "123456", password: "password1" });
+  await api.forgotPassword("a@example.com");
+  await api.resetPassword("a@example.com", "123456", "password2");
+  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+    "/api/v1/auths/register/send-code",
+    "/api/v1/auths/register/verify",
+    "/api/v1/auths/password/forgot",
+    "/api/v1/auths/password/reset",
+  ]);
+  expect(fetchMock.mock.calls.map((call) => JSON.parse(call[1].body))).toEqual([
+    { email: "a@example.com" },
+    { email: "a@example.com", code: "123456", password: "password1" },
+    { email: "a@example.com" },
+    { email: "a@example.com", code: "123456", new_password: "password2" },
+  ]);
+});

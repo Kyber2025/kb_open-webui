@@ -998,7 +998,7 @@ async def register_send_code(
     if not validate_email_format(email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
     try:
-        data = await kyber_send_register_code(kyber_base(request), email)
+        data = await kyber_send_register_code(kyber_base(request), email, client_ip=get_client_ip(request))
     except KyberError as e:
         raise HTTPException(status_code=e.status, detail=e.message)
     return {
@@ -1023,7 +1023,12 @@ async def register_verify(
     base = kyber_base(request)
     try:
         data = await kyber_register_verify(
-            base, email, form_data.code.strip(), form_data.password, form_data.name
+            base,
+            email,
+            form_data.code.strip(),
+            form_data.password,
+            form_data.name,
+            client_ip=get_client_ip(request),
         )
     except KyberError as e:
         raise HTTPException(status_code=e.status, detail=e.message)
@@ -1076,7 +1081,7 @@ async def password_forgot(
     if not validate_email_format(email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
     try:
-        data = await kyber_forgot_password(kyber_base(request), email)
+        data = await kyber_forgot_password(kyber_base(request), email, client_ip=get_client_ip(request))
     except KyberError as e:
         raise HTTPException(status_code=e.status, detail=e.message)
     return {
@@ -1098,7 +1103,11 @@ async def password_reset(
     email = form_data.email.lower().strip()
     try:
         await kyber_reset_password(
-            kyber_base(request), email, form_data.code.strip(), form_data.new_password
+            kyber_base(request),
+            email,
+            form_data.code.strip(),
+            form_data.new_password,
+            client_ip=get_client_ip(request),
         )
     except KyberError as e:
         raise HTTPException(status_code=e.status, detail=e.message)

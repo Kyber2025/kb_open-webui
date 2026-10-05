@@ -7,6 +7,12 @@ export interface User {
   profile_image_url?: string;
   expires_at?: number;
 }
+/** Reply to a sign-up or password-reset code request. */
+export interface CodeSent {
+  success: boolean;
+  expires_in_sec?: number | null;
+  cooldown_sec?: number | null;
+}
 export interface Config {
   name: string;
   demo?: boolean;

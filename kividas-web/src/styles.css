@@ -1403,6 +1403,27 @@ td code {
 .full-width {
   width: 100%;
 }
+/* Sign-in dialog: links tucked under a field, and the mode switch below. */
+.auth-aside {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin: -10px 0 12px;
+}
+.auth-aside .text-btn:disabled {
+  opacity: 0.6;
+  text-decoration: none;
+  cursor: default;
+}
+.modal p.auth-switch {
+  margin: 18px 0 0;
+  text-align: center;
+}
+.auth-switch .text-btn {
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--ink);
+}
 .settings-row {
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
