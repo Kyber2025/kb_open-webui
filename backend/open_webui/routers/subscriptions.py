@@ -17,6 +17,7 @@ from open_webui.models.subscriptions import (
 )
 from open_webui.models.users import Users
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.mobile_subscription_auth import get_mobile_subscription_user
 from open_webui.utils.kyber import (
     KyberError,
     kyber_get_users_usage_limits,
@@ -182,6 +183,33 @@ async def cancel_order(request: Request, order_id: str, user=Depends(get_verifie
 async def redeem(request: Request, form_data: RedeemForm, user=Depends(get_verified_user)):
     """Redeem a gift card / redemption code and activate the granted plan."""
     return await redeem_gift_card(request, user, form_data.code)
+
+
+# Deliberately limited to billing: a gateway token does not grant general WebUI
+# access, admin operations, arbitrary order access, or a reusable WebUI session.
+@router.get('/mobile/me')
+async def mobile_me(response: Response, user=Depends(get_mobile_subscription_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await get_me(user)
+
+
+@router.get('/mobile/tiers')
+async def mobile_tiers(response: Response, user=Depends(get_mobile_subscription_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await get_tiers(user)
+
+
+@router.get('/mobile/tiers/{tier_id}/models')
+async def mobile_models(tier_id: str, request: Request, response: Response,
+                        user=Depends(get_mobile_subscription_user)):
+    return await get_tier_models(tier_id, request, response, user)
+
+
+@router.post('/mobile/redeem')
+async def mobile_redeem(request: Request, response: Response, form_data: RedeemForm,
+                        user=Depends(get_mobile_subscription_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await redeem(request, form_data, user)
 
 
 ############################
