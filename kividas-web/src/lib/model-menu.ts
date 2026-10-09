@@ -23,7 +23,9 @@ function family(model: Model) {
 export function primaryModels(models: Model[]) {
   const headline = models.filter((model) => !/^(?:anthropic\/)?claude-opus-5(?:\[1m\])?$/.test(model.id));
   const primary = ["fable", "opus", "sonnet", "haiku"].flatMap((name) => {
-    const model = headline.find((m) => family(m) === name);
+    const latest = name === "haiku" ? "claude-haiku-5-5" : name === "sonnet" ? "claude-sonnet-5-5" : undefined;
+    const model = (latest && headline.find((m) => m.id.replace(/^anthropic\//, "").replace(/\[1m\]$/i, "") === latest))
+      || headline.find((m) => family(m) === name);
     return model ? [model] : [];
   });
   return primary.length ? primary : headline.slice(0, 4);
@@ -46,6 +48,7 @@ export function supportsEffort(model: Model | undefined) {
     return false;
   if (model.info?.meta?.capabilities?.reasoning === true) return true;
   return (
+    /^(?:anthropic\/)?claude-haiku-5-5(?:\[1m\])?$/.test(model.id) ||
     /\b(opus|sonnet|fable)\b/i.test(`${model.id} ${model.name}`) ||
     /(?:^|\/)(?:gpt-[5-9]|o[1-9])/.test(model.id.toLowerCase())
   );

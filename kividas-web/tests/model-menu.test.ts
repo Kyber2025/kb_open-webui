@@ -76,3 +76,18 @@ describe("model and effort selection", () => {
     }
   });
 });
+
+describe("Haiku 5.5", () => {
+  const old={id:"claude-haiku-4-5",name:"Haiku 4.5"};
+  const fresh={id:"claude-haiku-5-5",name:"Haiku 5.5"};
+  it("prefers the new model independent of catalog order, preserving the old one",()=>{
+    expect(primaryModels([old,fresh])).toEqual([fresh]);
+    expect(primaryModels([old])).toEqual([old]);
+  });
+  it("sends all five effort levels only for the new Haiku",()=>{
+    for(const effort of ["low","medium","high","xhigh","max"] as const) {
+      expect(reasoningParams(fresh,effort)).toEqual({reasoning_effort:effort});
+      expect(reasoningParams(old,effort)).toEqual({});
+    }
+  });
+});
