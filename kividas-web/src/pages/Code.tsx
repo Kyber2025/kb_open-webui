@@ -20,6 +20,7 @@ export function CodeDownloads() {
   const notify = useNotify();
   const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
   const builds = desktopBuilds(desktop);
+  const macZip = new URL(builds.mac.url).pathname.endsWith(".zip");
   const order: Array<"mac" | "windows"> = isMac
     ? ["mac", "windows"]
     : ["windows", "mac"];
@@ -84,12 +85,15 @@ export function CodeDownloads() {
               >
                 <Download size={18} />
                 Download for{" "}
-                {platform === "mac" ? "macOS (.dmg)" : "Windows (.exe)"}
+                {platform === "mac" ? `macOS (${macZip ? ".zip" : ".dmg"})` : "Windows (.exe)"}
               </a>
               <small>
                 {platform === "mac" && "Apple Silicon · "}Version{" "}
                 {builds[platform].version}
               </small>
+              {platform === "mac" && macZip && (
+                <small>Unzip and drag Kividas Code to Applications.</small>
+              )}
             </div>
           ))}
         </div>
