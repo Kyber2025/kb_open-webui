@@ -8,6 +8,8 @@ import {
   guestPolicy,
   modelOptions,
   normalizeIds,
+  individualGrantOnly,
+  subscriptionModelIds,
   sseEvents,
 } from "../src/lib/domain";
 import type { ChatData, GuestConfig, Message } from "../src/lib/types";
@@ -22,6 +24,12 @@ const cfg: GuestConfig = {
   GUEST_BLOCKED_MODEL_IDS: [],
 };
 describe("subscription policies", () => {
+  it("excludes GPT families from plan selections, including provider aliases", () => {
+    expect(subscriptionModelIds(["OpenAI/GPT-6-Sol", "gpt-5.5", "image_gen", "claude-sonnet-5", "vendor/claude-sonnet-5"])).toEqual(["claude-sonnet-5"]);
+    expect(individualGrantOnly("OpenAI/GPT-Image-2")).toBe(true);
+    expect(individualGrantOnly("claude-sonnet-5")).toBe(false);
+    expect(subscriptionModelIds([])).toEqual([]);
+  });
   it("normalizes provider aliases and duplicates", () =>
     expect(
       normalizeIds(["Provider/Claude-Opus", "claude-opus", " GPT-5 "]),

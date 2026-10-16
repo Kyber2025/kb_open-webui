@@ -149,6 +149,17 @@ class SubscriptionTierModel(SubscriptionModelSelection):
 
 
 class SubscriptionTierForm(SubscriptionModelSelection):
+    @field_validator('allowed_model_ids')
+    @classmethod
+    def exclude_individual_grants(cls, values):
+        from open_webui.utils.subscription_model_ids import individual_grant_only
+        if not values:
+            return values
+        selected = [value for value in values if not individual_grant_only(value)]
+        if not selected:
+            raise ValueError('GPT access is managed per user. Select subscription models or explicitly allow all subscription models.')
+        return selected
+
     id: str
     name: str
     description: Optional[str] = None

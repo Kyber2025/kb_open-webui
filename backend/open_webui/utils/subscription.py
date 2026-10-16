@@ -7,7 +7,7 @@ import secrets
 import time
 import uuid
 from typing import Optional
-from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids
+from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids, individual_grant_only
 
 from open_webui.utils.claude_allocation import change_subscription, reserve_order, cancel_reservation, reconcile_allocations, latest_change, propagate
 
@@ -314,6 +314,10 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
     """Raise HTTP 403 (model not in tier) or 429 (daily quota reached) for a
     user's managed chat completion, including administrators. Increments the daily
     counter when a finite limit applies. Disabled subscriptions are a no-op."""
+    if individual_grant_only(model_id):
+        from open_webui.utils.model_grants import enforce_individual_grant
+        await enforce_individual_grant(request, user, model_id)
+        return  # Personal grants are independent of tiers and daily message quotas.
     if not getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         return
     # Guests are gated separately (per-IP/device, not per-user) by
@@ -366,17 +370,16 @@ async def enforce_subscription_access(request: Request, user, model_id: str) -> 
         await SubscriptionUsage.increment(user.id, date)
 
 
-def filter_models_by_tier(models: list, tier: Optional[SubscriptionTierModel]) -> list:
-    """Drop models not permitted by the tier (used to shape the visible model list).
-    Each item is a model dict with an 'id'. Empty/None allow-list = no filtering."""
-    if tier is None:
-        return models
-    allowed = normalize_model_ids(tier.allowed_model_ids)
-    if not allowed:
-        return models
-    allowed_set = set(allowed)
-    return [m for m in models if canonical_model_id(
-        (m.get('id') if isinstance(m, dict) else getattr(m, 'id', None)) or '') in allowed_set]
+def filter_models_by_tier(models: list, tier: Optional[SubscriptionTierModel], granted_ids=()) -> list:
+    """Tier permissions apply to ordinary models; GPT requires a verified personal grant."""
+    grants = {canonical_model_id(m) for m in granted_ids}
+    allowed = set(normalize_model_ids(tier.allowed_model_ids) or []) if tier else set()
+    result = []
+    for model in models:
+        mid = canonical_model_id((model.get('id') if isinstance(model, dict) else getattr(model, 'id', None)) or '')
+        if (mid in grants if individual_grant_only(mid) else not allowed or mid in allowed):
+            result.append(model)
+    return result
 
 
 ####################

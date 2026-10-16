@@ -15,7 +15,7 @@ from open_webui.utils import kyber, subscription
 
 
 def request(**values):
-    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=SimpleNamespace(
+    return SimpleNamespace(state=SimpleNamespace(), app=SimpleNamespace(state=SimpleNamespace(config=SimpleNamespace(
         ENABLE_SUBSCRIPTIONS=True,
         ENABLE_KYBER_TOKEN_BILLING=values.get('billing', True),
         KYBER_BILLING_BASE_URL='https://ai.example/api/v1',
@@ -36,13 +36,13 @@ class SubscriptionAccessTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.status_code, 403)
 
     async def test_provider_aliases_match_in_chat_and_reject_after_removal(self):
-        self.tier.allowed_model_ids = ['openai/gpt-4o', 'claude-sonnet-5']
+        self.tier.allowed_model_ids = ['anthropic/claude-opus-5', 'claude-sonnet-5']
         with patch.object(subscription, 'get_user_tier', AsyncMock(return_value=(self.tier, None))), \
                 patch.object(kyber, 'is_kyber_enterprise_member', AsyncMock(return_value=False)):
-            await subscription.enforce_subscription_access(request(), self.admin, 'gpt-4o')
-            self.assertEqual(subscription.filter_models_by_tier([{'id': 'gpt-4o'}], self.tier), [{'id': 'gpt-4o'}])
+            await subscription.enforce_subscription_access(request(), self.admin, 'claude-opus-5')
+            self.assertEqual(subscription.filter_models_by_tier([{'id': 'claude-opus-5'}], self.tier), [{'id': 'claude-opus-5'}])
             self.tier.allowed_model_ids = ['claude-sonnet-5']
-            for model in ['gpt-4o', 'openai/gpt-4o']:
+            for model in ['claude-opus-5', 'anthropic/claude-opus-5']:
                 with self.assertRaises(HTTPException) as caught:
                     await subscription.enforce_subscription_access(request(), self.admin, model)
                 self.assertEqual(caught.exception.status_code, 403)
@@ -95,6 +95,44 @@ class SubscriptionAccessTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(caught.exception.status_code, 409)
 
 
+class IndividualGrantTests(unittest.IsolatedAsyncioTestCase):
+    async def test_gpt_ignores_tier_only_after_personal_authorization(self):
+        user = SimpleNamespace(id='granted', email='user@test.invalid', role='user')
+        req = request(billing=False)
+        from open_webui.utils import model_grants
+        with patch.object(model_grants, 'granted_models', AsyncMock(return_value=[{'id':'gpt-6-sol'}])), \
+             patch.object(subscription, 'get_user_tier', AsyncMock(side_effect=AssertionError('must not meter a grant'))):
+            await subscription.enforce_subscription_access(req, user, 'OpenAI/GPT-6-SOL')
+        with patch.object(model_grants, 'granted_models', AsyncMock(return_value=[])):
+            with self.assertRaises(HTTPException) as caught:
+                await subscription.enforce_subscription_access(req, user, 'gpt-6-sol')
+            self.assertEqual(caught.exception.status_code, 403)
+
+    async def test_catalogue_is_personal_request_scoped_and_fails_closed(self):
+        from open_webui.utils import model_grants
+        a = SimpleNamespace(id='a',email='a@test.invalid',role='user')
+        b = SimpleNamespace(id='b',email='b@test.invalid',role='admin')
+        req = request()
+        with patch.object(kyber, 'get_user_kyber_api_key', AsyncMock(side_effect=['key-a','key-b',None])), \
+             patch.object(kyber, '_get', AsyncMock(side_effect=[(200,{'data':[{'id':'gpt-6-sol'},{'id':'claude-sonnet-5'}]}),(200,{'data':[]})])) as get:
+            self.assertEqual(await model_grants.granted_models(req,a), [{'id':'gpt-6-sol'}])
+            self.assertEqual(await model_grants.granted_models(req,a), [{'id':'gpt-6-sol'}])
+            self.assertEqual(get.await_count,1)
+            self.assertEqual(await model_grants.granted_models(req,b), [])
+            self.assertEqual(await model_grants.granted_models(request(),a), [])
+            self.assertEqual(get.await_args_list[0].args[-1],'key-a')
+        with patch.object(kyber,'get_user_kyber_api_key',AsyncMock(return_value='key-a')), \
+             patch.object(kyber,'_get',AsyncMock(side_effect=TimeoutError())):
+            self.assertEqual(await model_grants.granted_models(request(),a), [])
+
+    def test_tier_cannot_expose_gpt_and_verified_grant_survives_plan_filter(self):
+        tier = SimpleNamespace(allowed_model_ids=['claude-sonnet-5','gpt-6-sol'])
+        models = [{'id':'gpt-6-sol'},{'id':'claude-sonnet-5'}]
+        self.assertEqual(subscription.filter_models_by_tier(models,tier),models[1:])
+        tier.allowed_model_ids = ['claude-sonnet-5']
+        self.assertEqual(subscription.filter_models_by_tier(models,tier,['gpt-6-sol']),models)
+
+
 class SubscriptionModelIdentityTests(unittest.TestCase):
     def test_saved_aliases_and_admin_forms_use_one_model_identity(self):
         from open_webui.models.subscriptions import SubscriptionTierModel, SubscriptionTierForm
@@ -103,8 +141,13 @@ class SubscriptionModelIdentityTests(unittest.TestCase):
         tier = SubscriptionTierModel(**values)
         self.assertEqual(tier.allowed_model_ids, ['gpt-4o', 'claude-sonnet-5'])
         form = SubscriptionTierForm(**tier.model_dump())
-        form.allowed_model_ids.remove('gpt-4o')
         self.assertEqual(form.allowed_model_ids, ['claude-sonnet-5'])
+
+    def test_gpt_only_selection_cannot_silently_become_all_models(self):
+        from pydantic import ValidationError
+        from open_webui.models.subscriptions import SubscriptionTierForm
+        with self.assertRaises(ValidationError):
+            SubscriptionTierForm(id='custom', name='Custom', allowed_model_ids=['OpenAI/GPT-6-SOL'])
 
     def test_blank_model_id_cannot_turn_a_restricted_plan_into_all_models(self):
         from pydantic import ValidationError
@@ -156,7 +199,7 @@ class TierModelPreviewTests(unittest.TestCase):
         catalog = [{'id': 'gpt-5.5', 'name': 'GPT-5.5'}, {'id': 'claude-sonnet-5', 'name': 'Sonnet 5'}]
         tier = SimpleNamespace(id='ultra', name='Max 20x', allowed_model_ids=['OpenAI/GPT-5.5', 'missing'])
         result = models_for_tier(tier, catalog)
-        self.assertEqual(result['models'], [catalog[0]])
+        self.assertEqual(result['models'], [], 'GPT is controlled by individual grants, not plans')
         self.assertEqual(result['tier_id'], 'ultra')
         self.assertFalse(result['all_models'])
         self.assertEqual(tier.allowed_model_ids, ['OpenAI/GPT-5.5', 'missing'])
@@ -166,7 +209,7 @@ class TierModelPreviewTests(unittest.TestCase):
         catalog = [{'id': 'gpt-5.5', 'name': 'GPT-5.5'}]
         tier = SimpleNamespace(id='custom', name='Custom', allowed_model_ids=[])
         self.assertEqual(models_for_tier(tier,catalog), {
-            'tier_id':'custom','tier_name':'Custom','all_models':True,'models':catalog})
+            'tier_id':'custom','tier_name':'Custom','all_models':True,'models':[]})
 
 
 if __name__ == '__main__':

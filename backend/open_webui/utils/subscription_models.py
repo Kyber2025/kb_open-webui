@@ -1,7 +1,7 @@
 """Publish the subscription editor's model policies to the inference gateway."""
 import logging
 import aiohttp
-from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids
+from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids, individual_grant_only
 
 log = logging.getLogger(__name__)
 
@@ -17,13 +17,13 @@ async def load_model_catalog(request):
             if not isinstance(data.get('data'), list):
                 raise ValueError('Invalid catalog')
             return [{'id': m['id'], 'name': m.get('name') or m['id']}
-                    for m in data['data'] if isinstance(m, dict) and isinstance(m.get('id'), str)]
+                    for m in data['data'] if isinstance(m, dict) and isinstance(m.get('id'), str) and not individual_grant_only(m['id'])]
 
 
 def models_for_tier(tier, catalog):
     allowed = set(normalize_model_ids(tier.allowed_model_ids) or [])
     return {'tier_id': tier.id, 'tier_name': tier.name, 'all_models': not allowed,
-            'models': [m for m in catalog if not allowed or canonical_model_id(m['id']) in allowed]}
+            'models': [m for m in catalog if not individual_grant_only(m['id']) and (not allowed or canonical_model_id(m['id']) in allowed)]}
 
 
 async def sync_subscription_model_policy(request, removed_tier=None) -> bool:

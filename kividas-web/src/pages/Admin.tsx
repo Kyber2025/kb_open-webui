@@ -22,7 +22,8 @@ import {
   guestModelAllowed,
   guestPolicy,
   modelOptions,
-  normalizeIds,
+  subscriptionModelIds,
+  individualGrantOnly,
   safeCell,
 } from "../lib/domain";
 import type {
@@ -231,7 +232,7 @@ function TierEditor({
 }) {
   const [draft, setDraft] = useState({
       ...tier,
-      allowed_model_ids: normalizeIds(tier.allowed_model_ids),
+      allowed_model_ids: subscriptionModelIds(tier.allowed_model_ids),
     }),
     [saving, setSaving] = useState(false),
     [search, setSearch] = useState("");
@@ -240,14 +241,14 @@ function TierEditor({
     () =>
       setDraft({
         ...tier,
-        allowed_model_ids: normalizeIds(tier.allowed_model_ids),
+        allowed_model_ids: subscriptionModelIds(tier.allowed_model_ids),
       }),
     [tier],
   );
   const set = <K extends keyof Tier>(key: K, value: Tier[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
   const options = modelOptions(catalog, draft.allowed_model_ids).filter((m) =>
-    (m.name + " " + m.id).toLowerCase().includes(search.toLowerCase()),
+    !individualGrantOnly(m.id) && (m.name + " " + m.id).toLowerCase().includes(search.toLowerCase()),
   );
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -259,7 +260,7 @@ function TierEditor({
         ...draft,
         id,
         name: draft.name.trim() || id,
-        allowed_model_ids: normalizeIds(draft.allowed_model_ids),
+        allowed_model_ids: subscriptionModelIds(draft.allowed_model_ids),
       });
       notify("Plan saved");
       await onSaved();
@@ -430,7 +431,7 @@ function TierEditor({
         ))}
       </div>
       <p className="small muted">
-        An empty selection allows all models. Existing unavailable models remain
+        GPT access is managed per user in Model Access. An empty selection allows all subscription models. Existing unavailable models remain
         in the policy until removed.
       </p>
       <div className="panel-footer">

@@ -7,6 +7,8 @@ export default defineConfig(({ mode }) => {
   const target = env.BACKEND_ORIGIN || "http://127.0.0.1:8080";
   return {
     plugins: [react(), ...(demo ? [demoBackend()] : [])],
+    // This app uses plain CSS; do not inherit the legacy Svelte PostCSS setup.
+    css: { postcss: { plugins: [] } },
     server: {
       port: 5180,
       strictPort: true,

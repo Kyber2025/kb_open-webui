@@ -7,6 +7,9 @@ export const canonicalId = (id: string) =>
 export const normalizeIds = (ids: string[]) => [
   ...new Set(ids.filter(Boolean).map(canonicalId)),
 ];
+export const individualGrantOnly = (id: string) =>
+  /^(gpt-|chatgpt-)/.test(canonicalId(id)) || ["image_gen", "deepseek-v4"].includes(canonicalId(id));
+export const subscriptionModelIds = (ids: string[]) => normalizeIds(ids).filter(id => !individualGrantOnly(id));
 export function modelOptions(catalog: Model[], selected: string[]): Model[] {
   const options = new Map(
     catalog.map((m) => [canonicalId(m.id), { ...m, id: canonicalId(m.id) }]),

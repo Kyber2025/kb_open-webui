@@ -1547,6 +1547,9 @@ if audit_level != AuditLevel.NONE:
 @app.get('/api/v1/models')  # Experimental: Compatibility with OpenAI API
 async def get_models(request: Request, refresh: bool = False, user=Depends(get_verified_user)):
     all_models = await get_all_models(request, refresh=refresh, user=user)
+    from open_webui.utils.model_grants import apply_individual_grants
+    from open_webui.utils.subscription_model_ids import individual_grant_only
+    all_models = await apply_individual_grants(request, user, all_models)
 
     models = []
     for model in all_models:
@@ -1597,7 +1600,7 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
 
         if not await is_kyber_enterprise_member(request, user.id):
             tier, _ = await get_user_tier(user.id)
-            models = filter_models_by_tier(models, tier)
+            models = filter_models_by_tier(models, tier, granted_ids=[m["id"] for m in all_models if individual_grant_only(m["id"])])
 
     log.debug(
         f'/api/models returned filtered models accessible to the user: {json.dumps([model.get("id") for model in models])}'
@@ -1761,6 +1764,11 @@ async def chat_completion(
     try:
         model_info = None
         if not model_item.get('direct', False):
+            from open_webui.utils.subscription_model_ids import individual_grant_only
+            if individual_grant_only(model_id):
+                from open_webui.utils.model_grants import apply_individual_grants, enforce_individual_grant
+                await enforce_individual_grant(request, user, model_id)
+                await apply_individual_grants(request, user, [])
             if model_id not in request.app.state.MODELS:
                 raise Exception('Model not found')
 
