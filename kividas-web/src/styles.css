@@ -3326,3 +3326,21 @@ td code {
     font-size: 15px;
   }
 }
+
+/* Admin desktop credentials: scoped styles, no changes to chat composer. */
+.desktop-keys { display: grid; gap: 16px; }
+.desktop-keys p { margin: 0; line-height: 1.6; }
+.desktop-keys h3 { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 16px; }
+.desktop-key-form, .desktop-key-created { display: grid; gap: 12px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.desktop-key-created { background: var(--hover); }
+.desktop-key-fields { display: grid; grid-template-columns: 1fr 130px; gap: 12px; }
+.desktop-keys label { display: grid; gap: 8px; }
+.desktop-keys textarea { width: 100%; overflow-wrap: anywhere; resize: none; font: 13px monospace; }
+.desktop-key-list { display: grid; gap: 10px; }
+.desktop-key-list article { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.desktop-keys .btn { width: fit-content; }
+.desktop-keys details { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.desktop-keys summary { cursor: pointer; }
+.desktop-keys details p { margin-top: 10px; }
+.desktop-key-confirm { padding: 12px; border: 1px solid var(--danger); border-radius: 8px; display: grid; gap: 10px; }
+@media (max-width: 600px) { .desktop-key-fields { grid-template-columns: 1fr; } }

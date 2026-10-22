@@ -1,3 +1,4 @@
+import { DesktopKeysModal } from "../components/DesktopKeysModal";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Ban,
@@ -5,6 +6,7 @@ import {
   ChevronRight,
   Eye,
   MessageSquare,
+  KeyRound,
   Pencil,
   Plus,
   RefreshCw,
@@ -99,6 +101,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     [planError, setPlanError] = useState("");
   const [editing, setEditing] = useState<ManagedUser | "new" | null>(null),
     [planUser, setPlanUser] = useState<ManagedUser | null>(null);
+  const [desktopUser, setDesktopUser] = useState<ManagedUser | null>(null);
   const [previewUser, setPreviewUser] = useState<ManagedUser | null>(null),
     [chatUser, setChatUser] = useState<ManagedUser | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -324,6 +327,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
                     <td>{date(u.created_at)}</td>
                     <td>
                       <div className="user-actions">
+                        <button className="icon-btn" title="桌面 Key" aria-label={`桌面 Key · ${u.name}`} onClick={() => setDesktopUser(u)}><KeyRound size={16} /></button>
                         {u.role !== "admin" && (
                           <>
                             <button
@@ -470,6 +474,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
           }
         />
       )}
+      {desktopUser && <DesktopKeysModal key={desktopUser.id} user={desktopUser} onClose={() => setDesktopUser(null)} />}
       {previewUser && (
         <UserResources
           user={previewUser}

@@ -248,6 +248,7 @@ export function demoBackend(): Plugin {
           access_grants: [],
         },
       ];
+      let desktopKeys: any[] = [];
       let tasks: Task[] = [];
       let toolConnections: any[] = [];
       let preferences: any = { ui: { system: "" } };
@@ -320,7 +321,7 @@ export function demoBackend(): Plugin {
           return json({ detail: "Sign in to the local demo." }, 401);
         if (
           demoUser.role !== "admin" &&
-          (path.startsWith("/api/v1/subscriptions/admin/") ||
+          (path.startsWith("/api/v1/kyber/admin/") || path.startsWith("/api/v1/subscriptions/admin/") ||
             path.startsWith("/api/v1/guest/") ||
             path.startsWith("/api/v1/configs/") ||
             (path.startsWith("/api/v1/users/") &&
@@ -332,6 +333,20 @@ export function demoBackend(): Plugin {
             path === "/api/v1/auths/add")
         )
           return json({ detail: "Administrator access required." }, 403);
+        const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/revoke)?$/.exec(path);
+        if (desktopMatch) {
+          const userId = decodeURIComponent(desktopMatch[1]);
+          const policy = { maxActiveKeys: 2, requestsPerMinute: 40, concurrentPerKey: 3, concurrentPerUser: 6, networksPerHour: 3 };
+          if (method === 'GET') return json({eligible:true, reason:null, policy, keys:desktopKeys.filter(k=>k.userId===userId)});
+          if (desktopMatch[2]) {
+            const key = desktopKeys.find(k=>k.id===desktopMatch[2] && k.userId===userId);
+            if (!key) return json({detail:'Key not found'},404);
+            key.revokedAt=new Date().toISOString();key.revokeReason='admin_revoked';return json({ok:true});
+          }
+          const key={id:crypto.randomUUID(),userId,label:data.label,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+data.days*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
+          desktopKeys.unshift(key);
+          return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
+        }
         if (path === "/api/v1/users/permissions")
           return json({
             workspace: { skills: true },

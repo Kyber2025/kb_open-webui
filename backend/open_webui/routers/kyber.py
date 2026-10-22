@@ -20,7 +20,10 @@ from open_webui.utils.kyber import (
 
 log = logging.getLogger(__name__)
 
+from open_webui.routers.desktop_keys import router as desktop_keys_router
+
 router = APIRouter()
+router.include_router(desktop_keys_router)
 
 
 def _topup_url(request: Request) -> str | None:
