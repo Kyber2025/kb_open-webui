@@ -27,11 +27,16 @@ export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose
     await action(async () => { const result = await desktopKeysApi.reveal(user.id, key.id); setSecrets(s => ({...s,[key.id]:result.token})); });
   }
   async function copy(key: DesktopKey) {
+    let token: string | undefined;
     await action(async () => {
       const result = await desktopKeysApi.reveal(user.id, key.id);
-      try { await navigator.clipboard.writeText(result.token); notify('Key 已复制'); }
-      catch { setSecrets(s => ({...s,[key.id]:result.token})); throw new Error('自动复制失败，请在文本框中选择并复制。'); }
+      token = result.token;
     });
+    if (!token) return;
+    // Chromium can leave this promise pending while the document is not focused.
+    // Waiting for OS clipboard access must not lock all key-management controls.
+    try { await navigator.clipboard.writeText(token); notify('Key 已复制'); }
+    catch { setError('自动复制失败，请点击“查看”，在文本框中选择并复制。'); }
   }
   async function revoke(key: DesktopKey) {
     await action(async () => {
