@@ -20,26 +20,16 @@ export function windowPercent(value?: UsageWindow | null): number | null {
   return Math.round(value.used / value.limit * 1000) / 10;
 }
 
-export function accountPercent(value?: AccountWindow | null): number | null {
-  return value && typeof value.usedPercent === "number" && Number.isFinite(value.usedPercent) && value.usedPercent >= 0
-    ? Math.round(value.usedPercent * 10) / 10 : null;
-}
-
-export function accountStale(value: UsageLimits["sharedAccount"], now = Date.now()) {
-  const at = value?.observedAt ? Date.parse(value.observedAt) : NaN;
-  return !value || value.stale || !Number.isFinite(at) || now - at > 15 * 60000 || at > now + 60000;
-}
-
-export function usageSummary(data: UsageLimits | null, now = Date.now()) {
-  if (!data?.linked) return { percent: null, accountStale: false };
+// Only the signed-in user's platform counters drive this UI. Upstream account
+// totals can include other users and must never affect their ring or warnings.
+export function usageSummary(data: UsageLimits | null) {
+  if (!data?.linked) return { percent: null };
   const seat = data.enterprise;
   const values = seat
     ? [windowPercent({ used: seat.used, limit: seat.quota })]
     : [windowPercent(data.tp5h), windowPercent(data.tpw), windowPercent(data.tpwFable)];
-  const stale = !seat && !!data.sharedAccount && accountStale(data.sharedAccount, now);
-  if (!seat && data.sharedAccount && !stale) values.push(accountPercent(data.sharedAccount.fiveHour), accountPercent(data.sharedAccount.sevenDay));
   const valid = values.filter((v): v is number => v !== null);
-  return { percent: valid.length ? Math.max(...valid) : null, accountStale: stale };
+  return { percent: valid.length ? Math.max(...valid) : null };
 }
 
 export function resetLabel(value: string | number | null | undefined, now: number) {

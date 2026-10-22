@@ -1,14 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { RotateCw, X } from "lucide-react";
 import { api } from "../lib/api";
-import { accountPercent, resetLabel, usageSummary, windowPercent, type AccountWindow, type UsageLimits, type UsageWindow } from "../lib/usage";
+import { resetLabel, usageSummary, windowPercent, type UsageLimits, type UsageWindow } from "../lib/usage";
 import "./usage-ring.css";
 
-function UsageRow({ label, value, official, now }: { label: string; value?: UsageWindow | null; official?: AccountWindow | null; now: number }) {
-  const percent = official !== undefined ? accountPercent(official) : windowPercent(value);
-  const unlimited = official === undefined && value?.limit === 0 && Number.isFinite(value.used) && value.used >= 0;
-  const reset = official !== undefined ? official?.resetsAt : value?.resetAt;
-  const starts = official === undefined && value?.used === 0 && !reset && percent !== null;
+function UsageRow({ label, value, now }: { label: string; value?: UsageWindow | null; now: number }) {
+  const percent = windowPercent(value);
+  const unlimited = value?.limit === 0 && Number.isFinite(value.used) && value.used >= 0;
+  const reset = value?.resetAt;
+  const starts = value?.used === 0 && !reset && percent !== null;
   const text = percent === null ? unlimited ? "Unlimited" : "Unavailable" : `${percent}%`;
   return <div className="kv-ring-row">
     <div className="kv-ring-row-head"><span>{label}</span><span className="kv-ring-value">{text}</span></div>
@@ -97,8 +97,8 @@ export function UsageRing() {
     return () => { active = false; document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
   }, [open]);
 
-  const summary = usageSummary(data, now);
-  const warning = !!error || summary.accountStale || (updated !== null && now - updated > 2 * 60000);
+  const summary = usageSummary(data);
+  const warning = !!error || (updated !== null && now - updated > 2 * 60000);
   const label = loading && !data ? "Loading plan usage" : !data?.linked ? "Plan usage unavailable"
     : summary.percent === null ? "View plan usage" : `Plan usage: ${summary.percent}%${warning ? ", update needed" : ""}`;
   const fill = summary.percent === null ? 0 : Math.min(100, summary.percent);
@@ -127,14 +127,7 @@ export function UsageRing() {
             <UsageRow label="Weekly · all models" value={data.tpw} now={now} />
             {data.tpwFable && <UsageRow label="Weekly · Fable" value={data.tpwFable} now={now} />}
           </>}
-          {!data.enterprise && data.sharedAccount && <div className="kv-ring-account">
-            <h3>Claude account usage</h3>
-            <p className="kv-ring-note">{data.sharedAccount.seats > 1 ? "Account totals include everyone sharing this Claude account." : "Official usage for your assigned Claude account."}</p>
-            {summary.accountStale && <p className="kv-ring-note kv-ring-error">Account reading is out of date. Waiting for the next update.</p>}
-            <UsageRow label="Account · 5 hours" official={data.sharedAccount.fiveHour} now={now} />
-            <UsageRow label="Account · weekly" official={data.sharedAccount.sevenDay} now={now} />
-            {data.sharedAccount.observedAt && Number.isFinite(Date.parse(data.sharedAccount.observedAt)) && <small>Account updated {new Date(data.sharedAccount.observedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</small>}
-          </div>}
+
         </>}
       <footer><small role="status">{loading ? "Refreshing…" : updated ? `Checked ${new Date(updated).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Not updated yet"}</small>
         <button type="button" className="icon-btn" disabled={loading} aria-label="Refresh usage" onClick={() => setAttempt(value => value + 1)}><RotateCw size={15} /></button>

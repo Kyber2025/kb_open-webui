@@ -22,7 +22,6 @@
 .kv-ring-track span { display: block; height: 100%; border-radius: inherit; background: #78a8e1; }
 .kv-ring-track span[data-level="medium"] { background: #c58a24; }
 .kv-ring-track span[data-level="high"] { background: var(--danger, #d34f4f); }
-.kv-ring-account { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 1px; }
 .kv-ring-popover .kv-ring-error { color: var(--danger, #bd5350); }
 .kv-ring-popover footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 7px; }
 @media (max-width: 600px) { .kv-ring-popover { right: -68px; width: min(350px, calc(100vw - 40px)); } }

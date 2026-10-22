@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountPercent, accountStale, resetLabel, usageSummary, windowPercent, type UsageLimits } from "../src/lib/usage";
+import { resetLabel, usageSummary, windowPercent, type UsageLimits } from "../src/lib/usage";
 const now = Date.parse("2026-10-22T03:00:00Z");
 const base: UsageLimits = {
   linked: true,
@@ -13,29 +13,25 @@ describe("usage data shown to the signed-in user", () => {
     expect(windowPercent({ used: 0, limit: 0 })).toBeNull();
     expect(windowPercent({ used: NaN, limit: 100 })).toBeNull();
     expect(windowPercent({ used: -1, limit: 100 })).toBeNull();
-    expect(accountPercent({ usedPercent: null })).toBeNull();
-    expect(usageSummary({ ...base, linked: false }, now).percent).toBeNull();
+    expect(usageSummary({ ...base, linked: false }).percent).toBeNull();
     expect(windowPercent({ used: 0, limit: 100 })).toBe(0);
   });
   it("preserves a real overage for text while allowing the view to cap bar width", () => {
     expect(windowPercent({ used: 115, limit: 100 })).toBe(115);
-    expect(accountPercent({ usedPercent: 105 })).toBe(105);
   });
-  it("includes fresh official account usage without dividing it by the number of seats", () => {
-    expect(usageSummary(base, now).percent).toBe(80);
-    expect(base.tp5h?.used).toBe(25);
+  it("shows only the user's platform use even when the shared account is nearly full", () => {
+    expect(usageSummary(base).percent).toBe(25);
+    expect(usageSummary({ ...base, sharedAccount: { ...base.sharedAccount!, seats: 1, fiveHour: { usedPercent: 99 } } }).percent).toBe(25);
   });
-  it("does not represent an old account reading as a current usage limit", () => {
-    expect(usageSummary(base, now + 16 * 60000)).toEqual({ percent: 25, accountStale: true });
-    expect(accountStale({ ...base.sharedAccount!, observedAt: "invalid" }, now)).toBe(true);
-    expect(accountStale({ ...base.sharedAccount!, stale: true }, now)).toBe(true);
-    expect(accountStale({ ...base.sharedAccount!, observedAt: new Date(now + 120000).toISOString() }, now)).toBe(true);
+  it("never substitutes account totals when the user's counters are unavailable", () => {
+    expect(usageSummary({ linked: true, sharedAccount: base.sharedAccount }).percent).toBeNull();
+    expect(usageSummary({ ...base, sharedAccount: { ...base.sharedAccount!, stale: true } }).percent).toBe(25);
   });
   it("uses the organization seat allowance without mixing personal or upstream limits", () => {
-    expect(usageSummary({ ...base, enterprise: { used: 12, quota: 100 } }, now).percent).toBe(12);
+    expect(usageSummary({ ...base, enterprise: { used: 12, quota: 100 } }).percent).toBe(12);
   });
   it("includes the user's Fable limit when it is more restrictive", () => {
-    expect(usageSummary({ ...base, tpwFable: { used: 92, limit: 100 } }, now).percent).toBe(92);
+    expect(usageSummary({ ...base, tpwFable: { used: 92, limit: 100 } }).percent).toBe(92);
   });
   it("supports seconds, milliseconds and ISO reset times, without inventing resets", () => {
     expect(resetLabel((now + 3600000) / 1000, now)).toBe("Resets in 1 hr 0 min");
