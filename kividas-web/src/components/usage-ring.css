@@ -1,0 +1,28 @@
+.kv-ring-anchor { position: relative; flex-shrink: 0; }
+.kv-ring-trigger { width: 30px; height: 30px; }
+.kv-ring-trigger svg { display: block; }
+.kv-ring-base, .kv-ring-progress { fill: none; stroke-width: 2; }
+.kv-ring-base { stroke: var(--line); }
+.kv-ring-progress { stroke: #3b82f6; transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+.kv-ring-progress[data-level="medium"] { stroke: #c58a24; }
+.kv-ring-progress[data-level="high"] { stroke: var(--danger, #d34f4f); }
+.kv-ring-trigger text { fill: var(--muted); font-size: 10px; }
+.kv-ring-popover { position: absolute; z-index: 45; bottom: calc(100% + 12px); right: -36px; width: 350px; max-width: calc(100vw - 32px); max-height: min(650px, calc(100dvh - 130px)); overflow-y: auto; padding: 15px 16px 9px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 28px #0002; text-align: left; font-size: 13px; }
+.kv-ring-popover header, .kv-ring-popover footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kv-ring-popover header { margin-bottom: 14px; }
+.kv-ring-popover header strong { font-weight: 500; font-size: 14px; }
+.kv-ring-popover header small { display: block; margin-top: 3px; }
+.kv-ring-popover h3 { font-size: 12px; font-weight: 500; margin: 12px 0 10px; color: var(--muted); }
+.kv-ring-popover small, .kv-ring-note { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.kv-ring-note { margin: 5px 0 11px; }
+.kv-ring-row { margin-bottom: 13px; }
+.kv-ring-row-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.kv-ring-value { color: var(--muted); white-space: nowrap; }
+.kv-ring-track { height: 5px; border-radius: 5px; overflow: hidden; background: var(--line); margin-bottom: 4px; }
+.kv-ring-track span { display: block; height: 100%; border-radius: inherit; background: #78a8e1; }
+.kv-ring-track span[data-level="medium"] { background: #c58a24; }
+.kv-ring-track span[data-level="high"] { background: var(--danger, #d34f4f); }
+.kv-ring-account { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 1px; }
+.kv-ring-popover .kv-ring-error { color: var(--danger, #bd5350); }
+.kv-ring-popover footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 7px; }
+@media (max-width: 600px) { .kv-ring-popover { right: -68px; width: min(350px, calc(100vw - 40px)); } }

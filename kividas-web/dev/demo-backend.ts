@@ -453,7 +453,7 @@ export function demoBackend(): Plugin {
         if (path === "/api/v1/auths/signout") return json({ status: true });
         if (path === "/api/models") return json({ data: models });
         if (path === "/api/v1/kyber/usage/limits")
-          return json({ linked: true, tp5h: { used: 140000, limit: 7000000, resetAt: Date.now() + 4 * 3600000 }, tpw: { used: 1400000, limit: 35000000, resetAt: Date.now() + 5 * 86400000 }, tpwFable: { used: 875000, limit: 17500000, resetAt: Date.now() + 5 * 86400000 } });
+          return json({ linked: true, tp5h: { used: 140000, limit: 7000000, resetAt: Date.now() + 4 * 3600000 }, tpw: { used: 1400000, limit: 35000000, resetAt: Date.now() + 5 * 86400000 }, tpwFable: { used: 875000, limit: 17500000, resetAt: Date.now() + 5 * 86400000 }, sharedAccount: { seats: 2, stale: false, observedAt: new Date().toISOString(), fiveHour: { usedPercent: 17, resetsAt: new Date(Date.now() + 4 * 3600000).toISOString() }, sevenDay: { usedPercent: 25, resetsAt: new Date(Date.now() + 5 * 86400000).toISOString() } } });
         if (path === "/api/v1/subscriptions/tiers") return json(tiers.filter((t) => t.enabled));
         const planModels = path.match(/^\/api\/v1\/subscriptions\/tiers\/([^/]+)\/models$/);
         if (planModels) {

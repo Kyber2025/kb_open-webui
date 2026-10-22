@@ -30,6 +30,7 @@ import {
   type Capability,
 } from "../lib/skills";
 import { ModelPicker } from "../components/ModelPicker";
+import { UsageRing } from "../components/UsageRing";
 import {
   effortOptions,
   modelLabel,
@@ -464,6 +465,7 @@ export function ChatPage({
       }
     } finally {
       assistant.done = true;
+      window.dispatchEvent(new Event("usage-updated"));
       if (session.current === generation) {
         setMessages([...next]);
         setBusy(false);
@@ -911,6 +913,7 @@ export function ChatPage({
                       />
                     )}
                   </div>
+                  {user && !guest && <UsageRing key={user.id} />}
                   <button
                     type="button"
                     className={`icon-btn ${listening ? "active" : ""}`}
