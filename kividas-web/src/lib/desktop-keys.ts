@@ -32,7 +32,7 @@ export function desktopClientText(created: CreatedDesktopKey, email: string, pas
 Credential kind：Static API key
 Gateway base URL：${created.gatewayUrl}
 Gateway auth scheme：bearer
-Gateway API Key：${created.token}
+Gateway API key：${created.token}
 
 二、添加安装识别码（Mac、Windows 都需要）
 在 Inference configuration → Custom inference headers 中新增一项：
