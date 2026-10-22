@@ -346,7 +346,7 @@ export function demoBackend(): Plugin {
             if(desktopMatch[3]==='policy') {key.concurrentLimit=data.concurrentLimit; return json({ok:true});}
             key.revokedAt=new Date().toISOString();key.revokeReason='admin_revoked';return json({ok:true});
           }
-          const key={id:crypto.randomUUID(),userId,label:data.label||"Claude Desktop",concurrentLimit:data.concurrentLimit??0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
+          const key={id:crypto.randomUUID(),installationId:crypto.randomUUID(),userId,label:data.label||"Claude Desktop",concurrentLimit:data.concurrentLimit??0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key);
           return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
         }
