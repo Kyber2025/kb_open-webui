@@ -43,15 +43,15 @@ class DesktopKeysTests(unittest.TestCase):
         links.get_by_user_id.return_value=SimpleNamespace(kyber_user_id='gateway-user')
         users.get_user_by_id.return_value=SimpleNamespace(id='web-user')
     def test_admin_required_for_every_operation(self):
-        for method,url,data in [('GET',path,None),('POST',path,{'label':'Mac','days':30}),('POST',path+'/key-id/revoke',None)]:
+        for method,url,data in [('GET',path,None),('POST',path,{'label':'Mac',}),('POST',path+'/key-id/revoke',None),('POST',path+'/key-id/reveal',None),('POST',path+'/key-id/policy',{'concurrentLimit':0})]:
             self.assertEqual(client.request(method,url,json=data).status_code,403)
         transport.assert_not_awaited()
     def test_target_and_actor_are_server_resolved(self):
-        response=client.post(path,headers=headers,json={'label':'Mac','days':30})
+        response=client.post(path,headers=headers,json={'label':'Mac',})
         self.assertEqual(response.status_code,200)
         self.assertEqual(response.headers['cache-control'],'no-store')
-        self.assertEqual(transport.call_args.args[1:],('POST','/internal/users/gateway-user/desktop-keys',{'label':'Mac','days':30,'actorId':'acting-admin'}))
-        response=client.post(path,headers=headers,json={'label':'Mac','days':30,'actorId':'victim','userId':'victim'})
+        self.assertEqual(transport.call_args.args[1:],('POST','/internal/users/gateway-user/desktop-keys',{'label':'Mac','actorId':'acting-admin','concurrentLimit':0}))
+        response=client.post(path,headers=headers,json={'label':'Mac','actorId':'victim','userId':'victim'})
         self.assertEqual(response.status_code,422)
     def test_link_required_no_implicit_credentials(self):
         links.get_by_user_id.return_value=None
@@ -64,10 +64,17 @@ class DesktopKeysTests(unittest.TestCase):
         transport.return_value=(0,{'message':'secret transport details','error':'raw secret'})
         response=client.get(path,headers=headers)
         self.assertEqual(response.status_code,503); self.assertNotIn('secret',response.text)
-    def test_expiry_validation_and_revoke_scope(self):
+    def test_no_manual_expiry_and_revoke_scope(self):
         for days in [0,91,True,'30']:
             self.assertEqual(client.post(path,headers=headers,json={'label':'Mac','days':days}).status_code,422)
         self.assertEqual(client.post(path+'/key-id/revoke',headers=headers).status_code,200)
         self.assertEqual(transport.call_args.args[1:],('POST','/internal/users/gateway-user/desktop-keys/key-id/revoke',{'actorId':'acting-admin'}))
+
+    def test_manual_concurrency_zero_and_arbitrary_values(self):
+        for value in [0,1,12,24,32,1234]:
+            self.assertEqual(client.post(path+'/key-id/policy',headers=headers,json={'concurrentLimit':value}).status_code,200)
+            self.assertEqual(transport.call_args.args[-1],{'actorId':'acting-admin','concurrentLimit':value})
+        for value in [-1,1.5,True,'12']:
+            self.assertEqual(client.post(path+'/key-id/policy',headers=headers,json={'concurrentLimit':value}).status_code,422)
 
 if __name__=='__main__':unittest.main()

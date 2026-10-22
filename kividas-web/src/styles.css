@@ -3344,3 +3344,10 @@ td code {
 .desktop-keys details p { margin-top: 10px; }
 .desktop-key-confirm { padding: 12px; border: 1px solid var(--danger); border-radius: 8px; display: grid; gap: 10px; }
 @media (max-width: 600px) { .desktop-key-fields { grid-template-columns: 1fr; } }
+
+.desktop-key-policy { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.desktop-key-policy input { max-width: 200px; }
+.desktop-keys-simple .desktop-key-policy { align-items: end; }
+.desktop-keys-simple .desktop-key-policy .muted { padding-bottom: 9px; }
+.desktop-keys-simple .desktop-key-policy input { width: 120px; }
+.desktop-key-value { font-family: monospace; font-size: 12px; width: 100%; }

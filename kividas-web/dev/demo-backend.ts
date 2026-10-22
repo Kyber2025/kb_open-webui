@@ -333,17 +333,19 @@ export function demoBackend(): Plugin {
             path === "/api/v1/auths/add")
         )
           return json({ detail: "Administrator access required." }, 403);
-        const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/revoke)?$/.exec(path);
+        const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/(revoke|reveal|policy))?$/.exec(path);
         if (desktopMatch) {
           const userId = decodeURIComponent(desktopMatch[1]);
-          const policy = { maxActiveKeys: 2, requestsPerMinute: 40, concurrentPerKey: 3, concurrentPerUser: 6, networksPerHour: 3 };
+          const policy = { maxActiveKeys: 2, requestsPerMinute: 120, concurrentPerKey: 0, concurrentPerUser: 0, networksPerHour: 3 };
           if (method === 'GET') return json({eligible:true, reason:null, policy, keys:desktopKeys.filter(k=>k.userId===userId)});
           if (desktopMatch[2]) {
             const key = desktopKeys.find(k=>k.id===desktopMatch[2] && k.userId===userId);
             if (!key) return json({detail:'Key not found'},404);
+            if(desktopMatch[3]==='reveal') return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/'});
+            if(desktopMatch[3]==='policy') {key.concurrentLimit=data.concurrentLimit; return json({ok:true});}
             key.revokedAt=new Date().toISOString();key.revokeReason='admin_revoked';return json({ok:true});
           }
-          const key={id:crypto.randomUUID(),userId,label:data.label,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+data.days*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
+          const key={id:crypto.randomUUID(),userId,label:data.label||"Claude Desktop",concurrentLimit:data.concurrentLimit??0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key);
           return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
         }
