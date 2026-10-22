@@ -17,6 +17,7 @@ export const desktopKeysApi = {
   reveal: (id: string, keyId: string) => request<CreatedDesktopKey>(`${path(id)}/${encodeURIComponent(keyId)}/reveal`, { method: 'POST' }),
   policy: (id: string, keyId: string, concurrentLimit: number) => request<{ok: boolean}>(`${path(id)}/${encodeURIComponent(keyId)}/policy`, { method: 'POST', body: JSON.stringify({concurrentLimit}) }),
   revoke: (id: string, keyId: string) => request<{ok: boolean}>(`${path(id)}/${encodeURIComponent(keyId)}/revoke`, { method: 'POST' }),
+  delete: (id: string, keyId: string) => request<{ok: boolean}>(`${path(id)}/${encodeURIComponent(keyId)}/delete`, { method: 'POST' }),
 };
 export function desktopKeyStatus(key: DesktopKey, now = Date.now()) {
   return key.revokedAt ? '已停用' : (!key.expiresAt || new Date(key.expiresAt).getTime() <= now) ? '订阅已到期' : key.boundAt ? '已绑定电脑' : '等待首次使用';

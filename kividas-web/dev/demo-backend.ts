@@ -333,7 +333,7 @@ export function demoBackend(): Plugin {
             path === "/api/v1/auths/add")
         )
           return json({ detail: "Administrator access required." }, 403);
-        const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/(revoke|reveal|policy))?$/.exec(path);
+        const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/(revoke|reveal|policy|delete))?$/.exec(path);
         if (desktopMatch) {
           const userId = decodeURIComponent(desktopMatch[1]);
           const policy = { maxActiveKeys: 2, requestsPerMinute: 120, concurrentPerKey: 0, concurrentPerUser: 0, networksPerHour: 3 };
@@ -341,6 +341,7 @@ export function demoBackend(): Plugin {
           if (desktopMatch[2]) {
             const key = desktopKeys.find(k=>k.id===desktopMatch[2] && k.userId===userId);
             if (!key) return json({detail:'Key not found'},404);
+            if(desktopMatch[3]==='delete') {desktopKeys.splice(desktopKeys.indexOf(key),1);return json({ok:true});}
             if(desktopMatch[3]==='reveal') return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/'});
             if(desktopMatch[3]==='policy') {key.concurrentLimit=data.concurrentLimit; return json({ok:true});}
             key.revokedAt=new Date().toISOString();key.revokeReason='admin_revoked';return json({ok:true});

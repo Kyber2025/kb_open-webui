@@ -70,6 +70,13 @@ async def reveal_key(request: Request, response: Response, user_id: str, key_id:
                        f'/internal/users/{target}/desktop-keys/{quote(key_id, safe="")}/reveal', {'actorId': user.id})
 
 
+@router.post('/admin/users/{user_id}/desktop-keys/{key_id}/delete')
+async def delete_key(request: Request, response: Response, user_id: str, key_id: str, user=Depends(get_admin_user)):
+    target = await _target(user_id)
+    return await _call(request, response, 'POST',
+                       f'/internal/users/{target}/desktop-keys/{quote(key_id, safe="")}/delete', {'actorId': user.id})
+
+
 @router.post('/admin/users/{user_id}/desktop-keys/{key_id}/policy')
 async def update_policy(request: Request, response: Response, user_id: str, key_id: str, form: DesktopKeyPolicy, user=Depends(get_admin_user)):
     target = await _target(user_id)

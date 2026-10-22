@@ -10,8 +10,8 @@ describe('desktop key administration', () => {
   it('uses only admin desktop endpoints and never submits web keys or arbitrary gateway user ids', async () => {
     const fetch = vi.fn(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetch); vi.stubGlobal('localStorage', {getItem: () => 'admin-session'});
-    await desktopKeysApi.list('user/a'); await desktopKeysApi.create('user/a'); await desktopKeysApi.revoke('user/a','key/b');
-    expect(fetch.mock.calls.map((c:any) => c[0])).toEqual(['/api/v1/kyber/admin/users/user%2Fa/desktop-keys','/api/v1/kyber/admin/users/user%2Fa/desktop-keys','/api/v1/kyber/admin/users/user%2Fa/desktop-keys/key%2Fb/revoke']);
+    await desktopKeysApi.list('user/a'); await desktopKeysApi.create('user/a'); await desktopKeysApi.revoke('user/a','key/b'); await desktopKeysApi.delete('user/a','key/b');
+    expect(fetch.mock.calls.map((c:any) => c[0])).toEqual(['/api/v1/kyber/admin/users/user%2Fa/desktop-keys','/api/v1/kyber/admin/users/user%2Fa/desktop-keys','/api/v1/kyber/admin/users/user%2Fa/desktop-keys/key%2Fb/revoke','/api/v1/kyber/admin/users/user%2Fa/desktop-keys/key%2Fb/delete']);
     expect(JSON.parse((fetch.mock.calls[1] as any)[1].body)).toEqual({concurrentLimit:0});
   });
   it('gives revocation precedence over expiry and device binding', () => {
