@@ -85,6 +85,7 @@ from open_webui.utils.webhook import post_webhook
 from open_webui.utils.kyber import (
     KyberError,
     ensure_kyber_link,
+    kyber_provision_admin_user,
     kyber_base,
     kyber_forgot_password,
     kyber_login,
@@ -1239,10 +1240,11 @@ async def add_user(
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if not validate_email_format(form_data.email.lower()):
+    email = form_data.email.strip().lower()
+    if not validate_email_format(email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
 
-    if await Users.get_user_by_email(form_data.email.lower(), db=db):
+    if await Users.get_user_by_email(email, db=db):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
     try:
@@ -1251,14 +1253,21 @@ async def add_user(
         except Exception as e:
             raise HTTPException(400, detail=str(e))
 
+        kyber_account = None
+        if (form_data.role in ('user', 'admin') and
+                getattr(request.app.state.config, 'ENABLE_KYBER_AUTH_BRIDGE', False)):
+            kyber_account = await kyber_provision_admin_user(
+                request, email, form_data.password, form_data.name
+            )
         hashed = get_password_hash(form_data.password)
         user = await Auths.insert_new_auth(
-            form_data.email.lower(),
+            email,
             hashed,
             form_data.name,
             form_data.profile_image_url,
             form_data.role,
             db=db,
+            kyber_account=kyber_account,
         )
 
         if user:
@@ -1281,10 +1290,12 @@ async def add_user(
             }
         else:
             raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+    except KyberError as err:
+        raise HTTPException(err.status, detail=err.message)
     except HTTPException:
         raise
     except Exception as err:
-        log.error(f'Add user error: {str(err)}')
+        log.error('Add user error: %s', type(err).__name__)
         raise HTTPException(500, detail='An internal error occurred while adding the user.')
 
 

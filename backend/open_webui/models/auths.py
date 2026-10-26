@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Optional
 
@@ -103,6 +104,7 @@ class AuthsTable:
         role: str = 'pending',
         oauth: dict | None = None,
         db: AsyncSession | None = None,
+        kyber_account: dict | None = None,
     ) -> UserModel | None:
         """Create an Auth + User pair inside a single transaction."""
         async with get_async_db_context(db) as session:
@@ -117,6 +119,25 @@ class AuthsTable:
                 active=True,
             )
             session.add(credential)
+
+            if kyber_account is not None:
+                # Keep all three local records in one transaction. The ordinary
+                # Users helper commits internally, so do not use it for this path.
+                from open_webui.models.kyber_accounts import UserKyberAccount
+
+                now = int(time.time())
+                created_user = UserModel(id=new_id, email=email, name=name, role=role,
+                    profile_image_url=profile_image_url, oauth=oauth,
+                    last_active_at=now, created_at=now, updated_at=now)
+                session.add(User(**created_user.model_dump()))
+                session.add(UserKyberAccount(user_id=new_id, **kyber_account,
+                    created_at=now, updated_at=now, extra_usage_enabled=False))
+                try:
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
+                return created_user
 
             created_user = await Users.insert_new_user(
                 new_id,

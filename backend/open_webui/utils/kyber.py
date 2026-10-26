@@ -101,6 +101,43 @@ async def _get(base: str, path: str, bearer: str):
 ####################
 
 
+async def kyber_provision_admin_user(request: Request, email: str, password: str, name: str) -> dict:
+    """Prepare an admin-created user's platform identity/key before committing the local user.
+
+    The gateway reuses matching credentials on retry; it never resets an existing
+    account. The returned key is encrypted before it can reach the local database.
+    """
+    from open_webui.config import KYBER_INTERNAL_SECRET
+
+    if not KYBER_INTERNAL_SECRET:
+        raise KyberError('平台关联服务未配置，请联系管理员。', 503)
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.post(
+                f'{kyber_base(request)}/internal/users/provision',
+                json={'email': email, 'password': password, 'name': name},
+                headers={'X-Internal-Secret': KYBER_INTERNAL_SECRET},
+            ) as response:
+                data = await response.json(content_type=None)
+                if response.status == 409:
+                    raise KyberError('平台账号已存在且无法关联，请核对原密码和账号状态。', 409)
+                if response.status == 400:
+                    raise KyberError('平台账号资料无效，密码须为至少 8 个字符且不超过 72 字节。', 400)
+                if response.status != 200:
+                    raise KyberError('平台关联暂时失败，用户尚未创建，请重试。', 503)
+        account = data.get('user') or {}
+        key = data.get('key')
+        if not account.get('id') or account.get('email') != email or not isinstance(key, str) or not key.startswith('sk-or-'):
+            raise KyberError('平台关联返回异常，用户尚未创建，请重试。', 502)
+        return {'kyber_user_id': account['id'], 'kyber_email': email, 'api_key_enc': encrypt_data(key)}
+    except KyberError:
+        raise
+    except Exception:
+        # No exception body: transport/database errors can contain credentials.
+        log.warning('Admin user platform provisioning failed')
+        raise KyberError('平台关联暂时失败，用户尚未创建，请重试。', 503)
+
+
 async def kyber_login(base: str, email: str, password: str) -> Optional[dict]:
     """Return KyberRouter's auth payload {accessToken, refreshToken, user} on success, or
     None when authentication did not succeed for ANY reason (bad creds or service issue).
