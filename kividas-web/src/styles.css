@@ -3429,20 +3429,32 @@ td code {
 .code-method[aria-selected="true"] .code-method-radio { background: var(--ink); border-color: var(--ink); color: var(--canvas); }
 .code-method-panel { margin-top: 16px; animation: code-panel-in .24s ease-out both; }
 @keyframes code-panel-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-/* Compact cards whenever the column is narrow: phones, or a tablet with the
-   sidebar open. Measured on the page itself, not the viewport. */
+/* The three cards always stay in one row. Down to a narrow column the row only
+   tightens; narrower than that (tablet with the sidebar open, phones) it becomes
+   a horizontally scrolling, snap-aligned row of full-size cards instead of
+   stacking. Both widths are measured on the page column's content box. */
 .code-download-page { container-type: inline-size; }
 @container (max-width: 700px) {
-  .code-methods { grid-template-columns: 1fr; gap: 10px; }
-  .code-method { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 14px; row-gap: 10px; padding: 16px 16px 14px; }
-  .code-method:hover { transform: none; }
-  .code-method[aria-selected="true"]::after { display: none; }
-  .code-method-icon { width: 44px; height: 44px; border-radius: 12px; }
+  .code-methods { gap: 10px; }
+  .code-method { gap: 10px; padding: 16px 14px 13px; border-radius: 16px; }
+  .code-method-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .code-method-icon img, .code-method-icon .code-method-app-icon { width: 34px; height: 34px; border-radius: 9px; }
+  .code-method-badge { top: 12px; right: 12px; padding: 2px 7px; font-size: 10px; }
+  .code-method-copy strong { font-size: 15px; }
+  .code-method-desc { font-size: 12px; line-height: 1.6; }
+  .code-method-foot { padding-top: 10px; font-size: 10.5px; }
+}
+@container (max-width: 620px) {
+  .code-methods { display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 4px 2px 12px; margin: 4px -2px -8px; scrollbar-width: thin; }
+  .code-method { flex: 0 0 min(250px, 84%); scroll-snap-align: start; gap: 12px; padding: 20px 18px 16px; border-radius: 18px; }
+  .code-method:hover { transform: none; box-shadow: none; }
+  .code-method[aria-selected="true"] { box-shadow: none; }
+  .code-method-icon { width: 44px; height: 44px; border-radius: 13px; }
   .code-method-icon img, .code-method-icon .code-method-app-icon { width: 36px; height: 36px; border-radius: 10px; }
-  .code-method-badge { top: 14px; right: 14px; }
-  .code-method-copy, .code-method-foot { grid-column: 2; }
-  .code-method-copy { padding-right: 44px; }
+  .code-method-badge { top: 16px; right: 16px; padding: 3px 8px; font-size: 11px; }
   .code-method-copy strong { font-size: 16px; }
+  .code-method-desc { font-size: 12.5px; }
+  .code-method-foot { padding-top: 12px; font-size: 11px; }
   .code-method-panel .gateway-resources { grid-template-columns: 1fr; }
   .code-method-panel .gateway-open { width: 100%; justify-content: center; }
 }
