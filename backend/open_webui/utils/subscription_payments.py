@@ -14,6 +14,7 @@ from urllib.parse import quote, urlsplit
 
 import aiohttp
 from fastapi import HTTPException
+from fastapi.responses import PlainTextResponse
 
 log = logging.getLogger(__name__)
 OPEN_STATUSES = ('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID')
@@ -93,15 +94,18 @@ async def plans_with_capacity(request, user):
     from open_webui.utils.claude_allocation import resource_call
     tiers = await SubscriptionTiers.list_tiers(enabled_only=True)
     capacity = {}
+    linked = False
     try:
         credentials()
         link = await UserKyberAccounts.get_by_user_id(user.id)
-        if link and link.kyber_user_id:
-            capacity = await resource_call(request, 'capacity', {'userId': link.kyber_user_id})
+        linked = bool(link and link.kyber_user_id)
+        # Unlinked local administrators can see stock, but cannot reserve or buy.
+        capacity = await resource_call(request, 'capacity', {
+            'userId': link.kyber_user_id if linked else 'unlinked-web:' + user.id})
     except Exception:
         log.warning('Subscription checkout capacity unavailable')
     return [{**tier.model_dump(), 'remaining': capacity.get(tier.id, {}).get('remaining'),
-             'can_purchase': bool(capacity.get(tier.id, {}).get('can_purchase')),
+             'can_purchase': linked and bool(capacity.get(tier.id, {}).get('can_purchase')),
              'merchant_name': 'Kividas 订阅'} for tier in tiers]
 
 
@@ -216,7 +220,7 @@ async def payment_notify(request):
     if not isinstance(payload, dict) or not isinstance(payload.get('data'), (dict, type(None))):
         raise HTTPException(401, 'Invalid payment notification')
     if payload.get('event') == 'PING':
-        return {'success': True}
+        return PlainTextResponse('success')
     from open_webui.models.subscriptions import SubscriptionOrders
     from open_webui.models.users import Users
     order = await SubscriptionOrders.get((payload.get('data') or {}).get('orderId', ''))
@@ -227,7 +231,7 @@ async def payment_notify(request):
         raise HTTPException(404, 'User not found')
     # Fetch a fresh signed response; callback replay cannot manufacture paid status.
     await sync_checkout(request, user, order.id)
-    return {'success': True}
+    return PlainTextResponse('success')
 
 
 async def payment_reconcile_loop(app):

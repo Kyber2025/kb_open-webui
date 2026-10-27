@@ -113,5 +113,27 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
                             ('RESPONSE',timestamp,nonce,b'{"status":"PAID"}'),('RESPONSE','1',nonce,body)]:
             with self.assertRaises(HTTPException):payments.verify_signature('test-only',kind,ts,n,b,sig)
 
+    async def test_signed_ping_ack_matches_payment_service_plain_text_contract(self):
+        body=b'{"event":"PING","data":null}'
+        ts=str(int(time.time()));nonce='payment-ping'
+        request=SimpleNamespace(body=AsyncMock(return_value=body),headers={
+            'X-App-Id':'test','X-Timestamp':ts,'X-Nonce':nonce,
+            'X-Signature':payments.signature('test-only','NOTIFY',ts,nonce,hashlib.sha256(body).hexdigest())})
+        response=await payments.payment_notify(request)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.body,b'success')
+        self.assertEqual(response.media_type,'text/plain')
+        request.headers['X-Signature']='invalid'
+        with self.assertRaises(HTTPException):await payments.payment_notify(request)
+
+    async def test_unlinked_local_admin_sees_stock_without_purchase_permission(self):
+        from open_webui.models.kyber_accounts import UserKyberAccounts
+        with patch.object(UserKyberAccounts,'get_by_user_id',AsyncMock(return_value=None)), \
+             patch.object(allocation,'resource_call',AsyncMock(return_value={'pro':{'remaining':2,'can_purchase':True}})):
+            rows=await payments.plans_with_capacity(self.request,self.user)
+        pro=next(row for row in rows if row['id']=='pro')
+        self.assertEqual(pro['remaining'],2)
+        self.assertFalse(pro['can_purchase'])
+
 
 if __name__=='__main__':unittest.main()
