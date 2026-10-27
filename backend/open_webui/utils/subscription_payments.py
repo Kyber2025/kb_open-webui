@@ -17,8 +17,8 @@ from fastapi import HTTPException
 from fastapi.responses import PlainTextResponse
 
 log = logging.getLogger(__name__)
-OPEN_STATUSES = ('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID')
-HOLD_SECONDS = 48 * 3600  # Covers the payment service's 24h window and settlement grace.
+OPEN_STATUSES = ('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID', 'PAID_REQUIRES_ADMIN')
+MAX_ORDER_SECONDS = 48 * 3600
 
 
 def credentials():
@@ -83,8 +83,8 @@ def validate_order(order, data):
         expires = int(datetime.fromisoformat(data['expiresAt'].replace('Z', '+00:00')).timestamp())
     except (ValueError, KeyError, TypeError):
         raise HTTPException(502, '无效订单到期时间')
-    if expires > order.created_at + HOLD_SECONDS - 3600:
-        raise HTTPException(502, '订单付款期限超过席位预留期限')
+    if expires > order.created_at + MAX_ORDER_SECONDS - 3600:
+        raise HTTPException(502, '订单付款期限无效')
     return expires
 
 
@@ -99,7 +99,7 @@ async def plans_with_capacity(request, user):
         credentials()
         link = await UserKyberAccounts.get_by_user_id(user.id)
         linked = bool(link and link.kyber_user_id)
-        # Unlinked local administrators can see stock, but cannot reserve or buy.
+        # Unlinked local administrators can see stock, but cannot buy.
         capacity = await resource_call(request, 'capacity', {
             'userId': link.kyber_user_id if linked else 'unlinked-web:' + user.id})
     except Exception:
@@ -114,7 +114,8 @@ async def create_checkout(request, user, tier_id, chain_id):
     from open_webui.internal.db import get_async_db
     from open_webui.models.users import User
     from open_webui.models.subscriptions import SubscriptionOrder, SubscriptionTier
-    from open_webui.utils.claude_allocation import reserve_order, cancel_reservation
+    from open_webui.models.kyber_accounts import UserKyberAccounts
+    from open_webui.utils.claude_allocation import resource_call
     credentials()
     chains = {str(c['id']) for c in request.app.state.config.SUBSCRIPTION_CHAINS or []}
     if chain_id not in chains:
@@ -125,28 +126,25 @@ async def create_checkout(request, user, tier_id, chain_id):
         if tier_id not in ('pro', 'ultra') or not tier or not tier.enabled or tier.price_usd <= 0:
             raise HTTPException(404, '此订阅档位已停用')
         existing = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.user_id == user.id,
+            SubscriptionOrder.tier_id == tier_id, SubscriptionOrder.chain_id == chain_id,
             SubscriptionOrder.status.in_(OPEN_STATUSES), SubscriptionOrder.activated == False)
             .order_by(SubscriptionOrder.created_at.desc()))).scalars().first()
         if existing:
-            if existing.tier_id != tier_id or existing.chain_id != chain_id:
-                raise HTTPException(409, '已有待处理订单，请完成原订单或等待订单失效后再更换套餐和网络')
             order_id = existing.id
         else:
             now = int(time.time())
             logical = 'kvs-' + uuid.uuid4().hex
             order_id = logical + '_' + chain_id
-            reserved = await reserve_order(request, user.id, tier_id, logical, now + HOLD_SECONDS)
-            if not reserved:
-                raise HTTPException(503, '暂时无法确认订阅容量，请稍后重试')
+            link = await UserKyberAccounts.get_by_user_id(user.id)
+            if not link or not link.kyber_user_id:
+                raise HTTPException(409, '用户尚未关联平台账号，请联系管理员处理')
+            capacity = await resource_call(request, 'capacity', {'userId': link.kyber_user_id})
+            if not capacity.get(tier_id, {}).get('can_purchase'):
+                raise HTTPException(409, '当前套餐暂无可购买名额')
             db.add(SubscriptionOrder(id=order_id, logical_order_id=logical, user_id=user.id, tier_id=tier_id,
                 chain_id=chain_id, amount=format(Decimal(str(tier.price_usd)), 'f'), address=None,
                 status='CREATING', activated=False, expires_at=now + 86400, created_at=now, updated_at=now))
-            try:
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                await cancel_reservation(request, user.id, logical)
-                raise
+            await db.commit()
     # A crash or timeout leaves the same durable intent for idempotent recovery.
     return await sync_checkout(request, user, order_id)
 
@@ -162,7 +160,7 @@ async def sync_checkout(request, user, order_id):
         order = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.id == order_id).with_for_update())).scalar_one_or_none()
         if not order or order.user_id != user.id or not order.logical_order_id.startswith('kvs-'):
             raise HTTPException(404, 'Order not found')
-        if not order.activated and order.status in OPEN_STATUSES:
+        if not order.activated and order.status in OPEN_STATUSES and order.status != 'PAID_REQUIRES_ADMIN':
             if order.status == 'CREATING':
                 data = await merchant_request(request, 'POST', 'create', {'orderId': order.logical_order_id,
                     'chainId': order.chain_id, 'amount': order.amount,
@@ -176,16 +174,30 @@ async def sync_checkout(request, user, order_id):
             order.updated_at = int(time.time())
             await db.commit()
     order = await SubscriptionOrders.get(order_id)
-    if order.status == 'PAID':
+    fulfilled = order.activated
+    if order.status in ('PAID', 'PAID_REQUIRES_ADMIN'):
+        fulfilled = False
         tier = await SubscriptionTiers.get_tier(order.tier_id)
         if not tier:
             raise HTTPException(409, '付款已确认，订阅开通待处理，请联系管理员')
-        if not order.activated:
-            await change_subscription(request, user.id, order.tier_id, duration_days=tier.duration_days,
-                operation_id=order.logical_order_id, order_id=order.id)
-        await propagate(request, order.logical_order_id)
-        if not await sync_user_rate_limits_to_kyber(request, user.id):
-            raise HTTPException(503, '付款已确认，订阅正在同步，请稍后刷新')
+        try:
+            if not order.activated:
+                # Only confirmed money may reserve a seat. A sold-out race keeps
+                # the verified payment for administrator handling without granting access.
+                await change_subscription(request, user.id, order.tier_id, duration_days=tier.duration_days,
+                    operation_id=order.logical_order_id, order_id=order.id)
+            await propagate(request, order.logical_order_id)
+            if not await sync_user_rate_limits_to_kyber(request, user.id):
+                raise HTTPException(503, '付款已确认，订阅正在同步，请稍后刷新')
+            fulfilled = True
+            if order.status == 'PAID_REQUIRES_ADMIN':
+                await SubscriptionOrders.update_status(order.id, 'PAID')
+        except HTTPException as exc:
+            if exc.status_code not in (409, 503):
+                raise
+            if exc.status_code == 409:
+                await SubscriptionOrders.update_status(order.id, 'PAID_REQUIRES_ADMIN')
+            log.warning('Paid subscription requires %s: %s', 'administrator' if exc.status_code == 409 else 'sync retry', order.id)
         order = await SubscriptionOrders.get(order_id)
     elif order.status in ('EXPIRED', 'FAILED'):
         await cancel_reservation(request, user.id, order.logical_order_id)
@@ -196,14 +208,15 @@ async def sync_checkout(request, user, order_id):
     return {'order_id': order.id, 'tier_id': order.tier_id, 'tier_name': tier.name if tier else '',
         'merchant_name': 'Kividas 订阅', 'chain_id': order.chain_id, 'amount': order.amount,
         'address': order.address, 'qr_code_image': qr, 'status': order.status,
-        'expires_at': order.expires_at, 'activated': order.activated, 'tx_hash': order.tx_hash,
+        'expires_at': order.expires_at, 'activated': order.activated and fulfilled, 'tx_hash': order.tx_hash,
         'subscription_state': await get_subscription_state(user.id, is_admin=user.role == 'admin')}
 
 
-async def latest_checkout(request, user):
+async def latest_checkout(request, user, tier_id=None):
     from open_webui.models.subscriptions import SubscriptionOrders
     orders = await SubscriptionOrders.list_for_user(user.id)
-    order = next((o for o in orders if o.logical_order_id.startswith('kvs-') and not o.activated and o.status in OPEN_STATUSES), None)
+    order = next((o for o in orders if o.logical_order_id.startswith('kvs-') and not o.activated and o.status in OPEN_STATUSES
+                  and (tier_id is None or o.tier_id == tier_id)), None)
     return await sync_checkout(request, user, order.id) if order else None
 
 
@@ -230,7 +243,8 @@ async def payment_notify(request):
     if not user:
         raise HTTPException(404, 'User not found')
     # Fetch a fresh signed response; callback replay cannot manufacture paid status.
-    await sync_checkout(request, user, order.id)
+    if order.status != 'PAID_REQUIRES_ADMIN':
+        await sync_checkout(request, user, order.id)
     return PlainTextResponse('success')
 
 
@@ -246,7 +260,7 @@ async def payment_reconcile_loop(app):
             await asyncio.sleep(20)
             async with get_async_db() as db:
                 rows = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.logical_order_id.like('kvs-%'),
-                    SubscriptionOrder.status.in_(OPEN_STATUSES), SubscriptionOrder.activated == False)
+                    SubscriptionOrder.status.in_(tuple(s for s in OPEN_STATUSES if s != 'PAID_REQUIRES_ADMIN')), SubscriptionOrder.activated == False)
                     .order_by(SubscriptionOrder.updated_at).limit(50))).scalars().all()
             for order in rows:
                 try:

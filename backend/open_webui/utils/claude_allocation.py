@@ -1,7 +1,7 @@
 """Coordinate subscriptions with Claude resources without double granting.
 
-The local user row serializes grants. Capacity is reserved before money is requested
-or a grant is committed. A durable outbox retries the remote commit after a crash.
+The local user row serializes grants. Payment orders hold no capacity. A confirmed payment or an
+authorized grant reserves capacity immediately before committing the grant. A durable outbox retries the remote commit after a crash.
 """
 import logging
 import time
@@ -114,8 +114,10 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
             order = None
             if order_id:
                 order = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.id == order_id).with_for_update())).scalar_one_or_none()
-                if not order or order.user_id != user_id or order.tier_id != tier_id or order.status != 'PAID':
+                if not order or order.user_id != user_id or order.tier_id != tier_id or order.status not in ('PAID', 'PAID_REQUIRES_ADMIN'):
                     raise HTTPException(409, '订阅订单状态不允许开通')
+                if tier_id == 'pro' and any(s.tier_id == 'ultra' for s in active):
+                    raise HTTPException(409, '付款已确认，当前为 20x；5x 订单等待处理，不会覆盖现有订阅')
                 if order.activated:
                     await db.commit()
                     return UserSubscriptionModel.model_validate(active[0]) if active else None

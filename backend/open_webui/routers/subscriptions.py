@@ -152,9 +152,9 @@ async def list_my_orders(user=Depends(get_verified_user)):
 
 
 @router.get('/checkout')
-async def current_checkout(request: Request, response: Response, user=Depends(get_verified_user)):
+async def current_checkout(request: Request, response: Response, user=Depends(get_verified_user), tier_id: Optional[str] = None):
     response.headers['Cache-Control'] = 'private, no-store'
-    return await latest_checkout(request, user)
+    return await latest_checkout(request, user, tier_id)
 
 
 @router.post('/payment/notify')
@@ -220,8 +220,8 @@ async def mobile_chains(request: Request, user=Depends(get_mobile_subscription_u
 
 
 @router.get('/mobile/checkout')
-async def mobile_checkout(request: Request, response: Response, user=Depends(get_mobile_subscription_user)):
-    return await current_checkout(request, response, user)
+async def mobile_checkout(request: Request, response: Response, user=Depends(get_mobile_subscription_user), tier_id: Optional[str] = None):
+    return await current_checkout(request, response, user, tier_id)
 
 
 @router.post('/mobile/subscribe')

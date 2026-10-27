@@ -635,13 +635,13 @@ DEFAULT_TIERS = [
     ),
     SubscriptionTierForm(
         id='pro', name='Max 5x', description='For regular use.',
-        price_usd=90.0, duration_days=30, daily_message_limit=None,
+        price_usd=120.0, duration_days=30, daily_message_limit=None,
         token_limit_5h=7_000_000, token_limit_week=35_000_000,
         allowed_model_ids=[], enabled=True, sort_order=1,
     ),
     SubscriptionTierForm(
         id='ultra', name='Max 20x', description='Dedicated Claude account.',
-        price_usd=260.0, duration_days=30, daily_message_limit=None,
+        price_usd=360.0, duration_days=30, daily_message_limit=None,
         token_limit_5h=20_000_000, token_limit_week=100_000_000,
         allowed_model_ids=[], enabled=True, sort_order=3,
     ),

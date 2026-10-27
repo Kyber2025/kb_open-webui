@@ -32,12 +32,13 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             db.add(User(id=self.user.id,email='checkout@test.invalid',name='Checkout',role='user'))
             db.add(UserKyberAccount(user_id=self.user.id,kyber_user_id='gateway-test',kyber_email='checkout@test.invalid',created_at=self.now,updated_at=self.now))
             for tier in ('free','pro','max','ultra'):
-                db.add(SubscriptionTier(id=tier,name=tier,enabled=True,price_usd=90,duration_days=30,created_at=self.now,updated_at=self.now))
+                db.add(SubscriptionTier(id=tier,name=tier,enabled=True,price_usd=360 if tier=='ultra' else 120,duration_days=30,created_at=self.now,updated_at=self.now))
             await db.commit()
         self.reservations, self.orders, self.applied = {}, {}, {}
         self.full = False
         async def resource(req, method, path, payload=None):
             if path.endswith('/status'): return 200, {'enabled':True}
+            if path.endswith('/capacity'): return 200, {t:{'remaining':0 if self.full else 2,'can_purchase':not self.full} for t in ('pro','ultra')}
             op=payload['operationId']
             if path.endswith('/reserve'):
                 if self.full: return 409, {'message':'Sold out'}
@@ -49,7 +50,7 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             if method=='POST':
                 key=payload['orderId']+'_56'
                 self.orders.setdefault(key,{'orderId':key,'merchantOrderId':payload['orderId'],'chainId':'56',
-                    'token':'USDT','amount':'90','status':'PENDING','finalStatus':False,'address':'0x-test-address',
+                    'token':'USDT','amount':payload['amount'],'status':'PENDING','finalStatus':False,'address':'0x-test-address',
                     'expiresAt':datetime.fromtimestamp(self.now+86400,timezone.utc).isoformat()})
             else: key=suffix.split('/')[-1]
             return dict(self.orders[key])
@@ -65,9 +66,9 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
     async def test_parallel_create_payment_and_replay_grant_once(self):
         created=await asyncio.gather(*(payments.create_checkout(self.request,self.user,'pro','56') for _ in range(6)))
         self.assertEqual(len({x['order_id'] for x in created}),1)
-        self.assertEqual(len(self.reservations),1)
+        self.assertEqual(len(self.reservations),0)
         order_id=created[0]['order_id']
-        self.orders[order_id].update(status='PAID',paidAmount='90',finalStatus=True,txHash='test-chain-hash')
+        self.orders[order_id].update(status='PAID',paidAmount='120',finalStatus=True,txHash='test-chain-hash')
         results=await asyncio.gather(*(payments.sync_checkout(self.request,self.user,order_id) for _ in range(6)))
         self.assertTrue(all(x['activated'] for x in results))
         async with get_async_db() as db:
@@ -89,21 +90,72 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
     async def test_underpayment_and_wrong_identity_never_grant(self):
         created=await payments.create_checkout(self.request,self.user,'pro','56')
         order=self.orders[created['order_id']]
-        order.update(status='PAID',paidAmount='89.99',finalStatus=True,txHash='test-hash')
+        order.update(status='PAID',paidAmount='119.99',finalStatus=True,txHash='test-hash')
         with self.assertRaises(HTTPException):await payments.sync_checkout(self.request,self.user,created['order_id'])
-        order.update(paidAmount='90',merchantOrderId='different-order')
+        order.update(paidAmount='120',merchantOrderId='different-order')
         with self.assertRaises(HTTPException):await payments.sync_checkout(self.request,self.user,created['order_id'])
         async with get_async_db() as db:self.assertFalse((await db.get(SubscriptionOrder,created['order_id'])).activated)
 
-    async def test_expiry_grace_retains_seat_until_final(self):
+    async def test_unpaid_expiry_never_holds_a_seat(self):
         created=await payments.create_checkout(self.request,self.user,'pro','56')
         order=self.orders[created['order_id']]
         order.update(status='EXPIRED',finalStatus=False)
         state=await payments.sync_checkout(self.request,self.user,created['order_id'])
-        self.assertEqual(state['status'],'EXPIRED_CHECKING');self.assertEqual(len(self.reservations),1)
+        self.assertEqual(state['status'],'EXPIRED_CHECKING');self.assertEqual(len(self.reservations),0)
         order['finalStatus']=True
         state=await payments.sync_checkout(self.request,self.user,created['order_id'])
         self.assertEqual(state['status'],'EXPIRED');self.assertEqual(len(self.reservations),0)
+
+    async def test_paid_upgrade_replaces_5x_at_full_price_with_fresh_30_days(self):
+        old_expiry=self.now+365*86400
+        async with get_async_db() as db:
+            db.add(UserSubscription(id='existing-pro',user_id=self.user.id,tier_id='pro',status='active',
+                started_at=self.now-86400,expires_at=old_expiry,created_at=self.now,updated_at=self.now))
+            await db.commit()
+        created=await payments.create_checkout(self.request,self.user,'ultra','56')
+        self.assertEqual(created['amount'],'360.0')
+        async with get_async_db() as db:self.assertEqual((await db.get(UserSubscription,'existing-pro')).status,'active')
+        self.orders[created['order_id']].update(status='PAID',paidAmount='360',finalStatus=True,txHash='upgrade-hash')
+        await payments.sync_checkout(self.request,self.user,created['order_id'])
+        await payments.sync_checkout(self.request,self.user,created['order_id'])
+        async with get_async_db() as db:
+            old=await db.get(UserSubscription,'existing-pro')
+            self.assertEqual((old.status,old.expires_at),('expired',old_expiry))
+            active=(await db.execute(select(UserSubscription).where(UserSubscription.status=='active'))).scalars().all()
+            self.assertEqual(len(active),1);self.assertEqual(active[0].tier_id,'ultra')
+            self.assertLess(abs(active[0].expires_at-self.now-30*86400),15)
+            self.assertEqual(len((await db.execute(select(SubscriptionChange))).scalars().all()),1)
+
+    async def test_unpaid_orders_do_not_hold_capacity_or_lock_other_tiers(self):
+        pro = await payments.create_checkout(self.request,self.user,'pro','56')
+        ultra = await payments.create_checkout(self.request,self.user,'ultra','56')
+        self.assertNotEqual(pro['order_id'],ultra['order_id'])
+        self.assertEqual(self.reservations,{})
+        self.assertEqual((await payments.latest_checkout(self.request,self.user,'pro'))['order_id'],pro['order_id'])
+        self.assertEqual((await payments.latest_checkout(self.request,self.user,'ultra'))['order_id'],ultra['order_id'])
+        self.full=True
+        self.orders[ultra['order_id']].update(status='PAID',paidAmount='360',finalStatus=True,txHash='race-paid')
+        pending=await payments.sync_checkout(self.request,self.user,ultra['order_id'])
+        self.assertEqual(pending['status'],'PAID_REQUIRES_ADMIN'); self.assertFalse(pending['activated'])
+        async with get_async_db() as db:
+            self.assertEqual(len((await db.execute(select(UserSubscription))).scalars().all()),0)
+        # Only a user/admin-triggered recheck retries after capacity is resolved.
+        self.full=False
+        self.assertTrue((await payments.sync_checkout(self.request,self.user,ultra['order_id']))['activated'])
+        self.assertEqual(len(self.reservations),1)
+        # Paying an older 5x invoice later must not overwrite the active 20x.
+        self.orders[pro['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='late-pro')
+        self.assertFalse((await payments.sync_checkout(self.request,self.user,pro['order_id']))['activated'])
+        async with get_async_db() as db:
+            active=(await db.execute(select(UserSubscription).where(UserSubscription.status=='active'))).scalars().all()
+            self.assertEqual([s.tier_id for s in active],['ultra'])
+
+    async def test_remote_sync_failure_does_not_report_activation(self):
+        created=await payments.create_checkout(self.request,self.user,'pro','56')
+        self.orders[created['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='sync-paid')
+        with patch.object(subscription,'sync_user_rate_limits_to_kyber',AsyncMock(return_value=False)):
+            self.assertFalse((await payments.sync_checkout(self.request,self.user,created['order_id']))['activated'])
+        self.assertTrue((await payments.sync_checkout(self.request,self.user,created['order_id']))['activated'])
 
     def test_signed_response_rejects_tampering_and_stale_timestamp(self):
         timestamp=str(int(time.time()));nonce='test-nonce';body=b'{"status":"PENDING"}'

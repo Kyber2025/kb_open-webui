@@ -192,7 +192,7 @@ export const api = {
     del(`${V1}/guest/blacklist/${encodeURIComponent(ip)}`),
   plans: () => request<Tier[]>(`${sub}/tiers`),
   paymentChains: () => request<{ id: string; name: string }[]>(`${sub}/chains`),
-  checkout: () => request<SubscriptionCheckout | null>(`${sub}/checkout`),
+  checkout: (tierId?: string) => request<SubscriptionCheckout | null>(`${sub}/checkout${tierId ? `?tier_id=${encodeURIComponent(tierId)}` : ""}`),
   buySubscription: (tier_id: string, chain_id: string) => post<SubscriptionCheckout>(`${sub}/subscribe`, { tier_id, chain_id }),
   subscriptionOrder: (id: string) => request<SubscriptionCheckout>(`${sub}/order/${encodeURIComponent(id)}`),
   planModels: (id: string) => request<{ models: Model[] }>(`${sub}/tiers/${encodeURIComponent(id)}/models`),

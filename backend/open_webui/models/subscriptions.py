@@ -80,7 +80,7 @@ class SubscriptionOrder(Base):
     chain_id = Column(String, nullable=False)
     amount = Column(String, nullable=False)  # stored as string to avoid float drift
     address = Column(String, nullable=True)
-    status = Column(String, nullable=False, default='PENDING')  # PENDING|PAID|EXPIRED|FAILED
+    status = Column(String, nullable=False, default='PENDING')  # PENDING|PAID|PAID_REQUIRES_ADMIN|EXPIRED|FAILED
     tx_hash = Column(String, nullable=True)
     activated = Column(Boolean, nullable=False, default=False)  # subscription granted for this paid order
     expires_at = Column(BigInteger, nullable=True)
