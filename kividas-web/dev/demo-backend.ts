@@ -248,7 +248,7 @@ export function demoBackend(): Plugin {
           access_grants: [],
         },
       ];
-      let desktopKeys: any[] = [];
+      let desktopKeys: any[] = [{id:'gateway-preview-key',userId:demoUser.id,label:'我的 Mac',installationId:'87faedc8-a99e-4c1a-a3ef-503627509e98',concurrentLimit:0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:new Date().toISOString(),lastUsedAt:new Date().toISOString()}];
       let tasks: Task[] = [];
       let toolConnections: any[] = [];
       let preferences: any = { ui: { system: "" } };
@@ -349,6 +349,14 @@ export function demoBackend(): Plugin {
           const key={id:crypto.randomUUID(),installationId:crypto.randomUUID(),userId,label:data.label||"Claude Desktop",concurrentLimit:data.concurrentLimit??0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key);
           return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
+        }
+        if (path === '/api/v1/kyber/gateway' && method === 'GET') {
+          return json({subscribed:true,eligible:true,reason:null,keys:desktopKeys.filter(k=>k.userId===demoUser.id),policy:{maxActiveKeys:2}});
+        }
+        const gatewayDownload = /^\/api\/v1\/kyber\/gateway\/keys\/([^/]+)\/download$/.exec(path);
+        if (gatewayDownload && method === 'POST') {
+          const key = desktopKeys.find(k=>k.id===decodeURIComponent(gatewayDownload[1]) && k.userId===demoUser.id && !k.revokedAt);
+          return key ? json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/'}) : json({detail:'Key not found'},404);
         }
         if (path === "/api/v1/users/permissions")
           return json({

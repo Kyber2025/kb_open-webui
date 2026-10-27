@@ -3356,3 +3356,46 @@ td code {
 .desktop-installation-help { font-size: 12px; margin: 0; overflow-wrap: anywhere; }
 .desktop-key-export { display: grid; gap: 10px; padding: 12px; background: var(--bg-secondary, var(--bg)); border: 1px solid var(--line); border-radius: 8px; }
 .desktop-key-export .muted { margin: 0; font-size: 12px; }
+
+/* Claude Gateway guides and subscriber-owned downloads. */
+.gateway-section-heading { display:flex; align-items:center; gap:14px; margin-bottom:16px; }
+.gateway-section-heading h2 { margin:5px 0 0; font-size:23px; font-weight:500; }
+.gateway-section-heading .eyebrow { font-size:10px; letter-spacing:1.5px; }
+.gateway-resource-icon { display:grid; place-items:center; width:42px; height:42px; flex-shrink:0; border-radius:12px; background:var(--hover); color:var(--ink); }
+.gateway-steps { list-style:none; padding:0; margin:24px 0; display:grid; gap:18px; }
+.gateway-steps li { display:flex; align-items:flex-start; gap:12px; }
+.gateway-steps li > span { display:grid; place-items:center; width:25px; height:25px; border:1px solid var(--line); border-radius:50%; flex-shrink:0; font-size:12px; color:var(--muted); }
+.gateway-steps strong { font-size:14px; font-weight:500; }
+.gateway-steps p { margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.65; }
+.gateway-open { margin-bottom:24px; }
+.gateway-resources { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.gateway-resource { display:flex; align-items:center; gap:12px; min-width:0; padding:15px 13px; border:1px solid var(--line); border-radius:12px; color:inherit; text-decoration:none; transition:background .15s,border-color .15s; }
+.gateway-resource:hover { background:var(--hover); border-color:var(--muted); }
+.gateway-resource > svg { flex-shrink:0; color:var(--muted); }
+.gateway-resource-copy { display:flex; flex:1; flex-direction:column; min-width:0; gap:5px; }
+.gateway-resource-copy strong { font-size:13px; font-weight:500; line-height:1.4; }
+.gateway-resource-copy > span, .gateway-resource-copy small { color:var(--muted); font-size:11px; line-height:1.4; }
+.gateway-mac-help, .gateway-private-note { font-size:12px; color:var(--muted); line-height:1.7; margin:18px 0 0; }
+.gateway-mac-help code { font-size:12px; white-space:pre; }
+.gateway-account { padding-top:10px; }
+.gateway-account > p { margin-top:0; line-height:1.7; }
+.gateway-owner { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); padding:14px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.gateway-owner > span { flex:1; }
+.gateway-personal { margin:24px 0 28px; }
+.gateway-account h3 { display:flex; align-items:center; gap:8px; margin:0 0 12px; font-size:16px; font-weight:500; }
+.gateway-personal > p { font-size:13px; line-height:1.7; }
+.gateway-key { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:12px; padding:16px; border:1px solid var(--line); border-radius:12px; }
+.gateway-key > div { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.gateway-key strong { font-size:14px; overflow-wrap:anywhere; }
+.gateway-key span, .gateway-key small { font-size:12px; color:var(--muted); }
+.gateway-key .btn { flex-shrink:0; font-size:12px; }
+.gateway-notice { display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.6; padding:12px; margin:14px 0; border-radius:10px; background:var(--hover); }
+.gateway-notice.error { color:var(--danger); }
+.gateway-notice.success { color:var(--green); }
+.gateway-notice > svg { flex-shrink:0; margin-top:3px; }
+.gateway-empty { padding:18px 0 5px; }
+@media(max-width:600px) {
+  .gateway-resources { grid-template-columns:1fr; }
+  .gateway-key { flex-direction:column; align-items:stretch; }
+  .gateway-key .btn, .gateway-open { width:100%; justify-content:center; }
+}

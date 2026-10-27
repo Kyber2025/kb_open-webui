@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, Download, Terminal } from "lucide-react";
+import { ArrowUpRight, Copy, Download, KeyRound, Terminal } from "lucide-react";
 import { request } from "../lib/api";
 import {
   cliPlatforms,
@@ -10,8 +10,9 @@ import {
   type DesktopRelease,
 } from "../lib/downloads";
 import { useNotify } from "../components/UI";
+import { GatewayResources } from "../components/GatewayResources";
 
-export function CodeDownloads() {
+export function CodeDownloads({ onGateway }: { onGateway: () => void }) {
   const [desktop, setDesktop] = useState<DesktopRelease | null>(null);
   const [cli, setCli] = useState<CliRelease | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +98,18 @@ export function CodeDownloads() {
             </div>
           ))}
         </div>
+      </section>
+      <section className="download-panel gateway-downloads" aria-labelledby="gateway-heading">
+        <div className="gateway-section-heading"><span className="gateway-resource-icon"><KeyRound size={22} /></span><div><span className="eyebrow">YOUR SUBSCRIPTION, CONNECTED</span><h2 id="gateway-heading">Claude Code Gateway</h2></div></div>
+        <p className="muted">使用 Kividas 订阅接入官方 Claude 桌面客户端和 Claude Code CLI。</p>
+        <ol className="gateway-steps">
+          <li><span>1</span><div><strong>下载你的接入资料</strong><p>头像菜单 → Gateway，获取管理员为你发放的专属 Key 和安装识别码。</p></div></li>
+          <li><span>2</span><div><strong>按教程完成配置</strong><p>选择对应的 Mac、Windows 或 CLI 教程；也可下载配置工具并导入客户资料 TXT。</p></div></li>
+          <li><span>3</span><div><strong>重启客户端，开始使用</strong><p>完全退出后重新打开。桌面端和 CLI 的用量计入你的 Kividas 订阅。</p></div></li>
+        </ol>
+        <button className="btn primary gateway-open" onClick={onGateway}>我的 Gateway 接入资料<ArrowUpRight size={17} /></button>
+        <GatewayResources />
+        <p className="gateway-mac-help">Mac 配置工具：解压后，在终端输入 <code>/bin/bash </code>（末尾留一个空格），再拖入“配置Mac.sh”并回车。完整步骤见压缩包内的“Mac启动说明.txt”。</p>
       </section>
       <section
         className="download-panel cli-downloads"

@@ -19,6 +19,7 @@ import {
   CreditCard,
   FolderOpen,
   Home,
+  KeyRound,
   LogOut,
   Menu,
   Moon,
@@ -39,6 +40,8 @@ const Admin = lazy(() =>
 import { RecentChats } from "./components/RecentChats";
 import { SettingsPanel } from "./components/Settings";
 import { Subscription } from "./components/Subscription";
+import { Gateway } from "./components/Gateway";
+import { gatewayApi } from "./lib/gateway";
 import { Scheduled } from "./pages/Scheduled";
 import { Customize } from "./pages/Customize";
 import { CodeDownloads } from "./pages/Code";
@@ -61,6 +64,8 @@ export default function App() {
     [login, setLogin] = useState(false),
     [settings, setSettings] = useState(false),
     [subscription, setSubscription] = useState(false),
+    [gateway, setGateway] = useState(false),
+    [gatewayAvailable, setGatewayAvailable] = useState(false),
     [moreNav, setMoreNav] = useState(false),
     [theme, setTheme] = useState(
       localStorage.getItem("kividas:theme") || "light",
@@ -69,6 +74,24 @@ export default function App() {
     navigate = useNavigate(),
     notify = useNotify();
   const guest = user?.email === "guest@guest.local";
+  useEffect(() => {
+    let active = true;
+    setGateway(false);
+    setGatewayAvailable(false);
+    const refresh = () => {
+      if (user && !guest) void gatewayApi.status()
+        .then(state => { if (active) setGatewayAvailable(state.subscribed); })
+        .catch(() => { if (active) setGatewayAvailable(false); });
+    };
+    refresh();
+    window.addEventListener('subscription-updated', refresh);
+    window.addEventListener('gateway-updated', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('subscription-updated', refresh);
+      window.removeEventListener('gateway-updated', refresh);
+    };
+  }, [user?.id, guest]);
   const refreshChats = useCallback(() => {
     if (user && !guest)
       api
@@ -308,6 +331,9 @@ export default function App() {
                   <CreditCard size={17} />
                   Subscription
                 </button>
+                {gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
+                  <KeyRound size={17} />Gateway
+                </button>}
                 {isSuperAdmin(user) && (
                   <Link to="/admin/users/overview">
                     <ShieldCheck size={17} />
@@ -513,7 +539,7 @@ export default function App() {
                 )
               }
             />
-            <Route path="/code" element={<CodeDownloads />} />
+            <Route path="/code" element={<CodeDownloads onGateway={() => user && !guest ? setGateway(true) : setLogin(true)} />} />
             <Route
               path="*"
               element={
@@ -563,6 +589,7 @@ export default function App() {
         setUser(current); setModels(catalog);
         window.dispatchEvent(new Event("subscription-updated"));
       }} />}
+      {gateway && user && !guest && <Gateway key={user.id} user={user} onClose={() => setGateway(false)} onSubscription={() => { setGateway(false); setSubscription(true); }} />}
     </div>
   );
 }
