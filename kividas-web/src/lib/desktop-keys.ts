@@ -38,12 +38,12 @@ Gateway API key：${created.token}
 在 Inference configuration → Custom inference headers 中新增一项：
 名称（Name）：${DESKTOP_INSTALLATION_HEADER}
 值（Value）：${created.key.installationId}
-名称所有客户相同；值由管理台自动生成，无需查询电脑序列号。
+名称所有客户相同；值由平台自动生成，无需查询电脑序列号。
 请完整复制并长期保留，同一台电脑的多个会话共用此值。
 保存后完全退出 Claude，再重新打开。不要只关闭窗口。
 Mac：Claude → Quit Claude（或按 ⌘Q）。
 Windows：左上角 ≡ → File → Exit。
-此 Key 和安装识别码只配置一台电脑；第二台电脑请联系管理员另行生成。
+此 Key 和安装识别码只配置一台电脑；第二台电脑请在头像菜单 → Gateway 另行生成，达到上限时请联系管理员。
 
 三、Kividas 网页登录资料与用量
 登录网址：${created.usageUrl}

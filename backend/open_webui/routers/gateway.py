@@ -2,7 +2,7 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from open_webui.routers.desktop_keys import _call, _target
 from open_webui.utils.auth import get_verified_user
@@ -13,6 +13,11 @@ router = APIRouter()
 
 class GatewayRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
+
+
+class GatewayCreate(GatewayRequest):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    label: str = Field(default='Claude Desktop', min_length=1, max_length=80)
 
 
 async def _subscribed(user) -> bool:
@@ -33,11 +38,19 @@ async def _subscriber_target(user) -> str:
 async def gateway_status(request: Request, response: Response, user=Depends(get_verified_user)):
     response.headers['Cache-Control'] = 'no-store'
     if not await _subscribed(user):
-        return {'subscribed': False, 'eligible': False, 'keys': [],
+        return {'subscribed': False, 'eligible': False, 'canCreate': False, 'keys': [],
                 'reason': 'Gateway 需要有效订阅，请先开通或续费。'}
     target = await _target(user.id)
-    state = await _call(request, response, 'GET', f'/internal/users/{target}/desktop-keys')
+    state = await _call(request, response, 'GET', f'/internal/users/{target}/gateway')
     return {**state, 'subscribed': True}
+
+
+@router.post('/gateway/keys')
+async def create_gateway(request: Request, response: Response, form: GatewayCreate,
+                         user=Depends(get_verified_user)):
+    target = await _subscriber_target(user)
+    return await _call(request, response, 'POST', f'/internal/users/{target}/gateway',
+                       {'label': form.label, 'actorId': user.id})
 
 
 @router.post('/gateway/keys/{key_id}/download')

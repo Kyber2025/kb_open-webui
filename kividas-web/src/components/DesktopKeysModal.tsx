@@ -3,6 +3,7 @@ import { Copy, Download, Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import type { ManagedUser } from '../lib/admin-users';
 import { desktopKeysApi, desktopKeyStatus, downloadDesktopClientText, DESKTOP_INSTALLATION_HEADER, validDesktopConcurrency, type DesktopKeys, type DesktopKey } from '../lib/desktop-keys';
 import { Modal, Loading, ErrorPanel, messageOf, useNotify } from './UI';
+import { useKeyRefresh } from '../lib/use-key-refresh';
 
 export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const [data, setData] = useState<DesktopKeys | null>(null), [error, setError] = useState('');
@@ -12,6 +13,7 @@ export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose
   const notify = useNotify();
   async function load() { setError(''); try { setData(await desktopKeysApi.list(user.id)); } catch (e) { setError(messageOf(e)); } }
   useEffect(() => { setSecrets({}); setExportKeyId(null); setExportPassword(''); void load(); }, [user.id]);
+  useKeyRefresh(load, busy || !!confirm || !!exportKeyId);
   async function action(run: () => Promise<void>) {
     if (busy) return; setBusy(true); setError('');
     try { await run(); } catch (e) { setError(messageOf(e)); } finally { setBusy(false); }
@@ -88,6 +90,7 @@ export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose
         {active >= data.policy.maxActiveKeys && <p className="muted">已有 {active} 个有效 Key，更换电脑请先停用旧 Key。</p>}
         <div className="desktop-key-list">{data.keys.map(key => <article key={key.id}>
           <div className="row between"><strong>Key ···{key.suffix}</strong><div className="row"><span className="badge">{desktopKeyStatus(key)}</span><button className="icon-btn danger" title="删除 Key" aria-label={`删除 Key ···${key.suffix}`} disabled={busy} onClick={() => setConfirm({id: key.id, action: 'delete'})}><Trash2 size={16}/></button></div></div>
+          <p className="muted">{key.label}</p>
           {key.expiresAt && !key.revokedAt && <div className="muted">订阅到期：{new Date(key.expiresAt).toLocaleDateString()}</div>}
           {!key.revokedAt && <>
             <input className="desktop-key-value" aria-label={`Key ···${key.suffix}`} readOnly value={secrets[key.id] ?? `••••••••••••••••${key.suffix}`} spellCheck={false} autoComplete="off" />

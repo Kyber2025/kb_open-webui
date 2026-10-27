@@ -103,7 +103,7 @@ export function CodeDownloads({ onGateway }: { onGateway: () => void }) {
         <div className="gateway-section-heading"><span className="gateway-resource-icon"><KeyRound size={22} /></span><div><span className="eyebrow">YOUR SUBSCRIPTION, CONNECTED</span><h2 id="gateway-heading">Claude Code Gateway</h2></div></div>
         <p className="muted">使用 Kividas 订阅接入官方 Claude 桌面客户端和 Claude Code CLI。</p>
         <ol className="gateway-steps">
-          <li><span>1</span><div><strong>下载你的接入资料</strong><p>头像菜单 → Gateway，获取管理员为你发放的专属 Key 和安装识别码。</p></div></li>
+          <li><span>1</span><div><strong>生成并下载接入资料</strong><p>头像菜单 → Gateway，自行生成专属 Key 和安装识别码，也可下载管理员已为你生成的资料。</p></div></li>
           <li><span>2</span><div><strong>按教程完成配置</strong><p>选择对应的 Mac、Windows 或 CLI 教程；也可下载配置工具并导入客户资料 TXT。</p></div></li>
           <li><span>3</span><div><strong>重启客户端，开始使用</strong><p>完全退出后重新打开。桌面端和 CLI 的用量计入你的 Kividas 订阅。</p></div></li>
         </ol>

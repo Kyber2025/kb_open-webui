@@ -1,4 +1,4 @@
-"""Gateway downloads: session ownership, subscription checks, and no user writes."""
+"""Gateway downloads: session ownership, subscription checks, creation rights, and administrator-only lifecycle management."""
 from __future__ import annotations
 import importlib.util
 import sys
@@ -52,7 +52,7 @@ class GatewayTests(unittest.TestCase):
         tier.return_value = (SimpleNamespace(id='max', enabled=True), SimpleNamespace(id='active-subscription'))
 
     def test_authentication_required(self):
-        for method, url in [('GET', path), ('POST', path+'/keys/alice-key/download')]:
+        for method, url in [('GET', path), ('POST', path+'/keys'), ('POST', path+'/keys/alice-key/download')]:
             self.assertEqual(client.request(method, url, json={}).status_code, 401)
         transport.assert_not_awaited()
 
@@ -61,7 +61,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['subscribed'])
         self.assertEqual(response.headers['cache-control'], 'no-store')
-        self.assertEqual(transport.call_args.args[1:3], ('GET', '/internal/users/alice-gateway/desktop-keys'))
+        self.assertEqual(transport.call_args.args[1:3], ('GET', '/internal/users/alice-gateway/gateway'))
 
     def test_repeat_download_does_not_create_rotate_or_revoke(self):
         payload = {'key': {'id': 'alice-key', 'installationId': 'same-installation'}, 'token': 'same-test-token'}
@@ -78,8 +78,20 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(transport.call_args.args[2], '/internal/users/alice-gateway/gateway/bob-key/download')
 
+    def test_subscriber_creates_only_for_session_owner(self):
+        transport.return_value = (200, {'key': {'id': 'new-key'}})
+        response = client.post(path+'/keys?userId=bob', headers=headers, json={'label':' My Mac '})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['cache-control'], 'no-store')
+        self.assertEqual(transport.call_args.args[1:], ('POST', '/internal/users/alice-gateway/gateway', {'label':'My Mac', 'actorId':'alice'}))
+        self.assertNotIn('token', response.json())
+        for payload in [{'actorId':'bob'}, {'userId':'bob'}, {'concurrentLimit':999}, {'label':'   '}, {'label':'x'*81}]:
+            transport.reset_mock()
+            self.assertEqual(client.post(path+'/keys', headers=headers, json=payload).status_code,422)
+            transport.assert_not_awaited()
+
     def test_no_subscriber_credential_management_endpoints(self):
-        for suffix in ['', '/keys/alice-key/revoke', '/keys/alice-key/delete', '/keys/alice-key/policy']:
+        for suffix in ['', '/keys/alice-key/revoke', '/keys/alice-key/delete', '/keys/alice-key/policy', '/keys/alice-key/rotate']:
             self.assertIn(client.post(path+suffix, headers=headers, json={}).status_code, [404, 405])
         self.assertEqual(client.post('/api/v1/kyber/admin/users/alice/desktop-keys', headers=headers, json={}).status_code, 403)
         transport.assert_not_awaited()
@@ -93,6 +105,7 @@ class GatewayTests(unittest.TestCase):
             response = client.post(path+'/keys/alice-key/download', headers=headers, json={})
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.headers['cache-control'], 'no-store')
+            self.assertEqual(client.post(path+'/keys', headers=headers, json={}).status_code,403)
         transport.assert_not_awaited()
 
     def test_no_actor_identity_or_policy_override(self):

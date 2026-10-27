@@ -1,12 +1,14 @@
 import { request } from './api';
-import type { CreatedDesktopKey, DesktopKeys } from './desktop-keys';
+import type { CreatedDesktopKey, DesktopKey, DesktopKeys } from './desktop-keys';
 
 export interface GatewayState extends DesktopKeys {
   subscribed: boolean;
+  canCreate: boolean;
 }
 const base = '/api/v1/kyber/gateway';
 export const gatewayApi = {
   status: () => request<GatewayState>(base),
+  create: (label: string) => request<{key: DesktopKey}>(`${base}/keys`, { method: 'POST', body: JSON.stringify({label}) }),
   download: (keyId: string) => request<CreatedDesktopKey>(`${base}/keys/${encodeURIComponent(keyId)}/download`, { method: 'POST', body: '{}' }),
 };
 
