@@ -149,6 +149,13 @@ class SubscriptionTierModel(SubscriptionModelSelection):
 
 
 class SubscriptionTierForm(SubscriptionModelSelection):
+    @field_validator('id')
+    @classmethod
+    def exclude_retired_tiers(cls, value):
+        if value.strip().lower() == 'max':
+            raise ValueError('This subscription plan has been retired')
+        return value
+
     @field_validator('allowed_model_ids')
     @classmethod
     def exclude_individual_grants(cls, values):
@@ -232,7 +239,7 @@ class SubscriptionTiersTable:
         self, enabled_only: bool = False, db: Optional[AsyncSession] = None
     ) -> list[SubscriptionTierModel]:
         async with get_async_db_context(db) as db:
-            stmt = select(SubscriptionTier)
+            stmt = select(SubscriptionTier).where(SubscriptionTier.id != 'max')
             if enabled_only:
                 stmt = stmt.filter_by(enabled=True)
             stmt = stmt.order_by(SubscriptionTier.sort_order, SubscriptionTier.price_usd)
@@ -241,6 +248,8 @@ class SubscriptionTiersTable:
 
     async def get_tier(self, tier_id: str, db: Optional[AsyncSession] = None) -> Optional[SubscriptionTierModel]:
         async with get_async_db_context(db) as db:
+            if tier_id == 'max':
+                return None
             tier = await db.get(SubscriptionTier, tier_id)
             return SubscriptionTierModel.model_validate(tier) if tier else None
 

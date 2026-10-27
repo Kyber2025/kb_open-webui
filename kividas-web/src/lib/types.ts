@@ -29,6 +29,8 @@ export interface Model {
   unavailable?: boolean;
 }
 export interface Tier {
+  remaining?: number | null;
+  can_purchase?: boolean;
   id: string;
   name: string;
   description: string;
@@ -40,6 +42,19 @@ export interface Tier {
   allowed_model_ids: string[];
   enabled: boolean;
   sort_order: number;
+}
+export interface SubscriptionCheckout {
+  order_id: string;
+  tier_id: string;
+  tier_name: string;
+  merchant_name: string;
+  chain_id: string;
+  amount: string;
+  address: string | null;
+  qr_code_image?: string | null;
+  status: string;
+  expires_at: number;
+  activated: boolean;
 }
 export interface GiftCard {
   code: string;

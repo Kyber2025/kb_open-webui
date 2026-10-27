@@ -1,5 +1,6 @@
 from open_webui.utils.subscription_models import sync_subscription_model_policy, load_model_catalog, models_for_tier
 from open_webui.utils.claude_allocation import change_subscription, cancel_reservation
+from open_webui.utils.subscription_payments import plans_with_capacity, latest_checkout, payment_notify
 import logging
 import time
 from typing import Optional
@@ -89,9 +90,10 @@ class UsageResetForm(BaseModel):
 
 
 @router.get('/tiers')
-async def get_tiers(user=Depends(get_verified_user)):
+async def get_tiers(request: Request, response: Response, user=Depends(get_verified_user)):
     """Enabled tiers for the subscription page."""
-    return await SubscriptionTiers.list_tiers(enabled_only=True)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await plans_with_capacity(request, user)
 
 
 @router.get('/tiers/{tier_id}/models')
@@ -149,8 +151,21 @@ async def list_my_orders(user=Depends(get_verified_user)):
     return await SubscriptionOrders.list_for_user(user.id)
 
 
+@router.get('/checkout')
+async def current_checkout(request: Request, response: Response, user=Depends(get_verified_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await latest_checkout(request, user)
+
+
+@router.post('/payment/notify')
+async def receive_payment_notification(request: Request):
+    return await payment_notify(request)
+
+
 @router.delete('/order/{order_id}')
 async def cancel_order(request: Request, order_id: str, user=Depends(get_verified_user)):
+    if order_id.startswith('kvs-'):
+        raise HTTPException(409, '已生成的链上收款地址无法撤回，请等待付款或订单最终失效')
     order = await SubscriptionOrders.get(order_id)
     if order is None or order.user_id != user.id:
         raise HTTPException(404, 'Order not found')
@@ -194,9 +209,30 @@ async def mobile_me(response: Response, user=Depends(get_mobile_subscription_use
 
 
 @router.get('/mobile/tiers')
-async def mobile_tiers(response: Response, user=Depends(get_mobile_subscription_user)):
+async def mobile_tiers(request: Request, response: Response, user=Depends(get_mobile_subscription_user)):
     response.headers['Cache-Control'] = 'private, no-store'
-    return await get_tiers(user)
+    return await get_tiers(request, response, user)
+
+
+@router.get('/mobile/chains')
+async def mobile_chains(request: Request, user=Depends(get_mobile_subscription_user)):
+    return await get_chains(request, user)
+
+
+@router.get('/mobile/checkout')
+async def mobile_checkout(request: Request, response: Response, user=Depends(get_mobile_subscription_user)):
+    return await current_checkout(request, response, user)
+
+
+@router.post('/mobile/subscribe')
+async def mobile_subscribe(request: Request, form_data: SubscribeForm, user=Depends(get_mobile_subscription_user)):
+    return await subscribe(request, form_data, user)
+
+
+@router.get('/mobile/order/{order_id}')
+async def mobile_order(order_id: str, request: Request, response: Response, user=Depends(get_mobile_subscription_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await get_order(request, order_id, user)
 
 
 @router.get('/mobile/tiers/{tier_id}/models')

@@ -719,6 +719,8 @@ async def lifespan(app: FastAPI):
     from open_webui.utils.subscription import subscription_reconcile_loop
 
     asyncio.create_task(subscription_reconcile_loop(app))
+    from open_webui.utils.subscription_payments import payment_reconcile_loop
+    asyncio.create_task(payment_reconcile_loop(app))
 
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
         try:

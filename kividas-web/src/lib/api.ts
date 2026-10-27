@@ -12,6 +12,7 @@ import type {
   Model,
   Message,
   Tier,
+  SubscriptionCheckout,
   User,
 } from "./types";
 import { sseEvents } from "./domain";
@@ -190,6 +191,10 @@ export const api = {
   unblockIp: (ip: string) =>
     del(`${V1}/guest/blacklist/${encodeURIComponent(ip)}`),
   plans: () => request<Tier[]>(`${sub}/tiers`),
+  paymentChains: () => request<{ id: string; name: string }[]>(`${sub}/chains`),
+  checkout: () => request<SubscriptionCheckout | null>(`${sub}/checkout`),
+  buySubscription: (tier_id: string, chain_id: string) => post<SubscriptionCheckout>(`${sub}/subscribe`, { tier_id, chain_id }),
+  subscriptionOrder: (id: string) => request<SubscriptionCheckout>(`${sub}/order/${encodeURIComponent(id)}`),
   planModels: (id: string) => request<{ models: Model[] }>(`${sub}/tiers/${encodeURIComponent(id)}/models`),
   subscription: () => request<any>(`${sub}/me`),
   publicTiers: () => request<Tier[]>(`${sub}/tiers`),

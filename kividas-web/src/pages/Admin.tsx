@@ -485,7 +485,7 @@ function GiftCards() {
     [refresh, setRefresh] = useState(0);
   const notify = useNotify();
   const giftTiers = tiers.filter(
-    (t) => t.enabled && ["pro", "max", "ultra"].includes(t.id),
+    (t) => t.enabled && ["pro", "ultra"].includes(t.id),
   );
   useEffect(() => {
     let alive = true;
@@ -495,7 +495,7 @@ function GiftCards() {
         if (alive) {
           setTiers(t);
           setGenTier(
-            t.find((t) => t.enabled && ["pro", "max", "ultra"].includes(t.id))
+            t.find((t) => t.enabled && ["pro", "ultra"].includes(t.id))
               ?.id || "",
           );
         }
@@ -674,7 +674,7 @@ function GiftCards() {
           <span className="muted small">
             {genTier
               ? `Each code grants ${tierName(genTier)} for ${duration || tiers.find((t) => t.id === genTier)?.duration_days} days.`
-              : "Create an enabled Pro, Max or Ultra plan first."}
+              : "Create an enabled Max 5x or Max 20x plan first."}
           </span>
           <button className="btn primary" disabled={busy || !genTier}>
             <Plus size={16} />

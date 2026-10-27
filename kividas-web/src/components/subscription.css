@@ -35,3 +35,4 @@
 .kvs-plans{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 @media(max-width:760px){.kvs-plans{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:540px){.kvs-plans{grid-template-columns:1fr}.kvs-current-label{align-items:flex-start;flex-direction:column;gap:2px}}
+.kvs-purchase{margin-top:14px;display:flex;flex-direction:column;gap:8px}.kvs-purchase p{margin:0;font-size:12px}.kvs-purchase button{width:100%}.kvs-checkout-label{display:flex;flex-direction:column;gap:8px;margin:18px 0}.kvs-payment-qr{display:block;width:200px;height:200px;object-fit:contain;padding:8px;background:white;border-radius:10px;margin:16px auto}.kvs-checkout .kvs-code-note{overflow-wrap:anywhere}.kvs-button:disabled{opacity:.45;cursor:not-allowed}

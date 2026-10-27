@@ -101,7 +101,7 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
                 await db.commit()
                 return None
             tier = await db.get(SubscriptionTier, tier_id)
-            if tier is None or not tier.enabled or tier_id not in ('free', 'pro', 'max', 'ultra'):
+            if tier is None or not tier.enabled or tier_id not in ('free', 'pro', 'ultra'):
                 raise HTTPException(409, '此订阅档位已停用，请选择新的档位')
             card = None
             if gift_code:

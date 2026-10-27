@@ -427,133 +427,13 @@ async def _payment_status(request: Request, order_id: str) -> dict:
 
 
 async def create_subscription_order(request: Request, user, tier_id: str, chain_id: str) -> dict:
-    """Create a payment intent for `tier_id` on `chain_id`, register it with the
-    Java payment_service, persist it, and return the checkout payload for the UI."""
-    tier = await SubscriptionTiers.get_tier(tier_id)
-    if tier is None or not tier.enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
-    if tier.price_usd <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='This plan is free and cannot be purchased')
-
-    valid_chains = {c.get('id') for c in (request.app.state.config.SUBSCRIPTION_CHAINS or [])}
-    if valid_chains and chain_id not in valid_chains:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Unsupported payment chain')
-
-    logical_id = f'owui-{uuid.uuid4().hex}'
-    amount = _fmt_amount(tier.price_usd)
-    # Reopening checkout reuses its address and reservation instead of locking the
-    # same user out behind a second order. A different tier must be cancelled first.
-    pending_orders = await SubscriptionOrders.list_for_user(user.id)
-    pending = next((o for o in pending_orders if o.status == 'PENDING' and (o.expires_at or 0) > int(time.time())), None)
-    if pending:
-        if pending.tier_id != tier_id or pending.chain_id != chain_id:
-            raise HTTPException(409, '已有待支付订单，请先完成或取消原订单再更换档位或支付网络')
-        return {'order_id': pending.id, 'tier_id': tier_id, 'tier_name': tier.name,
-                'chain_id': chain_id, 'amount': pending.amount, 'address': pending.address,
-                'status': pending.status, 'expires_at': pending.expires_at}
-    reserved = await reserve_order(request, user.id, tier_id, logical_id, int(time.time()) + ORDER_TTL_SECONDS)
-
-    try:
-        data = await _payment_create(request, logical_id, chain_id, amount)
-    except Exception as e:
-        if reserved:
-            await cancel_reservation(request, user.id, logical_id)
-        log.exception('payment_service create failed')
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'Could not reach payment service: {e}',
-        )
-
-    err = _is_payment_error(data)
-    if err:
-        if reserved:
-            await cancel_reservation(request, user.id, logical_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=err)
-
-    composite_id = data.get('orderId') or f'{logical_id}_{chain_id}'
-    address = data.get('address')
-    if not address:
-        if reserved:
-            await cancel_reservation(request, user.id, logical_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Payment service did not return an address')
-
-    qr = data.get('qrCodeImage')
-    order_status = data.get('status', 'PENDING')
-    expires_at = int(time.time()) + ORDER_TTL_SECONDS
-
-    await SubscriptionOrders.insert(
-        order_id=composite_id,
-        logical_order_id=logical_id,
-        user_id=user.id,
-        tier_id=tier_id,
-        chain_id=chain_id,
-        amount=amount,
-        address=address,
-        status=order_status,
-        expires_at=expires_at,
-    )
-
-    return {
-        'order_id': composite_id,
-        'tier_id': tier_id,
-        'tier_name': tier.name,
-        'chain_id': chain_id,
-        'amount': amount,
-        'address': address,
-        'qr_code_image': qr,
-        'status': order_status,
-        'expires_at': expires_at,
-    }
+    from open_webui.utils.subscription_payments import create_checkout
+    return await create_checkout(request, user, tier_id, chain_id)
 
 
 async def sync_order(request: Request, user, order_id: str) -> dict:
-    """Poll the payment_service for `order_id`; on first PAID, grant/extend the
-    subscription (idempotent). Returns order status + current subscription state."""
-    order = await SubscriptionOrders.get(order_id)
-    if order is None or order.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found')
-    if order.status == 'CANCELLED':
-        return {'order_id': order_id, 'status': 'CANCELLED', 'activated': False}
-
-    activated_now = False
-    current_status = order.status
-    tx_hash = order.tx_hash
-
-    if not order.activated:
-        try:
-            data = await _payment_status(request, order_id)
-            err = _is_payment_error(data)
-            if not err:
-                current_status = data.get('status', order.status)
-                tx_hash = data.get('txHash', tx_hash)
-        except Exception:
-            log.exception('payment_service status check failed for %s', order_id)
-            current_status = order.status
-
-        if current_status != order.status or tx_hash != order.tx_hash:
-            await SubscriptionOrders.update_status(order_id, current_status, tx_hash=tx_hash)
-
-        if current_status == 'PAID':
-            tier = await SubscriptionTiers.get_tier(order.tier_id)
-            duration = tier.duration_days if tier else 30
-            await change_subscription(request, user.id, order.tier_id, duration_days=duration,
-                                      operation_id=order.logical_order_id, order_id=order_id)
-            # P4: push the new tier's rate limits to KyberRouter.
-            await sync_user_rate_limits_to_kyber(request, user.id)
-            activated_now = True
-
-    if current_status in ('EXPIRED', 'FAILED'):
-        await cancel_reservation(request, user.id, order.logical_order_id)
-    if order.activated:
-        await propagate(request, order.logical_order_id)
-    state = await get_subscription_state(user.id, is_admin=(getattr(user, 'role', None) == 'admin'))
-    return {
-        'order_id': order_id,
-        'status': current_status if not order.activated else 'PAID',
-        'tx_hash': tx_hash,
-        'activated': activated_now or order.activated,
-        'subscription_state': state,
-    }
+    from open_webui.utils.subscription_payments import sync_checkout
+    return await sync_checkout(request, user, order_id)
 
 
 ####################
@@ -601,7 +481,7 @@ async def generate_gift_cards(
     if tier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
 
-    if not tier.enabled or tier.id not in ('pro', 'max', 'ultra'):
+    if not tier.enabled or tier.id not in ('pro', 'ultra'):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='请选择有效的付费订阅档位')
 
     try:
@@ -754,16 +634,10 @@ DEFAULT_TIERS = [
         allowed_model_ids=[], enabled=True, sort_order=0,
     ),
     SubscriptionTierForm(
-        id='pro', name='Max 7x', description='For regular use.',
+        id='pro', name='Max 5x', description='For regular use.',
         price_usd=90.0, duration_days=30, daily_message_limit=None,
         token_limit_5h=7_000_000, token_limit_week=35_000_000,
         allowed_model_ids=[], enabled=True, sort_order=1,
-    ),
-    SubscriptionTierForm(
-        id='max', name='Max 10x', description='For power users.',
-        price_usd=130.0, duration_days=30, daily_message_limit=None,
-        token_limit_5h=10_000_000, token_limit_week=50_000_000,
-        allowed_model_ids=[], enabled=True, sort_order=2,
     ),
     SubscriptionTierForm(
         id='ultra', name='Max 20x', description='Dedicated Claude account.',
