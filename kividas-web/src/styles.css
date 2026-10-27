@@ -3369,7 +3369,7 @@ td code {
 .gateway-steps p { margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.65; }
 .gateway-open { margin-bottom:24px; }
 .gateway-resources { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.gateway-resource { display:flex; align-items:center; gap:12px; min-width:0; padding:15px 13px; border:1px solid var(--line); border-radius:12px; color:inherit; text-decoration:none; transition:background .15s,border-color .15s; }
+.gateway-resource { position:relative; display:flex; align-items:center; gap:12px; min-width:0; padding:15px 13px; border:1px solid var(--line); border-radius:12px; color:inherit; text-decoration:none; transition:background .15s,border-color .15s; }
 .gateway-resource:hover { background:var(--hover); border-color:var(--muted); }
 .gateway-resource > svg { flex-shrink:0; color:var(--muted); }
 .gateway-resource-copy { display:flex; flex:1; flex-direction:column; min-width:0; gap:5px; }
@@ -3415,8 +3415,10 @@ td code {
 .code-method[aria-selected="true"]:hover { transform: none; }
 .code-method[aria-selected="true"]::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 14px; height: 14px; background: var(--surface); border-right: 1px solid var(--ink); border-bottom: 1px solid var(--ink); transform: translateX(-50%) rotate(45deg); }
 .code-method-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--soft); color: var(--ink); }
-.code-method-icon img { width: 40px; height: 40px; border-radius: 11px; }
-.code-method-badge { position: absolute; top: 18px; right: 18px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.code-method-icon img, .code-method-icon .code-method-app-icon { width: 40px; height: 40px; border-radius: 11px; }
+.code-method-badge, .gateway-resource-badge { position: absolute; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.3; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.code-method-badge { top: 18px; right: 18px; }
+.gateway-resource-badge { top: 9px; right: 10px; padding: 2px 8px; }
 .code-method-copy { display: flex; flex-direction: column; gap: 5px; }
 .code-method-tagline { font-size: 11px; letter-spacing: 1px; color: var(--muted); }
 .code-method-copy strong { font-size: 17px; font-weight: 500; line-height: 1.3; }
@@ -3436,7 +3438,7 @@ td code {
   .code-method:hover { transform: none; }
   .code-method[aria-selected="true"]::after { display: none; }
   .code-method-icon { width: 44px; height: 44px; border-radius: 12px; }
-  .code-method-icon img { width: 36px; height: 36px; border-radius: 10px; }
+  .code-method-icon img, .code-method-icon .code-method-app-icon { width: 36px; height: 36px; border-radius: 10px; }
   .code-method-badge { top: 14px; right: 14px; }
   .code-method-copy, .code-method-foot { grid-column: 2; }
   .code-method-copy { padding-right: 44px; }

@@ -31,12 +31,13 @@ import {
 } from "../lib/code-methods";
 import { useNotify } from "../components/UI";
 import { GatewayResources } from "../components/GatewayResources";
+import { ClaudeAppIcon } from "../components/ClaudeAppIcon";
 
 type Platform = "mac" | "windows";
 type Builds = ReturnType<typeof desktopBuilds>;
 
 const methodIcons: Record<CodeMethodId, ReactNode> = {
-  gateway: <KeyRound size={22} />,
+  gateway: <ClaudeAppIcon className="code-method-app-icon" />,
   desktop: <img src="/kividas-code.png" alt="" width={40} height={40} />,
   cli: <Terminal size={22} />,
 };
