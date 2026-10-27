@@ -43,7 +43,7 @@ Gateway API key：${created.token}
 保存后完全退出 Claude，再重新打开。不要只关闭窗口。
 Mac：Claude → Quit Claude（或按 ⌘Q）。
 Windows：左上角 ≡ → File → Exit。
-此 Key 和安装识别码只配置一台电脑；第二台电脑请在头像菜单 → Gateway 另行生成，达到上限时请联系管理员。
+每个订阅账号仅限一台设备，只能保留一个有效 Key。此 Key 和安装识别码可重复下载，在同一台电脑沿用；更换设备请联系管理员先停用旧 Key，再生成新资料。
 
 三、Kividas 网页登录资料与用量
 登录网址：${created.usageUrl}

@@ -65,7 +65,7 @@ export function Gateway({ user, onClose, onSubscription }: { user: User; onClose
                 <label>设备名称（可选）<input value={label} onChange={event => setLabel(event.target.value)} maxLength={80} placeholder="例如：我的 Mac" disabled={!!busy || !state.canCreate} /></label>
                 <button className="btn primary" disabled={loading || !!busy || !state.canCreate}><Plus size={16} />{busy === 'create' ? '正在生成…' : '生成接入资料'}</button>
               </form>
-              <p className="muted">每份资料用于一台电脑，最多保留 {state.policy.maxActiveKeys} 个有效 Key。{!state.canCreate && '已达到上限，需要更换时请联系管理员。'}</p>
+              <p className="muted">每个订阅账号仅限一台设备，最多保留 {state.policy.maxActiveKeys} 个有效 Key。{!state.canCreate && '已有有效 Key，可重复下载；更换设备请联系管理员先停用旧 Key。'}</p>
             </>}
             {state.keys.filter(key => state.eligible && !key.revokedAt && key.canReveal && key.installationId).map(key => {
               return <article className="gateway-key" key={key.id}>

@@ -336,7 +336,7 @@ export function demoBackend(): Plugin {
         const desktopMatch = /^\/api\/v1\/kyber\/admin\/users\/([^/]+)\/desktop-keys(?:\/([^/]+)\/(revoke|reveal|policy|delete))?$/.exec(path);
         if (desktopMatch) {
           const userId = decodeURIComponent(desktopMatch[1]);
-          const policy = { maxActiveKeys: 2, requestsPerMinute: 120, concurrentPerKey: 0, concurrentPerUser: 0, networksPerHour: 3 };
+          const policy = { maxActiveKeys: 1, requestsPerMinute: 120, concurrentPerKey: 0, concurrentPerUser: 0, networksPerHour: 3 };
           if (method === 'GET') return json({eligible:true, reason:null, policy, keys:desktopKeys.filter(k=>k.userId===userId)});
           if (desktopMatch[2]) {
             const key = desktopKeys.find(k=>k.id===desktopMatch[2] && k.userId===userId);
@@ -346,16 +346,16 @@ export function demoBackend(): Plugin {
             if(desktopMatch[3]==='policy') {key.concurrentLimit=data.concurrentLimit; return json({ok:true});}
             key.revokedAt=new Date().toISOString();key.revokeReason='admin_revoked';return json({ok:true});
           }
-          if (desktopKeys.filter(k=>k.userId===userId && !k.revokedAt).length >= 2) return json({detail:'最多保留两个有效 Key'},409);
+          if (desktopKeys.filter(k=>k.userId===userId && !k.revokedAt).length >= 1) return json({detail:'每个订阅账号最多保留一个有效 Key'},409);
           const key={id:crypto.randomUUID(),installationId:crypto.randomUUID(),userId,label:data.label||"Claude Desktop",concurrentLimit:data.concurrentLimit??0,canReveal:true,lastRevealedAt:null,suffix:'DEMO',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key);
           return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
         }
         if (path === '/api/v1/kyber/gateway' && method === 'GET') {
-          return json({subscribed:true,eligible:true,canCreate:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length<2,reason:null,keys:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt),policy:{maxActiveKeys:2}});
+          return json({subscribed:true,eligible:true,canCreate:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length<1,reason:null,keys:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt),policy:{maxActiveKeys:1}});
         }
         if (path === '/api/v1/kyber/gateway/keys' && method === 'POST') {
-          if (desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length >= 2) return json({detail:'最多保留两个有效 Key，请联系管理员。'},409);
+          if (desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length >= 1) return json({detail:'每个订阅账号最多保留一个有效 Key，请联系管理员。'},409);
           const key={id:crypto.randomUUID(),installationId:crypto.randomUUID(),userId:demoUser.id,label:data.label||'Claude Desktop',concurrentLimit:0,canReveal:true,lastRevealedAt:null,suffix:crypto.randomUUID().slice(-4),createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key); return json({key});
         }

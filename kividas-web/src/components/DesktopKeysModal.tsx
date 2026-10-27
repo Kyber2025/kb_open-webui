@@ -87,7 +87,7 @@ export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose
       {data && <>
         <button className="btn primary" disabled={busy || !data.eligible || active >= data.policy.maxActiveKeys} onClick={() => void generate()}><Plus size={16}/>生成 Key</button>
         {!data.eligible && <p className="muted">{data.reason}</p>}
-        {active >= data.policy.maxActiveKeys && <p className="muted">已有 {active} 个有效 Key，更换电脑请先停用旧 Key。</p>}
+        <p className="muted">每个订阅账号仅限一台设备，最多保留 {data.policy.maxActiveKeys} 个有效 Key。{active >= data.policy.maxActiveKeys && '更换电脑请先停用旧 Key，再生成新资料。'}</p>
         <div className="desktop-key-list">{data.keys.map(key => <article key={key.id}>
           <div className="row between"><strong>Key ···{key.suffix}</strong><div className="row"><span className="badge">{desktopKeyStatus(key)}</span><button className="icon-btn danger" title="删除 Key" aria-label={`删除 Key ···${key.suffix}`} disabled={busy} onClick={() => setConfirm({id: key.id, action: 'delete'})}><Trash2 size={16}/></button></div></div>
           <p className="muted">{key.label}</p>
