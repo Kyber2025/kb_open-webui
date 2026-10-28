@@ -18,6 +18,7 @@ from fastapi.responses import PlainTextResponse
 
 log = logging.getLogger(__name__)
 OPEN_STATUSES = ('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID', 'PAID_REQUIRES_ADMIN')
+PAYMENT_IN_PROGRESS = ('PAID', 'PAID_REQUIRES_ADMIN', 'EXPIRED_CHECKING')
 MAX_ORDER_SECONDS = 48 * 3600
 
 
@@ -125,14 +126,22 @@ async def create_checkout(request, user, tier_id, chain_id):
         tier = await db.get(SubscriptionTier, tier_id)
         if tier_id not in ('pro', 'ultra') or not tier or not tier.enabled or tier.price_usd <= 0:
             raise HTTPException(404, '此订阅档位已停用')
-        existing = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.user_id == user.id,
-            SubscriptionOrder.tier_id == tier_id, SubscriptionOrder.chain_id == chain_id,
+        now = int(time.time())
+        current_amount = Decimal(str(tier.price_usd))
+        orders = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.user_id == user.id,
+            SubscriptionOrder.tier_id == tier_id,
             SubscriptionOrder.status.in_(OPEN_STATUSES), SubscriptionOrder.activated == False)
-            .order_by(SubscriptionOrder.created_at.desc()))).scalars().first()
+            .order_by(SubscriptionOrder.created_at.desc()))).scalars().all()
+        # Preserve payments being settled, even if the user selected another network.
+        # Unpaid orders remain queryable, but old prices/expired intents never set a new quote.
+        existing = next((order for order in orders if order.status in PAYMENT_IN_PROGRESS), None)
+        if existing is None:
+            existing = next((order for order in orders
+                if order.chain_id == chain_id and order.status in ('CREATING', 'PENDING')
+                and order.expires_at > now and Decimal(order.amount) == current_amount), None)
         if existing:
             order_id = existing.id
         else:
-            now = int(time.time())
             logical = 'kvs-' + uuid.uuid4().hex
             order_id = logical + '_' + chain_id
             link = await UserKyberAccounts.get_by_user_id(user.id)
@@ -142,7 +151,7 @@ async def create_checkout(request, user, tier_id, chain_id):
             if not capacity.get(tier_id, {}).get('can_purchase'):
                 raise HTTPException(409, '当前套餐暂无可购买名额')
             db.add(SubscriptionOrder(id=order_id, logical_order_id=logical, user_id=user.id, tier_id=tier_id,
-                chain_id=chain_id, amount=format(Decimal(str(tier.price_usd)), 'f'), address=None,
+                chain_id=chain_id, amount=format(current_amount, 'f'), address=None,
                 status='CREATING', activated=False, expires_at=now + 86400, created_at=now, updated_at=now))
             await db.commit()
     # A crash or timeout leaves the same durable intent for idempotent recovery.
@@ -215,8 +224,9 @@ async def sync_checkout(request, user, order_id):
 async def latest_checkout(request, user, tier_id=None):
     from open_webui.models.subscriptions import SubscriptionOrders
     orders = await SubscriptionOrders.list_for_user(user.id)
-    order = next((o for o in orders if o.logical_order_id.startswith('kvs-') and not o.activated and o.status in OPEN_STATUSES
-                  and (tier_id is None or o.tier_id == tier_id)), None)
+    candidates = [o for o in orders if o.logical_order_id.startswith('kvs-') and not o.activated and o.status in OPEN_STATUSES
+                  and (tier_id is None or o.tier_id == tier_id)]
+    order = next((o for o in candidates if o.status in PAYMENT_IN_PROGRESS), candidates[0] if candidates else None)
     return await sync_checkout(request, user, order.id) if order else None
 
 

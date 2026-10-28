@@ -27,7 +27,7 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
         self.now = int(time.time())
         self.user = SimpleNamespace(id='checkout-user', role='user')
         self.request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=SimpleNamespace(
-            ENABLE_KYBER_TOKEN_BILLING=True, SUBSCRIPTION_CHAINS=[{'id':'56'}]))))
+            ENABLE_KYBER_TOKEN_BILLING=True, SUBSCRIPTION_CHAINS=[{'id':'56'}, {'id':'1'}, {'id':'728126428'}]))))
         async with get_async_db() as db:
             db.add(User(id=self.user.id,email='checkout@test.invalid',name='Checkout',role='user'))
             db.add(UserKyberAccount(user_id=self.user.id,kyber_user_id='gateway-test',kyber_email='checkout@test.invalid',created_at=self.now,updated_at=self.now))
@@ -48,8 +48,8 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             return 200, {}
         async def merchant(req, method, suffix, payload=None):
             if method=='POST':
-                key=payload['orderId']+'_56'
-                self.orders.setdefault(key,{'orderId':key,'merchantOrderId':payload['orderId'],'chainId':'56',
+                key=payload['orderId']+'_'+payload['chainId']
+                self.orders.setdefault(key,{'orderId':key,'merchantOrderId':payload['orderId'],'chainId':payload['chainId'],
                     'token':'USDT','amount':payload['amount'],'status':'PENDING','finalStatus':False,'address':'0x-test-address',
                     'expiresAt':datetime.fromtimestamp(self.now+86400,timezone.utc).isoformat()})
             else: key=suffix.split('/')[-1]
@@ -76,6 +76,47 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(subs),1)
             self.assertLess(abs(subs[0].expires_at-self.now-30*86400),15)
             self.assertEqual(len((await db.execute(select(SubscriptionChange))).scalars().all()),1)
+
+    async def test_unpaid_network_choice_reuses_only_current_quote(self):
+        async with get_async_db() as db:
+            tier=await db.get(SubscriptionTier,'pro');tier.price_usd=90;await db.commit()
+        old=await payments.create_checkout(self.request,self.user,'pro','56')
+        async with get_async_db() as db:
+            tier=await db.get(SubscriptionTier,'pro');tier.price_usd=120;await db.commit()
+        fresh=await payments.create_checkout(self.request,self.user,'pro','56')
+        self.assertNotEqual(old['order_id'],fresh['order_id'])
+        self.assertEqual(fresh['amount'],'120.0')
+        self.assertEqual((await payments.create_checkout(self.request,self.user,'pro','56'))['order_id'],fresh['order_id'])
+        other=await payments.create_checkout(self.request,self.user,'pro','1')
+        self.assertNotEqual(other['order_id'],fresh['order_id'])
+        self.assertEqual((other['chain_id'],other['amount']),('1','120.0'))
+        self.assertEqual(self.reservations,{})
+        self.assertEqual((await payments.sync_checkout(self.request,self.user,old['order_id']))['amount'],'90.0')
+        async with get_async_db() as db:
+            self.assertEqual(len((await db.execute(select(SubscriptionOrder))).scalars().all()),3)
+
+    async def test_expired_unpaid_intent_does_not_require_extra_failed_checkout(self):
+        old=await payments.create_checkout(self.request,self.user,'pro','56')
+        async with get_async_db() as db:
+            row=await db.get(SubscriptionOrder,old['order_id']);row.expires_at=self.now-1;await db.commit()
+        fresh=await payments.create_checkout(self.request,self.user,'pro','56')
+        self.assertNotEqual(old['order_id'],fresh['order_id'])
+        self.assertEqual(fresh['status'],'PENDING')
+        self.assertEqual(self.reservations,{})
+
+    async def test_payment_in_progress_is_preserved_across_network_changes(self):
+        old=await payments.create_checkout(self.request,self.user,'pro','56')
+        newer=await payments.create_checkout(self.request,self.user,'pro','1')
+        async with get_async_db() as db:
+            row=await db.get(SubscriptionOrder,old['order_id']);row.status='PAID_REQUIRES_ADMIN';await db.commit()
+        self.full=True
+        pending=await payments.latest_checkout(self.request,self.user,'pro')
+        self.assertEqual(pending['order_id'],old['order_id'])
+        self.assertEqual(pending['status'],'PAID_REQUIRES_ADMIN')
+        retry=await payments.create_checkout(self.request,self.user,'pro','728126428')
+        self.assertEqual(retry['order_id'],old['order_id'])
+        self.assertEqual(len(self.orders),2)
+        self.assertFalse(retry['activated'])
 
     async def test_capacity_retired_and_unauthorized_order_fail_closed(self):
         self.full=True
