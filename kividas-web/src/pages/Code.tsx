@@ -56,7 +56,7 @@ export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => v
   const selected = parseCodeMethod(params.get("method"));
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
   const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
-  const builds = desktopBuilds(desktop);
+  const builds = desktopBuilds(desktop, !!usageUrl && usageUrl !== 'https://proxy.kividas.com/');
   const order: Platform[] = isMac ? ["mac", "windows"] : ["windows", "mac"];
   const versions: Partial<Record<CodeMethodId, string | null | undefined>> = {
     desktop: builds[order[0]].version,
@@ -259,7 +259,7 @@ function DesktopPanel({
   builds: Builds;
   order: Platform[];
 }) {
-  const macZip = new URL(builds.mac.url).pathname.endsWith(".zip");
+  const macZip = builds.mac.url.endsWith(".zip");
   return (
     <>
       <div className="download-icon">
@@ -272,7 +272,8 @@ function DesktopPanel({
           <div className="desktop-build" key={platform}>
             <a
               className={`btn ${index === 0 ? "primary" : ""}`}
-              href={builds[platform].url}
+              href={builds[platform].url || undefined}
+              aria-disabled={!builds[platform].url}
               download
             >
               <Download size={18} />
@@ -283,7 +284,7 @@ function DesktopPanel({
             </a>
             <small>
               {platform === "mac" && "Apple Silicon · "}Version{" "}
-              {builds[platform].version}
+              {builds[platform].version || "暂不可用，请稍后刷新"}
             </small>
             {platform === "mac" && macZip && (
               <small>Unzip and drag Kividas Code to Applications.</small>

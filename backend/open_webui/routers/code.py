@@ -41,6 +41,9 @@ _PLATFORM_KEYS = {
     'darwin-aarch64': 'mac',
 }
 
+_proxy_cache: dict = {}
+_proxy_cli_cache: dict = {}
+
 _cache: dict = {}  # {'exp': float, 'data': <response payload>}
 
 
@@ -68,12 +71,12 @@ def _entry(raw, fallback_version=None) -> dict | None:
     return {'version': str(version), 'url': str(url)}
 
 
-async def _fetch_platforms() -> dict | None:
+async def _fetch_platforms(reseller=False) -> dict | None:
     """Latest installer per platform as ``{'windows': {...}, 'mac': {...}}``.
     Returns ``None`` only when nothing at all could be resolved."""
     platforms: dict = {}
 
-    data = await _get_json(_DOWNLOADS_URL)
+    data = await _get_json(f'{_BASE_URL}/desktop/proxy/downloads.json' if reseller else _DOWNLOADS_URL)
     if isinstance(data, dict):
         for feed_key, out_key in _PLATFORM_KEYS.items():
             entry = _entry((data.get('platforms') or {}).get(feed_key))
@@ -81,7 +84,7 @@ async def _fetch_platforms() -> dict | None:
                 platforms[out_key] = entry
 
     # Fallback: derive Windows from the updater manifest if downloads.json lacked it.
-    if 'windows' not in platforms:
+    if not reseller and 'windows' not in platforms:
         manifest = await _get_json(_MANIFEST_URL)
         if isinstance(manifest, dict):
             entry = _entry(
@@ -104,12 +107,14 @@ async def code_latest(user=Depends(get_verified_user)):
     still running the previous page bundle keeps working during a rollout. On a feed
     failure the last good value is served, else nulls so the client falls back to its
     bundled constants."""
+    reseller = await _is_reseller(user)
+    cache = _proxy_cache if reseller else _cache
     now = time.time()
-    cached = _cache.get('data')
-    if cached and _cache.get('exp', 0) > now:
+    cached = cache.get('data')
+    if cached and cache.get('exp', 0) > now:
         return cached
 
-    platforms = await _fetch_platforms()
+    platforms = await _fetch_platforms(reseller)
     if platforms is None:
         return cached or {'version': None, 'url': None, 'platforms': {}}
 
@@ -119,8 +124,8 @@ async def code_latest(user=Depends(get_verified_user)):
         'url': windows.get('url'),
         'platforms': platforms,
     }
-    _cache['data'] = payload
-    _cache['exp'] = now + _CACHE_TTL_S
+    cache['data'] = payload
+    cache['exp'] = now + _CACHE_TTL_S
     return payload
 
 
@@ -150,6 +155,11 @@ async def reseller_cli_installer(filename: str):
     return FileResponse(path, media_type='text/plain', headers={'Cache-Control':'no-cache'})
 
 
+async def _is_reseller(user):
+    from open_webui.routers.desktop_keys import customer_usage_url
+    return await customer_usage_url(user.id) == 'https://proxy.kividas.com/'
+
+
 async def _cli_for_user(payload, user):
     from open_webui.routers.desktop_keys import customer_usage_url
     origin = await customer_usage_url(user.id)
@@ -168,9 +178,11 @@ async def code_cli(user=Depends(get_verified_user)):
     {mac|windows|linux_x64|linux_arm64: {url, sha256}}}``; ``version`` is null when the
     feed is unreachable and nothing was cached, so the page can still show the one-line
     install commands (those URLs never change)."""
+    reseller = await _is_reseller(user)
+    cache = _proxy_cli_cache if reseller else _cli_cache
     now = time.time()
-    cached = _cli_cache.get('data')
-    if cached and _cli_cache.get('exp', 0) > now:
+    cached = cache.get('data')
+    if cached and cache.get('exp', 0) > now:
         return await _cli_for_user(cached, user)
 
     base = {
@@ -182,7 +194,7 @@ async def code_cli(user=Depends(get_verified_user)):
         },
         'platforms': {},
     }
-    manifest = await _get_json(_CLI_MANIFEST_URL)
+    manifest = await _get_json(f'{_BASE_URL}/cli/proxy/latest.json' if reseller else _CLI_MANIFEST_URL)
     if not isinstance(manifest, dict):
         return await _cli_for_user(cached or base, user)
 
@@ -209,6 +221,6 @@ async def code_cli(user=Depends(get_verified_user)):
         'claude_version': claude.get('version'),
         'platforms': platforms,
     }
-    _cli_cache['data'] = payload
-    _cli_cache['exp'] = now + _CACHE_TTL_S
+    cache['data'] = payload
+    cache['exp'] = now + _CACHE_TTL_S
     return await _cli_for_user(payload, user)

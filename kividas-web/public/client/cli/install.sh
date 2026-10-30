@@ -1,11 +1,11 @@
 #!/bin/sh
 # Kividas CLI installer for macOS and Linux.
-#   curl -fsSL https://dl.kividas.com/cli/install.sh | sh
+#   curl -fsSL https://dl.kividas.com/cli/proxy/install.sh | sh
 # Installs the `kividas` launcher into ~/.kividas/bin (no root, no Node/npm needed);
 # the Claude Code binary itself is downloaded by the launcher on first run.
 set -eu
 
-BASE="${KIVIDAS_CDN:-https://dl.kividas.com/cli}"
+BASE="${KIVIDAS_CDN:-https://dl.kividas.com/cli/proxy}"
 HOME_DIR="${KIVIDAS_HOME:-$HOME/.kividas}"
 BIN_DIR="$HOME_DIR/bin"
 
@@ -18,7 +18,7 @@ case "$os" in
       aarch64|arm64) plat="linux-arm64" ;;
       *) echo "kividas: unsupported Linux arch: $arch" >&2; exit 1 ;;
     esac ;;
-  *) echo "kividas: unsupported OS: $os (Windows: irm https://dl.kividas.com/cli/install.ps1 | iex)" >&2; exit 1 ;;
+  *) echo "kividas: unsupported OS: $os (Windows: irm https://dl.kividas.com/cli/proxy/install.ps1 | iex)" >&2; exit 1 ;;
 esac
 
 fetch() { # url dest

@@ -51,15 +51,16 @@ export function safeDownload(url: unknown): url is string {
     return false;
   }
 }
-export function desktopBuilds(data: DesktopRelease | null) {
+export function desktopBuilds(data: DesktopRelease | null, allowOrdinaryFallback = true) {
   const valid = (entry: Build | null | undefined) =>
     entry?.version && safeDownload(entry.url) ? entry : null;
+  const fallback = allowOrdinaryFallback ? desktopFallback : {mac:{version:null,url:""},windows:{version:null,url:""}};
   return {
-    mac: valid(data?.platforms?.mac) ?? desktopFallback.mac,
+    mac: valid(data?.platforms?.mac) ?? fallback.mac,
     windows:
       valid(data?.platforms?.windows) ??
       valid(data?.url ? { version: data.version, url: data.url } : null) ??
-      desktopFallback.windows,
+      fallback.windows,
   };
 }
 export const cliPlatforms = [

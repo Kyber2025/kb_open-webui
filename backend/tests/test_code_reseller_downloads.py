@@ -25,10 +25,12 @@ class CodeDownloadsTests(unittest.IsolatedAsyncioTestCase):
     async def test_shared_cache_serves_per_account_commands_without_mutating_cached_release(self):
         cached = {'version':'0.2.2', 'install': {'sh':'normal sh', 'ps1':'normal ps1'}, 'platforms':{}}
         route._cli_cache = {'data':cached, 'exp':time.time()+1000}
+        route._proxy_cli_cache = {'data':{**cached,'version':'0.2.3'}, 'exp':time.time()+1000}
         user = SimpleNamespace(id='recipient')
         with patch.dict(sys.modules, stubs):
             usage_url.return_value = 'https://proxy.kividas.com/'
             managed = await route.code_cli(user)
+            self.assertEqual(managed['version'],'0.2.3')
             self.assertIn('proxy.kividas.com/api/v1/code/cli/install/install.sh', managed['install']['sh'])
             self.assertIn('proxy.kividas.com/api/v1/code/cli/install/install.ps1', managed['install']['ps1'])
             self.assertEqual(cached['install']['sh'], 'normal sh')
@@ -38,9 +40,19 @@ class CodeDownloadsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unavailable_feed_still_returns_managed_commands(self):
         route._cli_cache = {}
+        route._proxy_cli_cache = {}
         usage_url.return_value = 'https://proxy.kividas.com/'
         with patch.dict(sys.modules, stubs), patch.object(route, '_get_json', AsyncMock(return_value=None)):
             result = await route.code_cli(SimpleNamespace(id='recipient'))
         self.assertIn('proxy.kividas.com/api/v1/code/cli/install/install.sh', result['install']['sh'])
+
+    async def test_proxy_feed_failure_does_not_use_ordinary_desktop_cache(self):
+        route._cache = {'data':{'platforms':{'mac':{'url':'ordinary'}}},'exp':time.time()+1000}
+        route._proxy_cache = {}
+        usage_url.return_value = 'https://proxy.kividas.com/'
+        with patch.dict(sys.modules, stubs), patch.object(route, '_get_json', AsyncMock(return_value=None)) as fetch:
+            result = await route.code_latest(SimpleNamespace(id='recipient'))
+        self.assertEqual(result['platforms'],{})
+        fetch.assert_awaited_once_with('https://dl.kividas.com/desktop/proxy/downloads.json')
 
 if __name__ == '__main__': unittest.main()

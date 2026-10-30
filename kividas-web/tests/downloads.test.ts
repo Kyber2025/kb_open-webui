@@ -15,6 +15,9 @@ describe("download release compatibility", () => {
     });
     expect(accountInstallCommands('https://chat.kividas.com/')).toBe(installCommands);
   });
+  it('does not expose ordinary installers while proxy metadata is missing', () => {
+    expect(desktopBuilds(null, false)).toEqual({mac:{version:null,url:''},windows:{version:null,url:''}});
+  });
   it("retains macOS when a release only updates Windows", () => {
     const windows = { version: "2.0", url: "https://dl.kividas.com/new.exe" };
     expect(desktopBuilds({ platforms: { windows } })).toEqual({

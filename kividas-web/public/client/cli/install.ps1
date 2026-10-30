@@ -1,5 +1,5 @@
 # Kividas CLI installer for Windows (PowerShell 5+).
-#   irm https://dl.kividas.com/cli/install.ps1 | iex
+#   irm https://dl.kividas.com/cli/proxy/install.ps1 | iex
 # Installs kividas.exe into %USERPROFILE%\.kividas\bin and adds it to the user PATH.
 # Claude Code on Windows runs commands through Git Bash, so Git for Windows is checked too.
 $ErrorActionPreference = 'Stop'
@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 # served as text/plain; charset=utf-8 so `irm` decodes it as UTF-8.
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$base = if ($env:KIVIDAS_CDN) { $env:KIVIDAS_CDN } else { 'https://dl.kividas.com/cli' }
+$base = if ($env:KIVIDAS_CDN) { $env:KIVIDAS_CDN } else { 'https://dl.kividas.com/cli/proxy' }
 $home_ = if ($env:KIVIDAS_HOME) { $env:KIVIDAS_HOME } else { Join-Path $env:USERPROFILE '.kividas' }
 $bin = Join-Path $home_ 'bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
