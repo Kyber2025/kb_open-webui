@@ -61,6 +61,7 @@ from open_webui.models.users import (
     UserStatus,
 )
 from open_webui.models.guest import GuestBlacklist
+from open_webui.models.reseller_invites import ResellerInvites
 from open_webui.utils.access_control import get_permissions, has_permission
 from open_webui.utils.guest import ensure_guest_user, get_client_ip, is_guest_user
 from open_webui.utils.auth import (
@@ -799,6 +800,7 @@ async def signup_handler(
     profile_image_url: str = '/user.png',
     *,
     db: AsyncSession,
+    invite_token: str | None = None,
 ) -> UserModel:
     """
     Core user-creation logic shared by the signup endpoint and
@@ -811,6 +813,7 @@ async def signup_handler(
     # If has_users() is checked before insert, concurrent requests during
     # first-user registration can all see an empty table and each get admin.
     hashed = get_password_hash(password)
+    invite_id = await ResellerInvites.registration_invite(email, invite_token, db=db)
 
     user = await Auths.insert_new_auth(
         email=email.lower(),
@@ -818,6 +821,7 @@ async def signup_handler(
         name=name,
         profile_image_url=profile_image_url,
         role=request.app.state.config.DEFAULT_USER_ROLE,
+        reseller_invite_id=invite_id,
         db=db,
     )
     if not user:
@@ -961,6 +965,7 @@ async def signup(
             form_data.name,
             form_data.profile_image_url,
             db=db,
+            invite_token=form_data.invite_token,
         )
         return await create_session_response(request, user, db, response, set_cookie=True)
     except HTTPException:
@@ -977,6 +982,7 @@ async def signup(
 
 class RegisterSendCodeForm(BaseModel):
     email: str
+    invite_token: str | None = None
 
 
 class RegisterVerifyForm(BaseModel):
@@ -984,6 +990,7 @@ class RegisterVerifyForm(BaseModel):
     code: str
     password: str
     name: str | None = None
+    invite_token: str | None = None
 
 
 @router.post('/register/send-code')
@@ -998,6 +1005,10 @@ async def register_send_code(
     email = form_data.email.lower().strip()
     if not validate_email_format(email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
+    # Persist attribution before sending a code. Dropping the invite at verification
+    # (or using the legacy signup/bridge-login path) cannot remove this reservation.
+    if not await Users.get_user_by_email(email, db=db):
+        await ResellerInvites.reserve(email, form_data.invite_token, db=db)
     try:
         data = await kyber_send_register_code(kyber_base(request), email, client_ip=get_client_ip(request))
     except KyberError as e:
@@ -1022,6 +1033,8 @@ async def register_verify(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     email = form_data.email.lower().strip()
     base = kyber_base(request)
+    if not await Users.get_user_by_email(email, db=db):
+        await ResellerInvites.reserve(email, form_data.invite_token, db=db)
     try:
         data = await kyber_register_verify(
             base,
@@ -1041,7 +1054,8 @@ async def register_verify(
     user = await Users.get_user_by_email(email, db=db)
     if user is None:
         name = (form_data.name or str(kyber_user.get('name') or '')).strip() or email.split('@')[0]
-        user = await signup_handler(request, email, str(uuid.uuid4()), name, db=db)
+        user = await signup_handler(request, email, str(uuid.uuid4()), name, db=db,
+                                    invite_token=form_data.invite_token)
         if user and user.role == 'pending':
             await Users.update_user_role_by_id(user.id, 'user', db=db)
             user = await Users.get_user_by_id(user.id, db=db)

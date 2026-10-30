@@ -90,6 +90,7 @@ const post = <T>(path: string, body?: unknown) =>
   });
 const del = (path: string) => request(path, { method: "DELETE" });
 const sub = `${V1}/subscriptions`;
+export type ResellerInvite = { id: string; name: string; token: string; enabled: boolean; created_at: number; customers: number };
 export const api = {
   config: () => request<Config>("/api/config"),
   me: () => request<User>(`${V1}/auths/`),
@@ -97,13 +98,14 @@ export const api = {
     post<User & { token: string }>(`${V1}/auths/signin`, { email, password }),
   // Sign-up and password reset go through the backend's account-service
   // bridge, which emails a 6-digit code and creates or updates the account.
-  sendRegisterCode: (email: string) =>
-    post<CodeSent>(`${V1}/auths/register/send-code`, { email }),
+  sendRegisterCode: (email: string, invite_token?: string) =>
+    post<CodeSent>(`${V1}/auths/register/send-code`, { email, ...(invite_token !== undefined ? { invite_token } : {}) }),
   registerVerify: (form: {
     email: string;
     code: string;
     password: string;
     name?: string;
+    invite_token?: string;
   }) => post<User & { token: string }>(`${V1}/auths/register/verify`, form),
   forgotPassword: (email: string) =>
     post<CodeSent>(`${V1}/auths/password/forgot`, { email }),
@@ -192,6 +194,10 @@ export const api = {
   unblockIp: (ip: string) =>
     del(`${V1}/guest/blacklist/${encodeURIComponent(ip)}`),
   plans: () => request<Tier[]>(`${sub}/tiers`),
+  validateInvite: (token: string) => request<{ valid: boolean }>(`${sub}/invite/${encodeURIComponent(token)}`),
+  resellerInvites: () => request<ResellerInvite[]>(`${sub}/admin/reseller-invites`),
+  createResellerInvite: (name: string) => post<ResellerInvite>(`${sub}/admin/reseller-invites`, { name }),
+  resellerInviteStatus: (id: string, enabled: boolean) => post(`${sub}/admin/reseller-invites/${encodeURIComponent(id)}/status`, { enabled }),
   paymentChains: () => request<{ id: string; name: string }[]>(`${sub}/chains`),
   checkout: (tierId?: string) => request<SubscriptionCheckout | null>(`${sub}/checkout${tierId ? `?tier_id=${encodeURIComponent(tierId)}` : ""}`),
   buySubscription: (tier_id: string, chain_id: string) => post<SubscriptionCheckout>(`${sub}/subscribe`, { tier_id, chain_id }),

@@ -74,6 +74,7 @@ export default function App() {
     navigate = useNavigate(),
     notify = useNotify();
   const guest = user?.email === "guest@guest.local";
+  const inviteToken = new URLSearchParams(location.search).get("invite");
   useEffect(() => {
     let active = true;
     setGateway(false);
@@ -114,6 +115,9 @@ export default function App() {
           if (!(e instanceof ApiError && e.status === 401)) throw e;
         }
       }
+      if (
+        current?.email === "guest@guest.local" && inviteToken !== null
+      ) current = null;
       if (
         !current &&
         cfg.features?.enable_guest_access &&
@@ -557,6 +561,7 @@ export default function App() {
       {login && (
         <Login
           accountService={!!config.features?.enable_kyber_auth_bridge}
+          inviteToken={inviteToken}
           onClose={() => setLogin(false)}
           onSuccess={async (u) => {
             const [catalog, history] = await Promise.all([

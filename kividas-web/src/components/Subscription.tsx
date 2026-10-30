@@ -4,7 +4,7 @@ import type { Tier, SubscriptionCheckout } from "../lib/types";
 import { messageOf } from "./UI";
 import "./subscription.css";
 
-type SubscriptionState = { tier?: Tier | null; expires_at?: number | null; subscription?: { tier_id: string; expires_at?: number } | null };
+type SubscriptionState = { tier?: Tier | null; expires_at?: number | null; subscription?: { tier_id: string; expires_at?: number } | null; commerce?: { managed_by_reseller?: boolean; show_prices?: boolean; can_purchase?: boolean } };
 const gift = new URL("./kividas-redeem-gift.png", import.meta.url).href;
 function SubscriptionFrame({ title, children, onClose, models = false }: { title: string; children: ReactNode; onClose: () => void; models?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -44,6 +44,7 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
   }, []);
   const currentId = state?.tier?.id || state?.subscription?.tier_id;
   const expires = state?.expires_at ?? state?.subscription?.expires_at;
+  const managed = state?.commerce?.managed_by_reseller === true;
   async function refresh() {
     setError("");
     try { await Promise.all([load(), onChanged()]); } catch (e) { if (active.current) setError(messageOf(e)); }
@@ -57,7 +58,8 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
           <p className="kvs-muted">{expires ? `${expires * 1000 < Date.now() ? "Expired" : "Active until"} ${new Date(expires * 1000).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}` : "Included with your Kividas account"}</p>
         </div><button type="button" className="kvs-button" disabled={loading || busy} onClick={() => void refresh()}>{loading ? "Refreshing…" : "Refresh"}</button>
       </section>
-      <div className="kvs-section-heading"><h2>Available plans</h2><span className="kvs-muted">USDT 支付 · 确认到账后自动开通</span></div>
+      {managed && <p className="kvs-muted">使用兑换码开通或续费。如需帮助，请联系服务商。使用额度可在侧栏或设置的 Usage 中查看。</p>}
+      {!managed && <><div className="kvs-section-heading"><h2>Available plans</h2><span className="kvs-muted">USDT 支付 · 确认到账后自动开通</span></div>
       {pendingOrder && <div className="kvs-notice">有一笔待处理的 {pendingOrder.tier_name} 订单。<button className="kvs-button" onClick={() => { setResumeOrder(true); setCheckoutPlan(plans.find(p => p.id === pendingOrder.tier_id) || null); }}>继续付款 / 查看状态</button></div>}
       <div className="kvs-plans">{plans.map((plan) => <article key={plan.id} className={`kvs-plan ${plan.id === currentId ? "kvs-plan-current" : ""}`}>
         <div className="kvs-plan-heading"><h3>{plan.name}</h3>{plan.id === currentId && <span className="kvs-badge">Current plan</span>}</div>
@@ -67,6 +69,7 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
           <button type="button" className="kvs-button kvs-redeem-button" disabled={loading || busy || !plan.can_purchase} onClick={() => { setResumeOrder(false); setCheckoutPlan(plan); }}>{!plan.can_purchase ? plan.remaining === 0 ? "已售罄" : "暂不可购买" : currentId === "pro" && plan.id === "ultra" ? "升级到 Max 20x" : plan.id === currentId ? "USDT 续订" : "USDT 购买"}</button></div>
           : <p className="kvs-included">Included with your Kividas account</p>}
       </article>)}{!plans.length && <p className="kvs-muted">No plans are currently available.</p>}</div>
+      </>}
       <h2 className="kvs-redeem-heading">Redeem a code</h2>
       <section className="kvs-redeem"><img className="kvs-gift" src={gift} alt="" /><div className="kvs-redeem-area">
         <p className="kvs-muted">Have an activation code? Enter it below to activate your Kividas plan.</p>
@@ -87,7 +90,7 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
         </form><div className="kvs-code-note">Your code determines the plan and activation period.</div>
       </div></section>
     </>}
-    {checkoutPlan && <Checkout resume={resumeOrder} plan={checkoutPlan} upgrade={currentId === "pro" && checkoutPlan.id === "ultra"} initial={pendingOrder?.tier_id === checkoutPlan.id ? pendingOrder : null}
+    {!managed && checkoutPlan && <Checkout resume={resumeOrder} plan={checkoutPlan} upgrade={currentId === "pro" && checkoutPlan.id === "ultra"} initial={pendingOrder?.tier_id === checkoutPlan.id ? pendingOrder : null}
       onClose={() => { setCheckoutPlan(null); void refresh(); }} onPaid={async () => { setSuccess("付款成功，订阅已开通。"); await refresh(); }} />}
   </SubscriptionFrame>;
 }

@@ -289,7 +289,7 @@ async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
     link = await UserKyberAccounts.get_by_user_id(user_id)
     extra_usage_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
     extra_usage_multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0) if tier else 1.0
-    return {
+    state = {
         'tier': tier.model_dump() if tier else None,
         'subscription': sub.model_dump() if sub else None,
         'expires_at': sub.expires_at if sub else None,
@@ -303,6 +303,9 @@ async def get_subscription_state(user_id: str, is_admin: bool = False) -> dict:
         'extra_usage_multiplier': extra_usage_multiplier,
         'is_admin': is_admin,
     }
+    from open_webui.models.reseller_invites import ResellerInvites
+    from open_webui.utils.reseller_policy import customer_state
+    return customer_state(state) if await ResellerInvites.is_customer(user_id) else state
 
 
 ####################

@@ -76,6 +76,7 @@ class SignupForm(BaseModel):
     email: str
     password: str
     profile_image_url: str | None = '/user.png'
+    invite_token: str | None = None
 
     @field_validator('profile_image_url')
     @classmethod
@@ -105,6 +106,7 @@ class AuthsTable:
         oauth: dict | None = None,
         db: AsyncSession | None = None,
         kyber_account: dict | None = None,
+        reseller_invite_id: str | None = None,
     ) -> UserModel | None:
         """Create an Auth + User pair inside a single transaction."""
         async with get_async_db_context(db) as session:
@@ -120,7 +122,7 @@ class AuthsTable:
             )
             session.add(credential)
 
-            if kyber_account is not None:
+            if kyber_account is not None or reseller_invite_id is not None:
                 # Keep all three local records in one transaction. The ordinary
                 # Users helper commits internally, so do not use it for this path.
                 from open_webui.models.kyber_accounts import UserKyberAccount
@@ -130,8 +132,12 @@ class AuthsTable:
                     profile_image_url=profile_image_url, oauth=oauth,
                     last_active_at=now, created_at=now, updated_at=now)
                 session.add(User(**created_user.model_dump()))
-                session.add(UserKyberAccount(user_id=new_id, **kyber_account,
-                    created_at=now, updated_at=now, extra_usage_enabled=False))
+                if kyber_account is not None:
+                    session.add(UserKyberAccount(user_id=new_id, **kyber_account,
+                        created_at=now, updated_at=now, extra_usage_enabled=False))
+                if reseller_invite_id is not None:
+                    from open_webui.models.reseller_invites import ResellerCustomer
+                    session.add(ResellerCustomer(user_id=new_id, invite_id=reseller_invite_id, created_at=now))
                 try:
                     await session.commit()
                 except Exception:

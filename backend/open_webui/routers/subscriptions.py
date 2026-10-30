@@ -6,7 +6,9 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from open_webui.models.reseller_invites import ResellerInvites
+from open_webui.utils.reseller_policy import require_direct_purchase
 
 from open_webui.models.kyber_accounts import UserKyberAccounts
 from open_webui.models.subscriptions import (
@@ -93,6 +95,8 @@ class UsageResetForm(BaseModel):
 async def get_tiers(request: Request, response: Response, user=Depends(get_verified_user)):
     """Enabled tiers for the subscription page."""
     response.headers['Cache-Control'] = 'private, no-store'
+    if await ResellerInvites.is_customer(user.id):
+        return []
     return await plans_with_capacity(request, user)
 
 
@@ -108,12 +112,15 @@ async def get_tier_models(tier_id: str, request: Request, response: Response, us
 
 @router.get('/chains')
 async def get_chains(request: Request, user=Depends(get_verified_user)):
+    if await ResellerInvites.is_customer(user.id):
+        return []
     return request.app.state.config.SUBSCRIPTION_CHAINS or []
 
 
 @router.get('/me')
-async def get_me(user=Depends(get_verified_user)):
+async def get_me(response: Response, user=Depends(get_verified_user)):
     """Current effective tier + today's usage + active subscription."""
+    response.headers['Cache-Control'] = 'private, no-store'
     return await get_subscription_state(user.id, is_admin=(user.role == 'admin'))
 
 
@@ -135,6 +142,7 @@ async def set_extra_usage(request: Request, form_data: ExtraUsageForm, user=Depe
 @router.post('/subscribe')
 async def subscribe(request: Request, form_data: SubscribeForm, user=Depends(get_verified_user)):
     """Create a USDT payment order for a tier; returns the checkout payload (address + QR)."""
+    await require_direct_purchase(user)
     if not getattr(request.app.state.config, 'ENABLE_SUBSCRIPTIONS', True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Subscriptions are disabled')
     return await create_subscription_order(request, user, form_data.tier_id, form_data.chain_id)
@@ -143,17 +151,22 @@ async def subscribe(request: Request, form_data: SubscribeForm, user=Depends(get
 @router.get('/order/{order_id}')
 async def get_order(request: Request, order_id: str, user=Depends(get_verified_user)):
     """Poll order status; activates the subscription on first PAID."""
+    await require_direct_purchase(user)
     return await sync_order(request, user, order_id)
 
 
 @router.get('/orders')
 async def list_my_orders(user=Depends(get_verified_user)):
+    if await ResellerInvites.is_customer(user.id):
+        return []
     return await SubscriptionOrders.list_for_user(user.id)
 
 
 @router.get('/checkout')
 async def current_checkout(request: Request, response: Response, user=Depends(get_verified_user), tier_id: Optional[str] = None):
     response.headers['Cache-Control'] = 'private, no-store'
+    if await ResellerInvites.is_customer(user.id):
+        return None
     return await latest_checkout(request, user, tier_id)
 
 
@@ -164,6 +177,7 @@ async def receive_payment_notification(request: Request):
 
 @router.delete('/order/{order_id}')
 async def cancel_order(request: Request, order_id: str, user=Depends(get_verified_user)):
+    await require_direct_purchase(user)
     if order_id.startswith('kvs-'):
         raise HTTPException(409, '已生成的链上收款地址无法撤回，请等待付款或订单最终失效')
     order = await SubscriptionOrders.get(order_id)
@@ -205,7 +219,7 @@ async def redeem(request: Request, form_data: RedeemForm, user=Depends(get_verif
 @router.get('/mobile/me')
 async def mobile_me(response: Response, user=Depends(get_mobile_subscription_user)):
     response.headers['Cache-Control'] = 'private, no-store'
-    return await get_me(user)
+    return await get_me(response, user)
 
 
 @router.get('/mobile/tiers')
@@ -251,6 +265,39 @@ async def mobile_redeem(request: Request, response: Response, form_data: RedeemF
 ############################
 # Admin endpoints
 ############################
+
+
+class ResellerInviteForm(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class ResellerInviteStatusForm(BaseModel):
+    enabled: bool
+
+
+@router.get('/invite/{token}')
+async def validate_reseller_invite(token: str, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    await ResellerInvites.validate(token)
+    return {'valid': True}
+
+
+@router.get('/admin/reseller-invites')
+async def list_reseller_invites(response: Response, user=Depends(get_admin_user)):
+    response.headers['Cache-Control'] = 'private, no-store'
+    return await ResellerInvites.list()
+
+
+@router.post('/admin/reseller-invites')
+async def create_reseller_invite(form_data: ResellerInviteForm, user=Depends(get_admin_user)):
+    if not form_data.name.strip():
+        raise HTTPException(400, '请输入代理名称')
+    return await ResellerInvites.create(form_data.name)
+
+
+@router.post('/admin/reseller-invites/{invite_id}/status')
+async def set_reseller_invite_status(invite_id: str, form_data: ResellerInviteStatusForm, user=Depends(get_admin_user)):
+    return await ResellerInvites.set_enabled(invite_id, form_data.enabled)
 
 
 @router.get('/admin/tiers')

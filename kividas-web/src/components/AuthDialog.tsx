@@ -27,14 +27,16 @@ const TITLES: Record<Mode, string> = {
  */
 export function Login({
   accountService,
+  inviteToken,
   onClose,
   onSuccess,
 }: {
   accountService: boolean;
+  inviteToken?: string | null;
   onClose: () => void;
   onSuccess: (u: User) => Promise<void>;
 }) {
-  const [mode, setMode] = useState<Mode>("signin"),
+  const [mode, setMode] = useState<Mode>(inviteToken !== null && inviteToken !== undefined ? "signup" : "signin"),
     [step, setStep] = useState<"email" | "verify">("email"),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -80,7 +82,7 @@ export function Login({
       const sent =
         mode === "reset"
           ? await api.forgotPassword(address)
-          : await api.sendRegisterCode(address);
+          : await api.sendRegisterCode(address, inviteToken ?? undefined);
       setEmail(address);
       setStep("verify");
       setCooldown(sent?.cooldown_sec || RESEND_FALLBACK_SEC);
@@ -103,6 +105,7 @@ export function Login({
         email,
         code,
         password,
+        ...(inviteToken !== null && inviteToken !== undefined ? { invite_token: inviteToken } : {}),
         ...(name.trim() ? { name: name.trim() } : {}),
       });
       localStorage.setItem("token", session.token);
@@ -182,6 +185,7 @@ export function Login({
   if (step === "email")
     return (
       <Modal title={TITLES[mode]} onClose={onClose} dismissible={false}>
+        {!reset && inviteToken !== null && inviteToken !== undefined && <p className="muted">通过服务商邀请创建账号。使用兑换码开通，续费请联系服务商。</p>}
         <p className="muted">
           {reset
             ? "Enter the email you signed up with. We'll send a 6-digit code to reset your password."
