@@ -18,7 +18,7 @@ import { request } from "../lib/api";
 import {
   cliPlatforms,
   desktopBuilds,
-  installCommands,
+  accountInstallCommands,
   safeDownload,
   type CliRelease,
   type DesktopRelease,
@@ -47,7 +47,7 @@ const panelClass: Record<CodeMethodId, string> = {
   cli: "cli-downloads",
 };
 
-export function CodeDownloads({ onGateway }: { onGateway: () => void }) {
+export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => void; usageUrl?: string }) {
   const [desktop, setDesktop] = useState<DesktopRelease | null>(null);
   const [cli, setCli] = useState<CliRelease | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,7 +173,7 @@ export function CodeDownloads({ onGateway }: { onGateway: () => void }) {
         ) : selected === "desktop" ? (
           <DesktopPanel builds={builds} order={order} />
         ) : (
-          <CliPanel cli={cli} />
+          <CliPanel cli={cli} usageUrl={usageUrl} />
         )}
       </section>
       <div className="download-status" role="status">
@@ -295,7 +295,8 @@ function DesktopPanel({
   );
 }
 
-function CliPanel({ cli }: { cli: CliRelease | null }) {
+function CliPanel({ cli, usageUrl }: { cli: CliRelease | null; usageUrl: string }) {
+  const installCommands = usageUrl ? accountInstallCommands(usageUrl) : null;
   const [copied, setCopied] = useState("");
   const notify = useNotify();
   useEffect(() => {
@@ -304,6 +305,7 @@ function CliPanel({ cli }: { cli: CliRelease | null }) {
     return () => clearTimeout(timeout);
   }, [copied]);
   async function copy(key: "sh" | "ps1") {
+    if (!installCommands) return;
     try {
       await navigator.clipboard.writeText(installCommands[key]);
       setCopied(key);
@@ -334,7 +336,7 @@ function CliPanel({ cli }: { cli: CliRelease | null }) {
         Run Claude Code with your Kividas account from any terminal on macOS,
         Windows or Linux. No Node.js or npm required.
       </p>
-      {(["sh", "ps1"] as const).map((key) => (
+      {installCommands && (["sh", "ps1"] as const).map((key) => (
         <div className="install-command" key={key}>
           <label htmlFor={`install-${key}`}>
             {key === "sh" ? "macOS / Linux" : "Windows (PowerShell)"}
@@ -354,7 +356,7 @@ function CliPanel({ cli }: { cli: CliRelease | null }) {
       ))}
       <p className="cli-help">
         Then run <code>kividas login</code> with the same account as
-        {window.location.hostname}, and <code>kividas</code> to open the terminal. Windows
+        {usageUrl ? new URL(usageUrl).hostname : 'your Kividas web account'}, and <code>kividas</code> to open the terminal. Windows
         also needs Git for Windows (Git Bash), which Claude Code uses to run
         commands.
       </p>

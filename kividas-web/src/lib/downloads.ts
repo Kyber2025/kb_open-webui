@@ -31,6 +31,13 @@ export const installCommands = {
   sh: "curl -fsSL https://dl.kividas.com/cli/install.sh | sh",
   ps1: "irm https://dl.kividas.com/cli/install.ps1 | iex",
 };
+export function accountInstallCommands(usageUrl: string) {
+  if (usageUrl === 'https://proxy.kividas.com/') return {
+    sh: 'curl -fsSL https://proxy.kividas.com/api/v1/code/cli/install/install.sh | sh',
+    ps1: 'irm https://proxy.kividas.com/api/v1/code/cli/install/install.ps1 | iex',
+  };
+  return installCommands;
+}
 export function safeDownload(url: unknown): url is string {
   if (typeof url !== "string") return false;
   try {

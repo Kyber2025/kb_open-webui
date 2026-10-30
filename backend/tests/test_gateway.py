@@ -14,6 +14,7 @@ users = SimpleNamespace(get_user_by_id=AsyncMock(return_value=SimpleNamespace(id
 links = SimpleNamespace(get_by_user_id=AsyncMock(return_value=SimpleNamespace(kyber_user_id='alice-gateway')))
 tier = AsyncMock(return_value=(SimpleNamespace(id='max', enabled=True), SimpleNamespace(id='active-subscription')))
 transport = AsyncMock(return_value=(200, {'eligible': True, 'keys': [{'id': 'alice-key', 'suffix': 'test'}]}))
+resellers = SimpleNamespace(is_customer=AsyncMock(return_value=False))
 
 async def verified(authorization: str = Header(default=None)):
     if authorization != 'Bearer alice-session':
@@ -33,6 +34,7 @@ def load(name):
 stubs = {
     'open_webui.models.users': stub(Users=users),
     'open_webui.models.kyber_accounts': stub(UserKyberAccounts=links),
+    'open_webui.models.reseller_invites': stub(ResellerInvites=resellers),
     'open_webui.utils.auth': stub(get_verified_user=verified, get_admin_user=admin),
     'open_webui.utils.kyber': stub(_internal_request=transport),
     'open_webui.utils.subscription': stub(get_user_tier=tier),
@@ -48,6 +50,7 @@ path = '/api/v1/kyber/gateway'
 
 class GatewayTests(unittest.TestCase):
     def setUp(self):
+        resellers.is_customer.reset_mock(); resellers.is_customer.return_value = False
         transport.reset_mock(); transport.return_value = (200, {'eligible': True, 'keys': [{'id': 'alice-key'}]})
         tier.return_value = (SimpleNamespace(id='max', enabled=True), SimpleNamespace(id='active-subscription'))
 
@@ -113,6 +116,41 @@ class GatewayTests(unittest.TestCase):
                                json={'actorId': 'bob', 'userId': 'bob', 'concurrentLimit': 100})
         self.assertEqual(response.status_code, 422)
         transport.assert_not_awaited()
+
+    def test_customer_material_uses_account_membership_on_either_host(self):
+        payload = {'key': {'id': 'alice-key', 'installationId': 'unchanged'}, 'token': 'same-test-token',
+                   'gatewayUrl': 'https://ai.kividas.com/api', 'usageUrl': 'https://chat.kividas.com/'}
+        transport.return_value = (200, payload)
+        for managed, expected in [(True, 'proxy'), (False, 'chat')]:
+            resellers.is_customer.return_value = managed
+            for host in ['chat.kividas.com', 'proxy.kividas.com']:
+                response = client.post(path+'/keys/alice-key/download?reseller=false',
+                                       headers={**headers, 'Host': host}, json={})
+                self.assertEqual(response.json(), {**payload, 'usageUrl': f'https://{expected}.kividas.com/'})
+                resellers.is_customer.assert_awaited_with('alice')
+
+    def test_free_customer_receives_correct_site_address(self):
+        tier.return_value = (SimpleNamespace(id='free', enabled=True), None)
+        resellers.is_customer.return_value = True
+        self.assertEqual(client.get(path, headers=headers).json()['usageUrl'], 'https://proxy.kividas.com/')
+
+    def test_resource_download_selects_recipient_version_and_cannot_be_overridden(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root/'gateway'/'reseller').mkdir(parents=True)
+            for name in gateway.RESOURCE_FILES:
+                (root/'gateway'/name).write_bytes(b'ordinary material')
+                (root/'gateway'/'reseller'/name).write_bytes(b'proxy material')
+            with patch.dict(sys.modules, {'open_webui.env': stub(FRONTEND_BUILD_DIR=root)}):
+                for managed, expected in [(True, b'proxy material'), (False, b'ordinary material')]:
+                    resellers.is_customer.return_value = managed
+                    for name in gateway.RESOURCE_FILES:
+                        response = client.get(path+'/resources/'+name+'?reseller=false', headers=headers)
+                        self.assertEqual(response.status_code, 200)
+                        self.assertEqual(response.content, expected)
+                        self.assertIn('no-store', response.headers['cache-control'])
+                self.assertEqual(client.get(path+'/resources/claude-desktop-macos.pdf').status_code, 401)
+                self.assertEqual(client.get(path+'/resources/unknown.pdf', headers=headers).status_code, 404)
 
 
 if __name__ == '__main__': unittest.main()

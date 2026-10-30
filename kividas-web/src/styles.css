@@ -3349,7 +3349,7 @@ td code {
 .gateway-steps p { margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.65; }
 .gateway-open { margin-bottom:24px; }
 .gateway-resources { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.gateway-resource { position:relative; display:flex; align-items:center; gap:12px; min-width:0; padding:15px 13px; border:1px solid var(--line); border-radius:12px; color:inherit; text-decoration:none; transition:background .15s,border-color .15s; }
+.gateway-resource { position:relative; display:flex; align-items:center; gap:12px; min-width:0; padding:15px 13px; border:1px solid var(--line); border-radius:12px; color:inherit; text-align:left; text-decoration:none; transition:background .15s,border-color .15s; }
 .gateway-resource:hover { background:var(--hover); border-color:var(--muted); }
 .gateway-resource > svg { flex-shrink:0; color:var(--muted); }
 .gateway-resource-copy { display:flex; flex:1; flex-direction:column; min-width:0; gap:5px; }

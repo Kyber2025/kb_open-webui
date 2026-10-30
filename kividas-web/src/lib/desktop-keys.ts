@@ -56,7 +56,7 @@ Kividas 登录密码：${password || '请使用已有登录密码；如未收到
 有效期跟随订阅，当前到期：${created.key.expiresAt ? new Date(created.key.expiresAt).toLocaleString('zh-CN', {timeZone: 'Asia/Hong_Kong', hour12: false}) + '（北京时间／香港时间）' : '请联系管理员确认订阅'}
 Key 并发数：${created.key.concurrentLimit === 0 ? '0（不额外限制 Key 并发）' : created.key.concurrentLimit}
 登录后点击聊天输入框右下角、模型名称附近的用量圆圈，查看个人用量及重置时间。
-桌面与 Chat 网页统一按这个平台用户统计；此 Key 不能登录 Chat 网页。
+桌面与网页统一按这个平台用户统计；此 Key 不能登录网页。
 
 四、使用提示
 安装、选择本机文件夹、恢复官方登录，请参照对应的 Mac 或 Windows PDF 教程。

@@ -67,6 +67,7 @@ export default function App() {
     [subscription, setSubscription] = useState(false),
     [gateway, setGateway] = useState(false),
     [gatewayAvailable, setGatewayAvailable] = useState(false),
+    [usageUrl, setUsageUrl] = useState(''),
     [moreNav, setMoreNav] = useState(false),
     [theme, setTheme] = useState(
       localStorage.getItem("kividas:theme") || "light",
@@ -82,9 +83,10 @@ export default function App() {
     let active = true;
     setGateway(false);
     setGatewayAvailable(false);
+    setUsageUrl('');
     const refresh = () => {
       if (user && !guest) void gatewayApi.status()
-        .then(state => { if (active) setGatewayAvailable(state.subscribed); })
+        .then(state => { if (active) { setGatewayAvailable(state.subscribed); setUsageUrl(state.usageUrl); } })
         .catch(() => { if (active) setGatewayAvailable(false); });
     };
     refresh();
@@ -338,7 +340,7 @@ export default function App() {
                   <CreditCard size={17} />
                   Subscription
                 </button>
-                {!resellerPortal && gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
+                {gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
                   <KeyRound size={17} />Gateway
                 </button>}
                 {isSuperAdmin(user) && (
@@ -547,7 +549,7 @@ export default function App() {
                 )
               }
             />
-            <Route path="/code" element={<CodeDownloads onGateway={() => user && !guest ? setGateway(true) : setLogin(true)} />} />
+            <Route path="/code" element={<CodeDownloads usageUrl={usageUrl} onGateway={() => user && !guest ? setGateway(true) : setLogin(true)} />} />
             <Route
               path="*"
               element={

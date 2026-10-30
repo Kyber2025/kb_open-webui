@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 users = SimpleNamespace(get_user_by_id=AsyncMock(return_value=SimpleNamespace(id='web-user')))
 links = SimpleNamespace(get_by_user_id=AsyncMock(return_value=SimpleNamespace(kyber_user_id='gateway-user')))
 transport = AsyncMock(return_value=(200, {'ok': True}))
+resellers = SimpleNamespace(is_customer=AsyncMock(return_value=False))
 async def admin(authorization: str = Header(default=None)):
     if authorization != 'Bearer admin-test':
         raise HTTPException(403, 'Admin required')
@@ -26,6 +27,7 @@ def module(**kwargs):
 stubs={
  'open_webui.models.users':module(Users=users),
  'open_webui.models.kyber_accounts':module(UserKyberAccounts=links),
+ 'open_webui.models.reseller_invites':module(ResellerInvites=resellers),
  'open_webui.utils.auth':module(get_admin_user=admin),
  'open_webui.utils.kyber':module(_internal_request=transport),
 }
@@ -39,6 +41,7 @@ headers={'Authorization':'Bearer admin-test'}
 
 class DesktopKeysTests(unittest.TestCase):
     def setUp(self):
+        resellers.is_customer.reset_mock();resellers.is_customer.return_value=False
         transport.reset_mock();transport.return_value=(200,{'ok':True})
         links.get_by_user_id.return_value=SimpleNamespace(kyber_user_id='gateway-user')
         users.get_user_by_id.return_value=SimpleNamespace(id='web-user')
@@ -80,5 +83,16 @@ class DesktopKeysTests(unittest.TestCase):
             self.assertEqual(transport.call_args.args[-1],{'actorId':'acting-admin','concurrentLimit':value})
         for value in [-1,1.5,True,'12']:
             self.assertEqual(client.post(path+'/key-id/policy',headers=headers,json={'concurrentLimit':value}).status_code,422)
+
+    def test_admin_create_and_redownload_use_recipient_not_admin_origin(self):
+        payload={'key':{'id':'same-key'},'token':'test-token','usageUrl':'https://chat.kividas.com/'}
+        transport.return_value=(200,payload)
+        for managed,host in [(True,'proxy'),(False,'chat')]:
+            resellers.is_customer.return_value=managed
+            for suffix in ['', '/key-id/reveal']:
+                response=client.post(path+suffix,headers={**headers,'Host':'chat.kividas.com'},json={} if not suffix else None)
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(response.json(),{**payload,'usageUrl':f'https://{host}.kividas.com/'})
+                resellers.is_customer.assert_awaited_with('web-user')
 
 if __name__=='__main__':unittest.main()

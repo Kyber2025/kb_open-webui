@@ -19,7 +19,8 @@ import logging
 import time
 
 import aiohttp
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from open_webui.utils.auth import get_verified_user
 
@@ -138,6 +139,28 @@ _CLI_PLATFORM_KEYS = {
 _cli_cache: dict = {}
 
 
+@router.get('/cli/install/{filename}')
+async def reseller_cli_installer(filename: str):
+    from open_webui.env import FRONTEND_BUILD_DIR
+    if filename not in ('install.sh', 'install.ps1'):
+        raise HTTPException(404, 'Installer not found')
+    path = FRONTEND_BUILD_DIR / 'client' / 'cli' / filename
+    if not path.is_file():
+        raise HTTPException(503, 'Installer unavailable')
+    return FileResponse(path, media_type='text/plain', headers={'Cache-Control':'no-cache'})
+
+
+async def _cli_for_user(payload, user):
+    from open_webui.routers.desktop_keys import customer_usage_url
+    origin = await customer_usage_url(user.id)
+    if origin == 'https://proxy.kividas.com/':
+        return {**payload, 'install': {
+            'sh': f'curl -fsSL {origin}api/v1/code/cli/install/install.sh | sh',
+            'ps1': f'irm {origin}api/v1/code/cli/install/install.ps1 | iex',
+        }}
+    return payload
+
+
 @router.get('/cli')
 async def code_cli(user=Depends(get_verified_user)):
     """Latest standalone Kividas CLI, proxied from dl.kividas.com/cli/latest.json and
@@ -148,7 +171,7 @@ async def code_cli(user=Depends(get_verified_user)):
     now = time.time()
     cached = _cli_cache.get('data')
     if cached and _cli_cache.get('exp', 0) > now:
-        return cached
+        return await _cli_for_user(cached, user)
 
     base = {
         'version': None,
@@ -161,7 +184,7 @@ async def code_cli(user=Depends(get_verified_user)):
     }
     manifest = await _get_json(_CLI_MANIFEST_URL)
     if not isinstance(manifest, dict):
-        return cached or base
+        return await _cli_for_user(cached or base, user)
 
     launcher = manifest.get('launcher') or {}
     claude = manifest.get('claude') or {}
@@ -188,4 +211,4 @@ async def code_cli(user=Depends(get_verified_user)):
     }
     _cli_cache['data'] = payload
     _cli_cache['exp'] = now + _CACHE_TTL_S
-    return payload
+    return await _cli_for_user(payload, user)

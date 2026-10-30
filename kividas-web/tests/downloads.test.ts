@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountInstallCommands,
+  installCommands,
   desktopBuilds,
   desktopFallback,
   safeDownload,
 } from "../src/lib/downloads";
 
 describe("download release compatibility", () => {
+  it('selects proxy installation scripts for managed accounts and keeps ordinary commands', () => {
+    expect(accountInstallCommands('https://proxy.kividas.com/')).toEqual({
+      sh:'curl -fsSL https://proxy.kividas.com/api/v1/code/cli/install/install.sh | sh',
+      ps1:'irm https://proxy.kividas.com/api/v1/code/cli/install/install.ps1 | iex',
+    });
+    expect(accountInstallCommands('https://chat.kividas.com/')).toBe(installCommands);
+  });
   it("retains macOS when a release only updates Windows", () => {
     const windows = { version: "2.0", url: "https://dl.kividas.com/new.exe" };
     expect(desktopBuilds({ platforms: { windows } })).toEqual({

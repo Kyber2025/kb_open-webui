@@ -1,9 +1,10 @@
-import { request } from './api';
+import { rawRequest, request } from './api';
 import type { CreatedDesktopKey, DesktopKey, DesktopKeys } from './desktop-keys';
 
 export interface GatewayState extends DesktopKeys {
   subscribed: boolean;
   canCreate: boolean;
+  usageUrl: string;
 }
 const base = '/api/v1/kyber/gateway';
 export const gatewayApi = {
@@ -11,6 +12,15 @@ export const gatewayApi = {
   create: (label: string) => request<{key: DesktopKey}>(`${base}/keys`, { method: 'POST', body: JSON.stringify({label}) }),
   download: (keyId: string) => request<CreatedDesktopKey>(`${base}/keys/${encodeURIComponent(keyId)}/download`, { method: 'POST', body: '{}' }),
 };
+
+export async function downloadGatewayResource(resource: GatewayResource) {
+  const response = await rawRequest(`${base}/resources/${encodeURIComponent(resource.file)}`);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url; link.download = resource.name;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export interface GatewayResource {
   id: 'setup' | 'mac' | 'windows' | 'cli';

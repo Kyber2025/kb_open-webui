@@ -36,6 +36,13 @@ describe('desktop key administration', () => {
   });
   it('exports only the newly issued credential and the intended customer email', () => {
     const txt=desktopClientText({key,token:'demo-not-a-real-key',gatewayUrl:'https://gateway.example/api',usageUrl:'https://chat.example/'},'customer@example.invalid');
-    expect(txt).toContain('demo-not-a-real-key'); expect(txt).toContain('customer@example.invalid'); expect(txt).toContain('请使用已有登录密码'); expect(txt).toContain(key.installationId); expect(txt).toContain('X-Kividas-Device-ID'); expect(txt).toContain('不能登录 Chat');
+    expect(txt).toContain('demo-not-a-real-key'); expect(txt).toContain('customer@example.invalid'); expect(txt).toContain('请使用已有登录密码'); expect(txt).toContain(key.installationId); expect(txt).toContain('X-Kividas-Device-ID'); expect(txt).toContain('不能登录网页');
+  });
+  it('keeps the server-selected recipient site when exported by an administrator', () => {
+    for (const host of ['proxy', 'chat']) {
+      const txt = desktopClientText({key, token:'test-token', gatewayUrl:'https://ai.kividas.com/api', usageUrl:`https://${host}.kividas.com/`}, 'customer@example.invalid');
+      expect(txt).toContain(`登录网址：https://${host}.kividas.com/`);
+      expect(txt).not.toContain(`https://${host === 'proxy' ? 'chat' : 'proxy'}.kividas.com`);
+    }
   });
 });

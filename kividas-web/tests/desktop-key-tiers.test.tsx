@@ -21,7 +21,7 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
 for(const portal of ['admin','subscriber']) for(const [limit,count,disabled] of [[1,1,true],[2,1,false],[2,2,true]] as const) {
  it(`${portal}: ${count} of ${limit} keys controls creation and device text`,async()=>{
-  const state={eligible:true,subscribed:true,canCreate:count<limit,reason:null,policy:{maxActiveKeys:limit,maxDevices:limit,requestsPerMinute:120,concurrentPerKey:0,concurrentPerUser:0,networksPerHour:3},keys:Array.from({length:count},(_,i)=>({...key,id:'key-'+i}))};
+  const state={eligible:true,subscribed:true,usageUrl:'https://proxy.kividas.com/',canCreate:count<limit,reason:null,policy:{maxActiveKeys:limit,maxDevices:limit,requestsPerMinute:120,concurrentPerKey:0,concurrentPerUser:0,networksPerHour:3},keys:Array.from({length:count},(_,i)=>({...key,id:'key-'+i}))};
   vi.mocked(desktopKeysApi.list).mockResolvedValue(state);vi.mocked(gatewayApi.status).mockResolvedValue(state);
   await act(async()=>root.render(portal==='admin'?<DesktopKeysModal user={user} onClose={()=>{}}/>:<Gateway user={user} onClose={()=>{}} onSubscription={()=>{}}/>));
   const create=[...host.querySelectorAll('button')].find(b=>b.textContent=== (portal==='admin'?'生成 Key':'生成接入资料'));

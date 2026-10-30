@@ -6,10 +6,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from open_webui.models.users import Users
 from open_webui.models.kyber_accounts import UserKyberAccounts
+from open_webui.models.reseller_invites import ResellerInvites
 from open_webui.utils.auth import get_admin_user
 from open_webui.utils.kyber import _internal_request
 
 router = APIRouter()
+
+
+async def customer_usage_url(user_id: str) -> str:
+    # Resolve the recipient, never the administrator or browser's hostname.
+    host = 'proxy' if await ResellerInvites.is_customer(user_id) else 'chat'
+    return f'https://{host}.kividas.com/'
+
+
+async def customer_material(data, user_id: str):
+    if isinstance(data, dict) and 'usageUrl' in data:
+        return {**data, 'usageUrl': await customer_usage_url(user_id)}
+    return data
 
 
 class DesktopKeyPolicy(BaseModel):
@@ -52,8 +65,9 @@ async def list_keys(request: Request, response: Response, user_id: str, user=Dep
 @router.post('/admin/users/{user_id}/desktop-keys')
 async def create_key(request: Request, response: Response, user_id: str, form: DesktopKeyCreate, user=Depends(get_admin_user)):
     target = await _target(user_id)
-    return await _call(request, response, 'POST', f'/internal/users/{target}/desktop-keys',
+    data = await _call(request, response, 'POST', f'/internal/users/{target}/desktop-keys',
                        {'label': form.label.strip(), 'actorId': user.id, 'concurrentLimit': form.concurrentLimit})
+    return await customer_material(data, user_id)
 
 
 @router.post('/admin/users/{user_id}/desktop-keys/{key_id}/revoke')
@@ -66,8 +80,9 @@ async def revoke_key(request: Request, response: Response, user_id: str, key_id:
 @router.post('/admin/users/{user_id}/desktop-keys/{key_id}/reveal')
 async def reveal_key(request: Request, response: Response, user_id: str, key_id: str, user=Depends(get_admin_user)):
     target = await _target(user_id)
-    return await _call(request, response, 'POST',
+    data = await _call(request, response, 'POST',
                        f'/internal/users/{target}/desktop-keys/{quote(key_id, safe="")}/reveal', {'actorId': user.id})
+    return await customer_material(data, user_id)
 
 
 @router.post('/admin/users/{user_id}/desktop-keys/{key_id}/delete')

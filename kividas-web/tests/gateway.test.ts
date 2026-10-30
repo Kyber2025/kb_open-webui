@@ -23,6 +23,8 @@ describe('subscriber Gateway downloads', () => {
     for (const resource of gatewayResources) {
       const bytes = readFileSync(new URL(`../public/gateway/${resource.file}`, import.meta.url));
       expect(bytes.subarray(0, resource.format === 'PDF' ? 4 : 2).toString()).toBe(resource.format === 'PDF' ? '%PDF' : 'PK');
+      const managed = readFileSync(new URL(`../public/gateway/reseller/${resource.file}`, import.meta.url));
+      expect(managed.subarray(0, resource.format === 'PDF' ? 4 : 2).toString()).toBe(resource.format === 'PDF' ? '%PDF' : 'PK');
     }
   });
 });
