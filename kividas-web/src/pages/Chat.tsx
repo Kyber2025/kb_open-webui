@@ -8,7 +8,6 @@ import {
   Copy,
   FileText,
   Ghost,
-  Globe,
   GraduationCap,
   Lightbulb,
   Loader2,
@@ -154,7 +153,6 @@ export function ChatPage({
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [temporary, setTemporary] = useState(false),
-    [webSearch, setWebSearch] = useState(false),
     [memory, setMemory] = useState(false),
     [systemPrompt, setSystemPrompt] = useState(""),
     [files, setFiles] = useState<Attachment[]>([]),
@@ -429,7 +427,8 @@ export function ChatPage({
           files: next
             .flatMap((m) => m.files ?? [])
             .filter((f) => f.type === "file"),
-          features: { web_search: webSearch, memory },
+          // Always on: the server's query generator decides per message whether to search.
+          features: { web_search: !!config.features?.enable_web_search, memory },
           params: reasoningParams(selected, effort),
           skill_ids: selectedSkillIds(chosenSkills, skills),
           tool_ids: chosenTools,
@@ -770,16 +769,6 @@ export function ChatPage({
                             <Paperclip size={17} />
                             Add files or photos
                           </button>
-                          {config.features?.enable_web_search && (
-                            <button
-                              type="button"
-                              aria-pressed={webSearch}
-                              onClick={() => setWebSearch((v) => !v)}
-                            >
-                              <Globe size={17} />
-                              Web search {webSearch && <Check size={15} />}
-                            </button>
-                          )}
                           <hr />
                           <div className="chat-skill-options">
                             {skills
@@ -863,12 +852,6 @@ export function ChatPage({
                     )}
                   </div>
                   <span className="mode-pill">Chat</span>
-                  {webSearch && (
-                    <span className="web-pill">
-                      <Globe size={13} />
-                      Search
-                    </span>
-                  )}
                 </div>
                 <div className="row toolbar-right">
                   <div className="popover-anchor">
