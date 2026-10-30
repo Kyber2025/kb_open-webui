@@ -40,4 +40,7 @@ describe("usage data shown to the signed-in user", () => {
     expect(resetLabel(null, now)).toBe("Reset time unavailable");
     expect(resetLabel(now - 1000, now)).toBe("Awaiting reset update");
   });
+  it("labels later resets in English whatever the browser locale", () => {
+    expect(resetLabel(now + 3 * 86400000, now)).toMatch(/^Resets (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2}\s[AP]M$/);
+  });
 });

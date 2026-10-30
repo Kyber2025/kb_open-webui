@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { RotateCw, X } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import { resetLabel, usageSummary, windowPercent, type UsageLimits, type UsageWindow } from "../lib/usage";
 import "./usage-ring.css";
@@ -10,13 +10,13 @@ function UsageRow({ label, value, now }: { label: string; value?: UsageWindow | 
   const reset = value?.resetAt;
   const starts = value?.used === 0 && !reset && percent !== null;
   const text = percent === null ? unlimited ? "Unlimited" : "Unavailable" : `${percent}%`;
-  return <div className="kv-ring-row">
-    <div className="kv-ring-row-head"><span>{label}</span><span className="kv-ring-value">{text}</span></div>
-    <div className="kv-ring-track" role={percent === null ? undefined : "progressbar"} aria-label={label}
-      aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent === null ? undefined : Math.min(100, percent)} aria-valuetext={text}>
-      {percent !== null && <span style={{ width: `${Math.min(100, percent)}%` }} data-level={percent >= 90 ? "high" : percent >= 80 ? "medium" : "low"} />}
-    </div>
-    <small>{unlimited ? "No usage limit" : starts ? "Window starts with your next request" : resetLabel(reset, now)}</small>
+  const note = unlimited || starts ? "" : resetLabel(reset, now);
+  return <div className="kv-ring-row" title={starts ? "Window starts with your next request" : undefined}>
+    <div className="kv-ring-row-head"><span className="kv-ring-label">{label}</span>{note && <small>{note}</small>}<span className="kv-ring-value">{text}</span></div>
+    {percent !== null && <div className="kv-ring-track" role="progressbar" aria-label={label}
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, percent)} aria-valuetext={text}>
+      <span style={{ width: `${Math.min(100, percent)}%` }} data-level={percent >= 90 ? "high" : percent >= 80 ? "medium" : "low"} />
+    </div>}
   </div>;
 }
 
@@ -34,7 +34,7 @@ export function UsageRing() {
   const [placement, setPlacement] = useState<CSSProperties>({});
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const close = useRef<HTMLButtonElement>(null);
+  const popover = useRef<HTMLElement>(null);
   const id = useId();
 
   useLayoutEffect(() => {
@@ -42,7 +42,7 @@ export function UsageRing() {
     function position() {
       const rect = trigger.current?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.min(350, window.innerWidth - 32);
+      const width = Math.min(320, window.innerWidth - 32);
       const above = rect.top - 24, below = window.innerHeight - rect.bottom - 24;
       const upwards = above >= below;
       setPlacement({ position: "fixed", width, left: Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16)), right: "auto",
@@ -87,7 +87,7 @@ export function UsageRing() {
     if (!open) return;
     let active = true;
     api.subscription().then(result => { if (active) setPlan(result?.tier?.name || ""); }).catch(() => {});
-    close.current?.focus();
+    popover.current?.focus();
     const dismiss = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
@@ -102,6 +102,8 @@ export function UsageRing() {
   const label = loading && !data ? "Loading plan usage" : !data?.linked ? "Plan usage unavailable"
     : summary.percent === null ? "View plan usage" : `Plan usage: ${summary.percent}%${warning ? ", update needed" : ""}`;
   const fill = summary.percent === null ? 0 : Math.min(100, summary.percent);
+  const subtitle = data?.enterprise ? data.enterprise.orgName || "Organization allowance" : plan;
+  const checked = loading ? "Refreshing…" : updated ? `Checked ${new Date(updated).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "Not updated yet";
   return <div ref={root} className="kv-ring-anchor">
     <button ref={trigger} type="button" className="icon-btn kv-ring-trigger" aria-label={label} title={label}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
@@ -113,25 +115,21 @@ export function UsageRing() {
         {(warning || (!loading && (!data?.linked || summary.percent === null))) && <text x="12" y="15.5" textAnchor="middle">{warning ? "!" : "?"}</text>}
       </svg>
     </button>
-    {open && <section id={id} className="kv-ring-popover" style={placement} role="dialog" aria-label="Plan usage limits" aria-busy={loading}>
-      <header><div><strong>Plan usage limits</strong>{plan && <small>{plan}</small>}</div>
-        <button type="button" ref={close} className="icon-btn" aria-label="Close usage" onClick={() => { setOpen(false); trigger.current?.focus(); }}><X size={15} /></button>
+    {open && <section ref={popover} tabIndex={-1} id={id} className="kv-ring-popover" style={placement} role="dialog" aria-label="Plan usage limits" aria-busy={loading}>
+      <header><span>Plan usage limits{subtitle && ` · ${subtitle}`}</span>
+        <button type="button" className="icon-btn kv-ring-refresh" data-loading={loading || undefined} disabled={loading} aria-label="Refresh usage"
+          title={checked} onClick={() => setAttempt(value => value + 1)}><RotateCw size={13} /></button>
       </header>
       {error && <p className="kv-ring-note kv-ring-error" role="alert">{error}{data && " Showing the last available reading."}</p>}
       {!data ? <p className="kv-ring-note" role="status">{loading ? "Loading usage…" : "Usage is currently unavailable."}</p>
         : !data.linked ? <p className="kv-ring-note">Usage is not linked to this login. Sign in with the platform account assigned to you, or contact your administrator.</p>
+        : data.enterprise ? <UsageRow label="Seat allowance" value={{ used: data.enterprise.used, limit: data.enterprise.quota, resetAt: data.enterprise.cycleEndsAt }} now={now} />
         : <>
-          <h3>{data.enterprise ? data.enterprise.orgName || "Organization allowance" : "Your platform allowance"}</h3>
-          {data.enterprise ? <UsageRow label="Seat allowance" value={{ used: data.enterprise.used, limit: data.enterprise.quota, resetAt: data.enterprise.cycleEndsAt }} now={now} /> : <>
-            <UsageRow label="5-hour limit" value={data.tp5h} now={now} />
-            <UsageRow label="Weekly · all models" value={data.tpw} now={now} />
-            {data.tpwFable && <UsageRow label="Weekly · Fable" value={data.tpwFable} now={now} />}
-          </>}
-
+          <UsageRow label="5-hour limit" value={data.tp5h} now={now} />
+          <UsageRow label="Weekly · all models" value={data.tpw} now={now} />
+          {data.tpwFable && <UsageRow label="Weekly · Fable" value={data.tpwFable} now={now} />}
         </>}
-      <footer><small role="status">{loading ? "Refreshing…" : updated ? `Checked ${new Date(updated).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Not updated yet"}</small>
-        <button type="button" className="icon-btn" disabled={loading} aria-label="Refresh usage" onClick={() => setAttempt(value => value + 1)}><RotateCw size={15} /></button>
-      </footer>
+      {warning && !error && !loading && <p className="kv-ring-note" role="status">{checked}</p>}
     </section>}
   </div>;
 }

@@ -39,5 +39,5 @@ export function resetLabel(value: string | number | null | undefined, now: numbe
   const mins = Math.ceil((date.getTime() - now) / 60000);
   if (mins <= 0) return "Awaiting reset update";
   if (mins < 24 * 60) return `Resets in ${Math.floor(mins / 60) ? `${Math.floor(mins / 60)} hr ` : ""}${mins % 60} min`;
-  return `Resets ${date.toLocaleDateString(undefined, { weekday: "short" })} ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  return `Resets ${date.toLocaleDateString("en-US", { weekday: "short" })} ${date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 }

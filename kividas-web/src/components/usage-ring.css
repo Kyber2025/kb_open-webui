@@ -7,21 +7,23 @@
 .kv-ring-progress[data-level="medium"] { stroke: #c58a24; }
 .kv-ring-progress[data-level="high"] { stroke: var(--danger, #d34f4f); }
 .kv-ring-trigger text { fill: var(--muted); font-size: 10px; }
-.kv-ring-popover { position: absolute; z-index: 45; bottom: calc(100% + 12px); right: -36px; width: 350px; max-width: calc(100vw - 32px); max-height: min(650px, calc(100dvh - 130px)); overflow-y: auto; padding: 15px 16px 9px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 28px #0002; text-align: left; font-size: 13px; }
-.kv-ring-popover header, .kv-ring-popover footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.kv-ring-popover header { margin-bottom: 14px; }
-.kv-ring-popover header strong { font-weight: 500; font-size: 14px; }
-.kv-ring-popover header small { display: block; margin-top: 3px; }
-.kv-ring-popover h3 { font-size: 12px; font-weight: 500; margin: 12px 0 10px; color: var(--muted); }
-.kv-ring-popover small, .kv-ring-note { color: var(--muted); font-size: 11px; line-height: 1.5; }
-.kv-ring-note { margin: 5px 0 11px; }
-.kv-ring-row { margin-bottom: 13px; }
-.kv-ring-row-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
-.kv-ring-value { color: var(--muted); white-space: nowrap; }
-.kv-ring-track { height: 5px; border-radius: 5px; overflow: hidden; background: var(--line); margin-bottom: 4px; }
-.kv-ring-track span { display: block; height: 100%; border-radius: inherit; background: #78a8e1; }
+.kv-ring-popover { position: absolute; z-index: 45; bottom: calc(100% + 12px); right: -36px; width: 320px; max-width: calc(100vw - 32px); max-height: min(650px, calc(100dvh - 130px)); overflow-y: auto; padding: 8px 12px 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px #0002; text-align: left; font-size: 13px; outline: none; }
+.kv-ring-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+.kv-ring-popover header span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv-ring-refresh.icon-btn { width: 24px; height: 24px; margin-right: -6px; color: var(--muted); }
+.kv-ring-refresh[data-loading] svg { animation: kv-ring-spin 0.9s linear infinite; }
+@keyframes kv-ring-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .kv-ring-refresh[data-loading] svg { animation: none; } }
+.kv-ring-popover small, .kv-ring-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.kv-ring-note { margin: 6px 0 2px; }
+.kv-ring-row { padding-top: 8px; }
+.kv-ring-row-head { display: flex; align-items: baseline; gap: 10px; line-height: 1.35; }
+.kv-ring-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv-ring-row-head small { white-space: nowrap; }
+.kv-ring-value { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kv-ring-track { height: 4px; border-radius: 4px; overflow: hidden; background: var(--line); margin-top: 6px; }
+.kv-ring-track span { display: block; height: 100%; border-radius: inherit; background: #3b82f6; }
 .kv-ring-track span[data-level="medium"] { background: #c58a24; }
 .kv-ring-track span[data-level="high"] { background: var(--danger, #d34f4f); }
 .kv-ring-popover .kv-ring-error { color: var(--danger, #bd5350); }
-.kv-ring-popover footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 7px; }
-@media (max-width: 600px) { .kv-ring-popover { right: -68px; width: min(350px, calc(100vw - 40px)); } }
+@media (max-width: 600px) { .kv-ring-popover { right: -68px; width: min(320px, calc(100vw - 40px)); } }
