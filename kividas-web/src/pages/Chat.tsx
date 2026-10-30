@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowUp,
@@ -15,11 +15,10 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  Square,
   Sparkles,
   X,
 } from "lucide-react";
-import { marked } from "marked";
+import { Marked, marked } from "marked";
 import DOMPurify from "dompurify";
 import { preferencesApi } from "../lib/preferences";
 import {
@@ -30,6 +29,8 @@ import {
 } from "../lib/skills";
 import { ModelPicker } from "../components/ModelPicker";
 import { UsageRing } from "../components/UsageRing";
+import { ReplyStatus, useCitationCard } from "../components/ReplyStatus";
+import { citationExtension, citationList } from "../lib/reply-status";
 import {
   effortOptions,
   modelLabel,
@@ -45,14 +46,15 @@ import type {
   ChatData,
   Config,
   Message,
+  MessageSource,
   Model,
   User,
 } from "../lib/types";
 import { ErrorPanel, Loading, messageOf, useNotify } from "../components/UI";
-export function BrandMark({ small = false }: { small?: boolean }) {
+export function BrandMark() {
   return (
     <img
-      className={`brand-mark ${small ? "small" : ""}`}
+      className="brand-mark"
       src="/kividas-code.png"
       alt="Kividas"
     />
@@ -111,16 +113,28 @@ const categories = [
     ],
   },
 ];
-function Markdown({ text }: { text: string }) {
+function Markdown({ text, sources }: { text: string; sources?: MessageSource[] }) {
+  // [1] markers become source pills only when the reply carries the sources they cite.
+  const citations = useMemo(() => citationList(sources), [sources]);
+  const parser = useMemo(
+    () => (citations.length ? new Marked({ extensions: [citationExtension(citations)] }) : marked),
+    [citations],
+  );
+  const { handlers, card } = useCitationCard(citations);
   return (
-    <div
-      className="markdown"
-      dangerouslySetInnerHTML={{
-        __html: DOMPurify.sanitize(
-          marked.parse(text, { async: false }) as string,
-        ),
-      }}
-    />
+    <>
+      <div
+        className="markdown"
+        {...handlers}
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(
+            parser.parse(text, { async: false }) as string,
+            { ADD_ATTR: ["target"] },
+          ),
+        }}
+      />
+      {card}
+    </>
   );
 }
 export function ChatPage({
@@ -581,9 +595,8 @@ export function ChatPage({
               </div>
             ) : (
               <div className="messages">
-                {messages.map((m) => (
+                {messages.map((m, i) => (
                   <article className={`message ${m.role}`} key={m.id}>
-                    {m.role === "assistant" && <BrandMark small />}
                     <div className="message-body">
                       {m.files?.length ? (
                         <div className="message-files">
@@ -599,15 +612,15 @@ export function ChatPage({
                           )}
                         </div>
                       ) : null}
-                      {m.content ? (
-                        <Markdown text={m.content} />
-                      ) : m.role === "assistant" && busy ? (
-                        <div className="thinking">
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                      ) : null}
+                      {m.role === "assistant" && (
+                        <ReplyStatus
+                          history={m.statusHistory}
+                          live={busy && i === messages.length - 1}
+                          waiting={busy && i === messages.length - 1 && !m.content}
+                          startedAt={m.timestamp}
+                        />
+                      )}
+                      {m.content ? <Markdown text={m.content} sources={m.sources} /> : null}
                       {m.error && <p className="error" role="alert">{typeof m.error === "string" ? m.error : m.error.content || m.error.message || "Unable to complete this response."}</p>}
                       {m.role === "assistant" && m.content && (
                         <div className="message-actions">
@@ -908,11 +921,12 @@ export function ChatPage({
                   {busy ? (
                     <button
                       type="button"
-                      className="send-button"
+                      className="send-button stop"
                       aria-label="Stop response"
+                      title="Stop response"
                       onClick={() => controller.current?.abort()}
                     >
-                      <Square size={15} fill="currentColor" />
+                      <span aria-hidden="true" />
                     </button>
                   ) : (
                     <button
@@ -926,7 +940,7 @@ export function ChatPage({
                         !model
                       }
                     >
-                      <ArrowUp size={19} />
+                      <ArrowUp size={18} strokeWidth={1.75} />
                     </button>
                   )}
                 </div>

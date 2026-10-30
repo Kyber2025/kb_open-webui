@@ -11,6 +11,7 @@ import type {
   GuestConfig,
   Model,
   Message,
+  MessageStatus,
   Tier,
   SubscriptionCheckout,
   User,
@@ -239,6 +240,7 @@ export async function complete(
   const body = payload as { chat_id?: string; id?: string };
   let content = "";
   let eventError: Error | undefined;
+  let statuses: MessageStatus[] = [];
   const delta = (text: string) => { content += text; onDelta(text); };
   const snapshot = (message: Partial<Message>) => {
     if (typeof message.content === "string") {
@@ -254,7 +256,11 @@ export async function complete(
         if (type === "chat:completion") {
           if (typeof data?.content === "string") snapshot(data);
           else if (typeof data?.choices?.[0]?.delta?.content === "string") delta(data.choices[0].delta.content);
+          else if (Array.isArray(data?.sources)) onMessage?.({ sources: data.sources });
           if (data?.error) eventError = new Error(errorText(data));
+        } else if (type === "status") {
+          // Web search and retrieval progress; the saved message keeps the same list.
+          if (data && typeof data === "object") onMessage?.({ statusHistory: (statuses = [...statuses, data]) });
         } else if (type === "chat:message:error") {
           snapshot({ error: data?.error });
         } else if (type === "chat:message:delta" || type === "message") {
@@ -285,6 +291,7 @@ export async function complete(
       if (!res.body) throw new Error("The response stream is empty.");
       for await (const event of sseEvents(res.body)) {
         if (event.error) throw new Error(errorText(event));
+        if (Array.isArray(event.sources)) onMessage?.({ sources: event.sources });
         const text = event.choices?.[0]?.delta?.content;
         if (typeof text === "string") delta(text);
       }

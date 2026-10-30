@@ -461,10 +461,6 @@ form > label {
   color: var(--accent);
   flex-shrink: 0;
 }
-.brand-mark.small {
-  width: 27px;
-  height: 27px;
-}
 .composer-area {
   width: 100%;
   max-width: 690px;
@@ -541,21 +537,40 @@ form > label {
 [data-theme="dark"] .model-trigger {
   color: var(--muted);
 }
+/* Send and stop, matched to claude.ai (10-30): clay 28px square that lightens
+   on hover, a quiet arrow while there is nothing to send, and a plain dark
+   stop square while a reply generates. */
 .send-button {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
-  background: var(--accent);
+  background: #c6613f;
   color: #fff;
   display: grid;
   place-items: center;
   padding: 0;
   flex-shrink: 0;
 }
+.send-button:not(:disabled):hover {
+  background: #d97757;
+}
 .send-button:disabled {
-  background: var(--soft);
+  background: transparent;
   color: var(--muted);
   opacity: 1;
+}
+.send-button.stop {
+  background: transparent;
+  color: var(--ink);
+}
+.send-button.stop:hover {
+  background: var(--hover);
+}
+.send-button.stop span {
+  width: 10px;
+  height: 10px;
+  border-radius: 2.5px;
+  background: currentColor;
 }
 .suggestion-area {
   margin: 38px 12px 0;
@@ -769,9 +784,6 @@ form > label {
   border-radius: 14px;
   max-width: 88%;
 }
-.message.assistant > .brand-mark {
-  margin-top: 4px;
-}
 .message-body {
   font-size: 15px;
   min-width: 0;
@@ -871,24 +883,6 @@ form > label {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-}
-.thinking {
-  display: flex;
-  gap: 5px;
-  padding: 13px 0;
-}
-.thinking span {
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 50%;
-  animation: pulse 1s infinite;
-}
-.thinking span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.thinking span:nth-child(3) {
-  animation-delay: 0.4s;
 }
 .page {
   padding: 70px 40px;
@@ -1470,12 +1464,6 @@ td code {
     transform: rotate(360deg);
   }
 }
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-    transform: translateY(-3px);
-  }
-}
 @media (min-width: 1600px) {
   .composer-area {
     max-width: 690px;
@@ -1700,10 +1688,6 @@ td code {
   }
   .message {
     gap: 9px;
-  }
-  .message.assistant > .brand-mark {
-    width: 22px;
-    height: 22px;
   }
   .markdown {
     font-size: 14px;

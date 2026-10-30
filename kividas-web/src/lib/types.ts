@@ -94,6 +94,25 @@ export interface Attachment {
   url?: string;
   file?: Record<string, unknown>;
 }
+/** A progress event the server emits while preparing a reply (web search, file retrieval…). */
+export interface MessageStatus {
+  action?: string;
+  description?: string;
+  done?: boolean;
+  error?: boolean;
+  hidden?: boolean;
+  query?: string;
+  queries?: string[];
+  urls?: string[];
+  items?: { link?: string; title?: string; snippet?: string }[];
+  count?: number;
+}
+/** Retrieved context the reply may cite as [1], [2]… (one entry per collection or file). */
+export interface MessageSource {
+  source?: { id?: string; name?: string; type?: string; urls?: string[] };
+  document?: string[];
+  metadata?: { source?: string; title?: string; description?: string }[];
+}
 export interface Message {
   id: string;
   role: "user" | "assistant" | "system";
@@ -105,6 +124,8 @@ export interface Message {
   error?: { content?: string; message?: string } | string;
   model?: string;
   files?: Attachment[];
+  statusHistory?: MessageStatus[];
+  sources?: MessageSource[];
 }
 export interface ChatData {
   skill_ids?: string[];

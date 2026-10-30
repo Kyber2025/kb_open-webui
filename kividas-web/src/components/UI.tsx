@@ -51,11 +51,14 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  dismissible = true,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** False ignores Escape and backdrop clicks: only the close button (or the caller) closes it. */
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -67,12 +70,18 @@ export function Modal({
     <dialog
       ref={ref}
       className={`modal ${wide ? "wide" : ""}`}
+      onKeyDown={(e) => {
+        // Cancelling the key stops the close request itself, including
+        // Chrome's forced close on a second Escape.
+        if (!dismissible && e.key === "Escape" && !e.nativeEvent.isComposing)
+          e.preventDefault();
+      }}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        if (dismissible) onClose();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (dismissible && e.target === ref.current) onClose();
       }}
     >
       <div className="modal-body">

@@ -22,6 +22,8 @@ const TITLES: Record<Mode, string> = {
  * as ai.kividas.com: send a 6-digit code, then enter it with the password. The
  * last two only appear when the backend relays them to the account service
  * (`enable_kyber_auth_bridge`); without it its endpoints refuse them.
+ * Escape and backdrop clicks leave it open; only the close button or a
+ * successful sign-in closes it.
  */
 export function Login({
   accountService,
@@ -118,7 +120,7 @@ export function Login({
 
   if (mode === "signin")
     return (
-      <Modal title={TITLES.signin} onClose={onClose}>
+      <Modal title={TITLES.signin} onClose={onClose} dismissible={false}>
         <p className="muted">Sign in with your existing Kividas account.</p>
         <form
           key="signin"
@@ -179,7 +181,7 @@ export function Login({
     : switchLink("Already have an account?", "Sign in", "signin");
   if (step === "email")
     return (
-      <Modal title={TITLES[mode]} onClose={onClose}>
+      <Modal title={TITLES[mode]} onClose={onClose} dismissible={false}>
         <p className="muted">
           {reset
             ? "Enter the email you signed up with. We'll send a 6-digit code to reset your password."
@@ -214,7 +216,7 @@ export function Login({
     );
 
   return (
-    <Modal title={TITLES[mode]} onClose={onClose}>
+    <Modal title={TITLES[mode]} onClose={onClose} dismissible={false}>
       <p className="muted">
         {reset
           ? `If ${email} has an account, a 6-digit code is on its way.`

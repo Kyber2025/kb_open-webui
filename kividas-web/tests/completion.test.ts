@@ -33,6 +33,21 @@ describe("production saved-chat transport", () => {
     expect(transport.close).toHaveBeenCalledOnce();
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("session_id");
   });
+  it("forwards web search progress and sources ahead of the reply text", async () => {
+    const seen: any[] = [];
+    fetchMock.mockImplementationOnce(async () => {
+      event("status", { action: "web_search", description: "Searching the web", done: false });
+      event("status", { action: "web_search", description: "Searched {{count}} sites", urls: ["https://a.test"], done: true });
+      event("chat:completion", { sources: [{ source: { name: "q" }, document: ["d"], metadata: [{ source: "https://a.test" }] }] });
+      event("chat:completion", { content: "Answer [1]" });
+      return json(null);
+    }).mockResolvedValueOnce(saved({ content: "Answer [1]", done: true }));
+    await complete(payload, new AbortController().signal, vi.fn(), (m) => seen.push(m));
+    expect(seen[0].statusHistory.map((s: any) => s.done)).toEqual([false]);
+    expect(seen[1].statusHistory.map((s: any) => s.done)).toEqual([false, true]);
+    expect(seen[2]).toEqual({ sources: [{ source: { name: "q" }, document: ["d"], metadata: [{ source: "https://a.test" }] }] });
+    expect(seen[3].content).toBe("Answer [1]");
+  });
   it("recovers the saved reply if the websocket is unavailable", async () => {
     fetchMock.mockResolvedValueOnce(json(null)).mockResolvedValueOnce(saved({ content: "Recovered reply", done: true }));
     const delta = vi.fn();
@@ -69,6 +84,13 @@ describe("guest and temporary SSE transport", () => {
     await complete({ stream: true }, new AbortController().signal, delta);
     expect(delta).toHaveBeenCalledWith("Hello");
     expect(transport.listen).not.toHaveBeenCalled();
+  });
+  it("passes the sources event that opens a direct stream", async () => {
+    fetchMock.mockResolvedValueOnce(new Response('data: {"sources":[{"document":["d"],"metadata":[{"source":"https://a.test"}]}]}\n\ndata: {"choices":[{"delta":{"content":"Hi [1]"}}]}\n\n', { headers: { "Content-Type": "text/event-stream" } }));
+    const onMessage = vi.fn(), delta = vi.fn();
+    await complete({ stream: true }, new AbortController().signal, delta, onMessage);
+    expect(onMessage).toHaveBeenCalledWith({ sources: [{ document: ["d"], metadata: [{ source: "https://a.test" }] }] });
+    expect(delta).toHaveBeenCalledWith("Hi [1]");
   });
   it("shows errors from the streaming provider", async () => {
     fetchMock.mockResolvedValueOnce(new Response('data: {"error":{"message":"Upstream unavailable"}}\n\n', { headers: { "Content-Type": "text/event-stream" } }));

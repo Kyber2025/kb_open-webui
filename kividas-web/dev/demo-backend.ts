@@ -190,7 +190,59 @@ export function demoBackend(): Plugin {
         GUEST_ALLOWED_MODEL_IDS: ["claude-sonnet-5", "claude-haiku-4-5"],
         GUEST_BLOCKED_MODEL_IDS: [],
       };
+      const weatherUrl = "https://www.weather.com.cn/weather/101280601.shtml",
+        accuUrl = "https://www.accuweather.com/en/cn/shenzhen/58194/weather-forecast/58194",
+        hkoUrl = "https://www.hko.gov.hk/en/wxinfo/currwx/fnd.htm";
+      const searchSources = [
+        {
+          source: { name: "深圳天气预报 今天, Shenzhen weather today", type: "web_search" },
+          document: ["深圳今天多云间晴，25–31°C。", "Shenzhen: partly sunny, high 31°C.", "未来一周以多云为主。"],
+          metadata: [
+            { source: weatherUrl, title: "深圳天气预报,深圳7天天气预报,深圳15天天气预报 - 中国天气网" },
+            { source: accuUrl, title: "Shenzhen, Guangdong, China Weather Forecast | AccuWeather" },
+            { source: weatherUrl, title: "深圳天气预报,深圳7天天气预报,深圳15天天气预报 - 中国天气网" },
+          ],
+        },
+      ];
+      const searchStatus = [
+        { action: "web_search", description: "Searching the web", done: false },
+        { action: "web_search_queries_generated", queries: ["深圳天气预报 今天", "Shenzhen weather today"], done: false },
+        {
+          action: "web_search",
+          description: "Searched {{count}} sites",
+          urls: [weatherUrl, accuUrl, hkoUrl],
+          items: [
+            { link: weatherUrl, title: "深圳天气预报,深圳7天天气预报,深圳15天天气预报 - 中国天气网", snippet: "" },
+            { link: accuUrl, title: "Shenzhen, Guangdong, China Weather Forecast | AccuWeather", snippet: "" },
+            { link: hkoUrl, title: "9-day Weather Forecast | Hong Kong Observatory", snippet: "" },
+          ],
+          done: true,
+        },
+        { action: "queries_generated", queries: ["深圳今天天气"], done: false },
+        { action: "sources_retrieved", count: 3, done: true },
+      ];
+      const searchReply =
+        "深圳今天多云间晴，气温 25–31°C，降水概率约 5% [1]。\n\n周末仍以多云为主，最高 30°C 左右，基本不会下雨 [1][2]。早晚体感舒适，白天注意防晒。";
       let chats: Chat[] = [
+        {
+          id: "demo-search",
+          title: "深圳天气",
+          updated_at: 1780000100,
+          chat: {
+            title: "深圳天气",
+            models: [models[0].id],
+            messages: [
+              { id: "demo-s1", role: "user", content: "深圳今天天气怎么样？" },
+              {
+                id: "demo-s2",
+                role: "assistant",
+                content: searchReply,
+                statusHistory: searchStatus,
+                sources: searchSources,
+              },
+            ],
+          },
+        },
         {
           id: "demo-welcome",
           title: "A fresh perspective",
@@ -832,6 +884,31 @@ export function demoBackend(): Plugin {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
           });
+          const prompt = JSON.stringify(data.messages?.at(-1)?.content ?? "");
+          if (/天气|weather|联网|search/i.test(prompt)) {
+            // Production opens a direct stream with the sources, then cites them.
+            res.write(`data: ${JSON.stringify({ sources: searchSources })}\n\n`);
+            const chunks = Array.from(searchReply).reduce<string[]>(
+              (all, ch, i) => (i % 3 ? ((all[all.length - 1] += ch), all) : [...all, ch]),
+              [],
+            );
+            let n = 0, timer: ReturnType<typeof setInterval> | undefined;
+            const wait = setTimeout(() => {
+              timer = setInterval(() => {
+                if (n >= chunks.length) {
+                  clearInterval(timer);
+                  res.end("data: [DONE]\n\n");
+                  return;
+                }
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunks[n++] } }] })}\n\n`);
+              }, 40);
+            }, 2500);
+            res.on("close", () => {
+              clearTimeout(wait);
+              clearInterval(timer);
+            });
+            return;
+          }
           const words = (
             `Effort received: **${data.params?.reasoning_effort || "default"}**.\n\n` +
             `Skills received: **${(data.skill_ids || []).join(", ") || "none"}**.\n\n` +
