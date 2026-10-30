@@ -91,7 +91,7 @@ const post = <T>(path: string, body?: unknown) =>
   });
 const del = (path: string) => request(path, { method: "DELETE" });
 const sub = `${V1}/subscriptions`;
-export type ResellerInvite = { id: string; name: string; token: string; enabled: boolean; created_at: number; customers: number };
+export type ResellerInvite = { id: string; name: string; token: string; short_code?: string | null; enabled: boolean; created_at: number; customers: number };
 export const api = {
   config: () => request<Config>("/api/config"),
   me: () => request<User>(`${V1}/auths/`),

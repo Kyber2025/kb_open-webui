@@ -4,7 +4,7 @@ import base64
 import io
 import logging
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -28,6 +28,7 @@ from open_webui.models.users import (
 )
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.subscriptions import UserSubscriptions
+from open_webui.models.reseller_invites import ResellerInvites
 from open_webui.models.knowledge import Knowledges
 from open_webui.models.models import Models
 from open_webui.models.tools import Tools
@@ -66,6 +67,8 @@ async def get_users(
     page: int | None = 1,
     plan: str | None = None,
     limit: int | None = None,
+    source: Literal['ordinary', 'reseller'] | None = None,
+    reseller_invite_id: str | None = None,
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -74,7 +77,7 @@ async def get_users(
     page = max(1, page)
     skip = (page - 1) * limit
 
-    filter = {}
+    filter = {'source': source, 'reseller_invite_id': reseller_invite_id}
     if query:
         filter['query'] = query
     if order_by:
@@ -107,6 +110,7 @@ async def get_users(
     # Fetch groups for all users in a single query to avoid N+1
     user_ids = [user.id for user in users]
     user_groups = await Groups.get_groups_by_member_ids(user_ids, db=db)
+    reseller_by_user = await ResellerInvites.for_users(user_ids, db=db)
 
     return {
         'users': [
@@ -114,6 +118,7 @@ async def get_users(
                 **{
                     **user.model_dump(),
                     'group_ids': [group.id for group in user_groups.get(user.id, [])],
+                    'reseller': reseller_by_user.get(user.id),
                 }
             )
             for user in users

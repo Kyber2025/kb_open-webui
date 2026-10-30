@@ -177,8 +177,16 @@ class UpdateProfileForm(BaseModel):
         return validate_profile_image_url(v)
 
 
+class ResellerAttribution(BaseModel):
+    invite_id: str
+    name: str
+    enabled: bool
+    created_at: int
+
+
 class UserGroupIdsModel(UserModel):
     group_ids: list[str] = []
+    reseller: ResellerAttribution | None = None
 
 
 class UserModelResponse(UserModel):
@@ -432,6 +440,18 @@ class UsersTable:
                 exclude_user_ids = filter.get('exclude_user_ids')
                 if exclude_user_ids:
                     stmt = stmt.filter(~User.id.in_(exclude_user_ids))
+
+                source = filter.get('source')
+                invite_id = filter.get('reseller_invite_id')
+                if source or invite_id:
+                    from open_webui.models.reseller_invites import ResellerCustomer
+                    membership = select(ResellerCustomer.user_id).where(ResellerCustomer.user_id == User.id)
+                    if source == 'ordinary':
+                        stmt = stmt.where(~exists(membership))
+                    elif source == 'reseller':
+                        stmt = stmt.where(exists(membership))
+                    if invite_id:
+                        stmt = stmt.where(exists(membership.where(ResellerCustomer.invite_id == invite_id)))
 
                 if group_ids:
                     stmt = stmt.filter(

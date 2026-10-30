@@ -354,7 +354,7 @@ function CliPanel({ cli }: { cli: CliRelease | null }) {
       ))}
       <p className="cli-help">
         Then run <code>kividas login</code> with the same account as
-        chat.kividas.com, and <code>kividas</code> to open the terminal. Windows
+        {window.location.hostname}, and <code>kividas</code> to open the terminal. Windows
         also needs Git for Windows (Git Bash), which Claude Code uses to run
         commands.
       </p>

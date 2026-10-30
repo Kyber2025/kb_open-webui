@@ -48,6 +48,7 @@ import { CodeDownloads } from "./pages/Code";
 import { BrandMark, ChatPage } from "./pages/Chat";
 import { Artifacts, Chats, Project, Projects } from "./pages/Library";
 import { Login } from "./components/AuthDialog";
+import { inviteTokenFromLocation, RESELLER_PORTAL_HOST } from "./lib/reseller-invites";
 import { ErrorPanel, Loading, messageOf, useNotify } from "./components/UI";
 export default function App() {
   const [user, setUser] = useState<User | null>(null),
@@ -74,7 +75,9 @@ export default function App() {
     navigate = useNavigate(),
     notify = useNotify();
   const guest = user?.email === "guest@guest.local";
-  const inviteToken = new URLSearchParams(location.search).get("invite");
+  const inviteToken = inviteTokenFromLocation(location);
+  const resellerPortal = window.location.hostname === RESELLER_PORTAL_HOST;
+  const authEntry = location.pathname === "/auth" || location.pathname.startsWith("/i/");
   useEffect(() => {
     let active = true;
     setGateway(false);
@@ -121,7 +124,7 @@ export default function App() {
       if (
         !current &&
         cfg.features?.enable_guest_access &&
-        location.pathname !== "/auth"
+        !resellerPortal && !authEntry && inviteToken === null
       ) {
         const session = await api.guest();
         localStorage.setItem("token", session.token);
@@ -130,7 +133,7 @@ export default function App() {
       setUser(current);
       if (current) {
         setLogin(false);
-        if (location.pathname === "/auth") navigate("/", { replace: true });
+        if (authEntry) navigate("/", { replace: true });
         setModels(await api.models());
         if (current.email !== "guest@guest.local") setChats(await api.chats());
       } else setLogin(true);
@@ -335,7 +338,7 @@ export default function App() {
                   <CreditCard size={17} />
                   Subscription
                 </button>
-                {gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
+                {!resellerPortal && gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
                   <KeyRound size={17} />Gateway
                 </button>}
                 {isSuperAdmin(user) && (
@@ -519,6 +522,7 @@ export default function App() {
               path="/auth"
               element={<SignInPrompt onLogin={() => setLogin(true)} />}
             />
+            <Route path="/i/:code" element={<SignInPrompt onLogin={() => setLogin(true)} />} />
             <Route
               path="/customize"
               element={<Navigate to="/customize/skills" replace />}
@@ -562,6 +566,7 @@ export default function App() {
         <Login
           accountService={!!config.features?.enable_kyber_auth_bridge}
           inviteToken={inviteToken}
+          invitationOnly={resellerPortal}
           onClose={() => setLogin(false)}
           onSuccess={async (u) => {
             const [catalog, history] = await Promise.all([
@@ -572,7 +577,7 @@ export default function App() {
             setModels(catalog);
             setChats(history);
             setLogin(false);
-            if (location.pathname === "/auth") navigate("/", { replace: true });
+            if (authEntry) navigate("/", { replace: true });
           }}
         />
       )}

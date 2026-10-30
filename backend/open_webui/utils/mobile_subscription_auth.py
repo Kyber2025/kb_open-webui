@@ -101,4 +101,7 @@ async def resolve_billing_user(identity: dict):
 
 
 async def get_mobile_subscription_user(request: Request):
-    return await resolve_billing_user(await gateway_identity(request))
+    user = await resolve_billing_user(await gateway_identity(request))
+    from open_webui.utils.reseller_portal import require_portal_user
+    await require_portal_user(request, user)
+    return user

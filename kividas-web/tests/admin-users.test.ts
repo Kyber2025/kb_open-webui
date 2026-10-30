@@ -2,6 +2,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { usersApi, usagePercent, syncWarning } from "../src/lib/admin-users";
 afterEach(() => vi.unstubAllGlobals());
 describe("user administration contracts", () => {
+  it("combines source, agent, plan and search in the server-side paginated request", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{"users":[],"total":0}', {headers:{'Content-Type':'application/json'}}));
+    vi.stubGlobal('fetch',fetchMock); vi.stubGlobal('localStorage',{getItem:()=> 'test-token'});
+    await usersApi.list(2,'customer','name','asc','pro',10,'reseller','agent/a');
+    const params = new URL(String(fetchMock.mock.calls[0][0]),'https://example.test').searchParams;
+    expect(Object.fromEntries(params)).toEqual({page:'2',query:'customer',order_by:'name',direction:'asc',plan:'pro',limit:'10',source:'reseller',reseller_invite_id:'agent/a'});
+  });
   it("keeps unlimited usage distinct from an empty quota", () => {
     expect(usagePercent({ used: 100, limit: 0 })).toBeNull();
     expect(usagePercent({ used: 100, limit: 200 })).toBe(50);

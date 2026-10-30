@@ -28,11 +28,13 @@ const TITLES: Record<Mode, string> = {
 export function Login({
   accountService,
   inviteToken,
+  invitationOnly = false,
   onClose,
   onSuccess,
 }: {
   accountService: boolean;
   inviteToken?: string | null;
+  invitationOnly?: boolean;
   onClose: () => void;
   onSuccess: (u: User) => Promise<void>;
 }) {
@@ -173,7 +175,8 @@ export function Login({
             {busy ? "Signing in…" : "Continue"}
           </button>
         </form>
-        {accountService &&
+        {invitationOnly && !inviteToken && <p className="muted">新用户请通过服务商提供的邀请链接注册。</p>}
+        {accountService && (!invitationOnly || !!inviteToken) &&
           switchLink("Don't have an account?", "Sign up", "signup")}
       </Modal>
     );

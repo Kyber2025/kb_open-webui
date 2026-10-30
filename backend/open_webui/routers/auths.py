@@ -127,6 +127,8 @@ async def create_session_response(
         set_cookie: Whether to set the auth cookie on the response
         extra_claims: optional extra JWT claims (e.g. {'guest_device': ...})
     """
+    from open_webui.utils.reseller_portal import require_portal_user
+    await require_portal_user(request, user, db=db)
     expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
     expires_at = None
     if expires_delta:
@@ -768,7 +770,8 @@ async def guest_signin(
 
     The client's device id is baked into the JWT (`guest_device` claim) so the
     limiter can read it without per-request header plumbing."""
-    if not getattr(request.app.state.config, 'ENABLE_GUEST_ACCESS', False):
+    from open_webui.utils.reseller_portal import is_reseller_portal
+    if is_reseller_portal(request) or not getattr(request.app.state.config, 'ENABLE_GUEST_ACCESS', False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
 
     ip = get_client_ip(request)
@@ -813,6 +816,8 @@ async def signup_handler(
     # If has_users() is checked before insert, concurrent requests during
     # first-user registration can all see an empty table and each get admin.
     hashed = get_password_hash(password)
+    from open_webui.utils.reseller_portal import require_portal_registration
+    await require_portal_registration(request, email, invite_token, db=db)
     invite_id = await ResellerInvites.registration_invite(email, invite_token, db=db)
 
     user = await Auths.insert_new_auth(
@@ -1005,6 +1010,8 @@ async def register_send_code(
     email = form_data.email.lower().strip()
     if not validate_email_format(email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
+    from open_webui.utils.reseller_portal import require_portal_registration
+    await require_portal_registration(request, email, form_data.invite_token, db=db)
     # Persist attribution before sending a code. Dropping the invite at verification
     # (or using the legacy signup/bridge-login path) cannot remove this reservation.
     if not await Users.get_user_by_email(email, db=db):
@@ -1033,6 +1040,8 @@ async def register_verify(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     email = form_data.email.lower().strip()
     base = kyber_base(request)
+    from open_webui.utils.reseller_portal import require_portal_registration
+    await require_portal_registration(request, email, form_data.invite_token, db=db)
     if not await Users.get_user_by_email(email, db=db):
         await ResellerInvites.reserve(email, form_data.invite_token, db=db)
     try:

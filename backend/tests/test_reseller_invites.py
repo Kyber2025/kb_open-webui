@@ -40,6 +40,7 @@ class ResellerTests(unittest.IsolatedAsyncioTestCase):
         self.patch.start()
         self.models = load('open_webui.models.reseller_invites', 'models/reseller_invites.py')
         self.policy = load('open_webui.utils.reseller_policy', 'utils/reseller_policy.py')
+        self.portal = load('open_webui.utils.reseller_portal', 'utils/reseller_portal.py')
         async with self.engine.begin() as conn: await conn.run_sync(base.metadata.create_all)
         self.invites = self.models.ResellerInvites
         self.invite = await self.invites.create('Agent test')
@@ -53,7 +54,7 @@ class ResellerTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.patch.stop()
-        for name in ('open_webui.models.reseller_invites', 'open_webui.utils.reseller_policy'): sys.modules.pop(name, None)
+        for name in ('open_webui.models.reseller_invites', 'open_webui.utils.reseller_policy', 'open_webui.utils.reseller_portal'): sys.modules.pop(name, None)
         await self.engine.dispose()
 
     async def test_email_attribution_survives_removed_token_and_cannot_be_replaced(self):
@@ -63,6 +64,38 @@ class ResellerTests(unittest.IsolatedAsyncioTestCase):
         other = await self.invites.create('Other agent')
         with self.assertRaises(HTTPException): await self.invites.reserve('new@example.com', other['token'])
         self.assertIsNone(await self.invites.registration_invite('ordinary@example.com'))
+
+    async def test_short_code_and_legacy_token_share_one_durable_identity(self):
+        code = self.invite['short_code']
+        self.assertEqual(len(code), 12)
+        self.assertEqual(await self.invites.validate(code), self.invite['id'])
+        await self.invites.reserve('short@example.com', code)
+        self.assertEqual(await self.invites.registration_invite('short@example.com', self.invite['token']), self.invite['id'])
+        self.assertEqual((await self.invites.list())[0]['short_code'], code)
+        await self.invites.set_enabled(self.invite['id'], False)
+        with self.assertRaises(HTTPException): await self.invites.validate(code)
+        with self.assertRaises(HTTPException): await self.invites.validate(self.invite['token'])
+
+    async def test_rollout_legacy_invite_gets_stable_short_code(self):
+        async with AsyncSession(self.engine) as db:
+            row = await db.get(self.models.ResellerInvite, self.invite['id'])
+            row.short_code = None
+            await db.commit()
+        first = (await self.invites.list())[0]['short_code']
+        self.assertEqual(len(first), 12)
+        self.assertEqual((await self.invites.list())[0]['short_code'], first)
+
+    async def test_proxy_host_requires_membership_and_invited_registration(self):
+        portal = SimpleNamespace(headers={'host':'proxy.kividas.com'})
+        original = SimpleNamespace(headers={'host':'chat.kividas.com'})
+        ordinary = SimpleNamespace(id='ordinary')
+        await self.portal.require_portal_user(portal,self.user)
+        with self.assertRaises(HTTPException): await self.portal.require_portal_user(portal,ordinary)
+        await self.portal.require_portal_user(original,ordinary)
+        with self.assertRaises(HTTPException): await self.portal.require_portal_registration(portal,'new@example.com')
+        await self.portal.require_portal_registration(portal,'new@example.com',self.invite['short_code'])
+        await self.invites.reserve('new@example.com',self.invite['short_code'])
+        await self.portal.require_portal_registration(portal,'new@example.com')
 
     async def test_disabled_and_forged_tokens_fail_but_existing_members_stay_managed(self):
         with self.assertRaises(HTTPException): await self.invites.validate('forged-token')

@@ -7,9 +7,10 @@ assert os.environ.get('DATABASE_URL') == 'sqlite:////tmp/plan-filter-test.db', '
 from open_webui.internal.db import Base, engine
 from open_webui.models.subscriptions import SubscriptionTier, UserSubscription
 from open_webui.models.users import User
+from open_webui.models.reseller_invites import ResellerInvite, ResellerCustomer
 from open_webui.routers.users import get_users
 
-Base.metadata.create_all(engine, tables=[User.__table__, SubscriptionTier.__table__, UserSubscription.__table__])
+Base.metadata.create_all(engine, tables=[User.__table__, SubscriptionTier.__table__, UserSubscription.__table__, ResellerInvite.__table__, ResellerCustomer.__table__])
 
 
 class PlanFilterTests(unittest.IsolatedAsyncioTestCase):

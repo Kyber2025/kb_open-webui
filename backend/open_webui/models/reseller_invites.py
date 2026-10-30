@@ -4,7 +4,7 @@ import time
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import BigInteger, Boolean, Column, String, func, select
+from sqlalchemy import BigInteger, Boolean, Column, String, func, or_, select
 
 from open_webui.internal.db import Base, get_async_db_context
 
@@ -14,6 +14,7 @@ class ResellerInvite(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     token = Column(String, nullable=False, unique=True)
+    short_code = Column(String(12), nullable=True, unique=True)
     enabled = Column(Boolean, nullable=False)
     created_at = Column(BigInteger, nullable=False)
 
@@ -36,7 +37,8 @@ class ResellerInvitesTable:
     async def create(self, name, db=None):
         async with get_async_db_context(db) as session:
             row = ResellerInvite(id=str(uuid.uuid4()), name=name.strip(),
-                token=secrets.token_urlsafe(32), enabled=True, created_at=int(time.time()))
+                token=secrets.token_urlsafe(32), short_code=secrets.token_urlsafe(9),
+                enabled=True, created_at=int(time.time()))
             session.add(row)
             await session.commit()
             await session.refresh(row)
@@ -44,13 +46,19 @@ class ResellerInvitesTable:
 
     @staticmethod
     def view(row, customers):
-        return {key: getattr(row, key) for key in ('id', 'name', 'token', 'enabled', 'created_at')} | {'customers': customers}
+        return {key: getattr(row, key) for key in ('id', 'name', 'token', 'short_code', 'enabled', 'created_at')} | {'customers': customers}
 
     async def list(self, db=None):
         async with get_async_db_context(db) as session:
             rows = (await session.execute(select(ResellerInvite, func.count(ResellerCustomer.user_id))
                 .outerjoin(ResellerCustomer, ResellerCustomer.invite_id == ResellerInvite.id)
                 .group_by(ResellerInvite.id).order_by(ResellerInvite.created_at.desc()))).all()
+            # A previous application node can still create a legacy row during rollout.
+            missing = [row for row, _ in rows if not row.short_code]
+            for row in missing:
+                row.short_code = secrets.token_urlsafe(9)
+            if missing:
+                await session.commit()
             return [self.view(row, count) for row, count in rows]
 
     async def set_enabled(self, invite_id, enabled, db=None):
@@ -63,10 +71,24 @@ class ResellerInvitesTable:
         # Existing customers remain attributed even when new signups are disabled.
         return {'success': True}
 
+    async def for_users(self, user_ids, db=None):
+        """Admin-only attribution summary in one query, without invitation secrets."""
+        if not user_ids:
+            return {}
+        async with get_async_db_context(db) as session:
+            rows = (await session.execute(select(ResellerCustomer, ResellerInvite)
+                .outerjoin(ResellerInvite, ResellerInvite.id == ResellerCustomer.invite_id)
+                .where(ResellerCustomer.user_id.in_(user_ids)))).all()
+            return {member.user_id: {'invite_id': member.invite_id,
+                'name': invite.name if invite else '已删除代理',
+                'enabled': invite.enabled if invite else False,
+                'created_at': member.created_at} for member, invite in rows}
+
     async def validate(self, token, db=None):
         async with get_async_db_context(db) as session:
             row = (await session.execute(select(ResellerInvite).where(
-                ResellerInvite.token == token, ResellerInvite.enabled.is_(True)))).scalar_one_or_none()
+                or_(ResellerInvite.token == token, ResellerInvite.short_code == token),
+                ResellerInvite.enabled.is_(True)))).scalar_one_or_none()
             if row is None:
                 raise HTTPException(400, '邀请链接无效或已停用，请联系服务商。')
             return row.id

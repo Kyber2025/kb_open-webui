@@ -316,6 +316,8 @@ async def get_current_user(
     # auth by api key
     if token.startswith('sk-'):
         user = await get_current_user_by_api_key(request, token)
+        from open_webui.utils.reseller_portal import require_portal_user
+        await require_portal_user(request, user)
 
         # Add user info to current span
         if ENABLE_OTEL:
@@ -348,6 +350,8 @@ async def get_current_user(
                 )
 
             user = await Users.get_user_by_id(data['id'])
+            from open_webui.utils.reseller_portal import require_portal_user
+            await require_portal_user(request, user)
             if user is None:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,

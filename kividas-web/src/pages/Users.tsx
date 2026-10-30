@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { api, request } from "../lib/api";
+import { api, request, type ResellerInvite } from "../lib/api";
 import { AdminUsage } from "../components/AdminUsage";
 import { usageWindowDetail } from '../lib/usage';
 import { activeMessages } from "../lib/domain";
@@ -91,6 +91,10 @@ export function Users({ sessionUser }: { sessionUser: User }) {
     [query, setQuery] = useState(""),
     [plan, setPlan] = useState(""),
     [tiers, setTiers] = useState<Tier[]>([]);
+  const [source, setSource] = useState(""),
+    [resellerInviteId, setResellerInviteId] = useState(""),
+    [resellers, setResellers] = useState<ResellerInvite[]>([]),
+    [resellerError, setResellerError] = useState("");
   const [order, setOrder] = useState("created_at"),
     [direction, setDirection] = useState("asc");
   const [loading, setLoading] = useState(true),
@@ -125,6 +129,8 @@ export function Users({ sessionUser }: { sessionUser: User }) {
         direction,
         plan,
         pageSize,
+        source,
+        resellerInviteId,
       );
       if (turn !== revision.current) return;
       setUsers(result.users);
@@ -152,8 +158,14 @@ export function Users({ sessionUser }: { sessionUser: User }) {
       clearTimeout(timer);
       revision.current++;
     };
-  }, [page, pageSize, query, order, direction, plan]);
+  }, [page, pageSize, query, order, direction, plan, source, resellerInviteId]);
+  async function loadResellers() {
+    setResellerError("");
+    try { setResellers(await api.resellerInvites()); }
+    catch (e) { setResellerError(messageOf(e)); }
+  }
   useEffect(() => {
+    void loadResellers();
     api
       .tiers()
       .then((all) => setTiers(all.filter((t) => t.enabled)))
@@ -196,7 +208,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
           <button
             className="icon-btn"
             aria-label="Refresh users"
-            onClick={() => void load()}
+            onClick={() => { void load(); void loadResellers(); }}
           >
             <RefreshCw size={17} />
           </button>
@@ -234,7 +246,21 @@ export function Users({ sessionUser }: { sessionUser: User }) {
             </option>
           ))}
         </select>
+        <select aria-label="筛选注册来源" value={source} onChange={e => {
+          setSource(e.target.value); setResellerInviteId(""); setPage(1);
+        }}>
+          <option value="">全部用户</option>
+          <option value="ordinary">普通用户</option>
+          <option value="reseller">代理邀请用户</option>
+        </select>
+        {source === "reseller" && <select aria-label="筛选代理" value={resellerInviteId} onChange={e => {
+          setResellerInviteId(e.target.value); setPage(1);
+        }}>
+          <option value="">全部代理</option>
+          {resellers.map(item => <option key={item.id} value={item.id}>{item.name}{item.enabled ? "" : "（链接已停用）"}</option>)}
+        </select>}
       </div>
+      {resellerError && <ErrorPanel error={`无法加载代理筛选：${resellerError}`} retry={loadResellers} />}
       {planError && (
         <ErrorPanel
           error={`Could not load plans and usage: ${planError}`}
@@ -263,6 +289,7 @@ export function Users({ sessionUser }: { sessionUser: User }) {
                       </button>
                     </th>
                   ))}
+                  <th>注册来源</th>
                   <th>Plan</th>
                   <th>Usage (5h / week)</th>
                   <th>
@@ -303,6 +330,10 @@ export function Users({ sessionUser }: { sessionUser: User }) {
                       </div>
                     </td>
                     <td className="user-email">{u.email}</td>
+                    <td>{u.reseller ? <div className="user-reseller" title={u.reseller.enabled ? "通过代理邀请注册；价格与购买入口已隐藏" : "邀请链接已停用，客户仍保留代理归属"}>
+                      <span className="reseller-badge">代理邀请</span>
+                      <small>{u.reseller.name}{u.reseller.enabled ? "" : "（链接已停用）"}</small>
+                    </div> : <span className="muted">普通用户</span>}</td>
                     <td>
                       <button
                         className="user-plan"

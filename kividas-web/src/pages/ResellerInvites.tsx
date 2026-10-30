@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ResellerInvite } from "../lib/api";
 import { ErrorPanel, Loading, messageOf, useNotify } from "../components/UI";
+import { resellerInviteLink } from "../lib/reseller-invites";
 
 export function ResellerInvites() {
   const [items, setItems] = useState<ResellerInvite[]>([]);
@@ -9,7 +10,7 @@ export function ResellerInvites() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const notify = useNotify();
-  const link = (token: string) => `${window.location.origin}/auth?invite=${encodeURIComponent(token)}`;
+  const link = (invite: ResellerInvite) => resellerInviteLink(window.location.origin, invite);
   async function load() { setItems(await api.resellerInvites()); }
   useEffect(() => { void load().catch(e => setError(messageOf(e))).finally(() => setLoading(false)); }, []);
   async function run(action: () => Promise<void>) {
@@ -30,8 +31,8 @@ export function ResellerInvites() {
       <div className="section-heading"><div><h3>{item.name}</h3><p>{item.enabled ? "使用中" : "已停用"} · 已注册 {item.customers} 位客户</p></div>
         <button className="btn" disabled={busy} onClick={() => void run(async () => { await api.resellerInviteStatus(item.id, !item.enabled); })}>{item.enabled ? "停用链接" : "启用链接"}</button>
       </div>
-      <label>专属注册链接<input readOnly value={link(item.token)} onFocus={e => e.currentTarget.select()} /></label>
-      <button className="btn" onClick={() => void navigator.clipboard.writeText(link(item.token)).then(() => notify("邀请链接已复制")).catch(e => setError(messageOf(e)))}>复制链接</button>
+      <label>专属注册链接<input readOnly value={link(item)} onFocus={e => e.currentTarget.select()} /></label>
+      <button className="btn" onClick={() => void navigator.clipboard.writeText(link(item)).then(() => notify("邀请链接已复制")).catch(e => setError(messageOf(e)))}>复制链接</button>
     </article>)}
     <p className="muted">停用仅阻止新注册，已注册客户仍由原服务商管理。邀请不会自动开通付费套餐。</p>
   </section>;

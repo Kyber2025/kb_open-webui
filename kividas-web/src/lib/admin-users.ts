@@ -3,6 +3,7 @@ import type { Chat, Tier, User } from "./types";
 import { windowPercent, type UsageWindow, type OfficialUsageMeta } from './usage';
 export type { UsageWindow } from './usage';
 export interface ManagedUser extends User {
+  reseller?: { invite_id: string; name: string; enabled: boolean; created_at: number } | null;
   created_at?: number;
   last_active_at?: number;
   info?: { banned_at?: number; ban_reason?: string; role_before_ban?: string };
@@ -47,9 +48,11 @@ export const usersApi = {
     direction: string,
     plan = "",
     limit = USERS_PAGE_SIZE,
+    source = "",
+    resellerInviteId = "",
   ) =>
     request<{ users: ManagedUser[]; total: number }>(
-      `/api/v1/users/?${new URLSearchParams({ page: String(page), query, order_by: order, direction, limit: String(limit), ...(plan ? { plan } : {}) })}`,
+      `/api/v1/users/?${new URLSearchParams({ page: String(page), query, order_by: order, direction, limit: String(limit), ...(plan ? { plan } : {}), ...(source ? { source } : {}), ...(resellerInviteId ? { reseller_invite_id: resellerInviteId } : {}) })}`,
     ),
   overview: (ids: string[]) =>
     post<{ users: Record<string, UserPlan> }>(
