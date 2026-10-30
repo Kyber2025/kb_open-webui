@@ -10,6 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import aiohttp
 from aiohttp import web
@@ -51,6 +52,13 @@ class UserKyberAccount(Base):
     updated_at = Column(Integer)
 
 
+class ResellerCustomer(Base):
+    __tablename__ = 'reseller_customer'
+    user_id = Column(String, primary_key=True)
+    invite_id = Column(String)
+    created_at = Column(Integer)
+
+
 SOURCE = Path(__file__).parents[1] / 'open_webui/utils/mobile_subscription_auth.py'
 NODES = [n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef)]
 
@@ -68,6 +76,7 @@ class MobileSubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
                 yield session
 
         self.namespace = dict(globals(), get_async_db_context=db_context,
+            ResellerInvites=SimpleNamespace(registration_invite=AsyncMock(return_value=None)),
             UserModel=SimpleNamespace(model_validate=lambda user: SimpleNamespace(id=user.id, role=user.role, email=user.email)),
             get_password_hash=lambda password: 'test-hash:' + password,
             kyber_base=lambda request: self.base)
@@ -157,6 +166,14 @@ class MobileSubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await db.get(UserKyberAccount, first.id)).kyber_user_id, 'gateway-a')
             self.assertTrue((await db.get(Auth, first.id)).active)
 
+    async def test_first_desktop_login_preserves_reserved_invitation(self):
+        self.namespace['ResellerInvites'].registration_invite.return_value = 'reserved-agent'
+        user = await self.resolve({'id':'gateway-invited','email':'invited@example.test'})
+        async with self.sessions() as db:
+            member = await db.get(ResellerCustomer, user.id)
+            self.assertEqual(member.invite_id, 'reserved-agent')
+        self.namespace['ResellerInvites'].registration_invite.assert_awaited_once()
+
     async def test_active_unlinked_ordinary_account_keeps_existing_subscription_owner(self):
         await self.seed(kyber=None)
         self.assertEqual((await self.resolve(self.payload['user'])).id, 'local-a')
@@ -181,7 +198,7 @@ class MobileSubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
         await self.seed(uid='local-b', email='b@example.test')
         await self.reject(self.resolve(self.payload['user']), 409)
 
-    async def test_mobile_scope_is_four_billing_routes_only(self):
+    async def test_mobile_scope_is_billing_routes_only(self):
         tree = ast.parse((SOURCE.parents[1] / 'routers/subscriptions.py').read_text())
         routes = []
         for node in tree.body:
@@ -192,7 +209,8 @@ class MobileSubscriptionAuthTests(unittest.IsolatedAsyncioTestCase):
                         if path.startswith('/mobile/'):
                             routes.append(path)
                             self.assertIn('Depends(get_mobile_subscription_user)', ast.unparse(node.args))
-        self.assertEqual(set(routes), {'/mobile/me','/mobile/tiers','/mobile/tiers/{tier_id}/models','/mobile/redeem'})
+        self.assertEqual(set(routes), {'/mobile/me','/mobile/tiers','/mobile/tiers/{tier_id}/models','/mobile/redeem',
+            '/mobile/chains','/mobile/checkout','/mobile/subscribe','/mobile/order/{order_id}'})
 
 
 if __name__ == '__main__':

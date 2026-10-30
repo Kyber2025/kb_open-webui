@@ -15,6 +15,7 @@ from open_webui.internal.db import get_async_db_context
 from open_webui.models.auths import Auth
 from open_webui.models.kyber_accounts import UserKyberAccount
 from open_webui.models.users import User, UserModel
+from open_webui.models.reseller_invites import ResellerInvites, ResellerCustomer
 from open_webui.utils.auth import get_password_hash
 from open_webui.utils.kyber import kyber_base
 
@@ -76,6 +77,7 @@ async def resolve_billing_user(identity: dict):
                     raise HTTPException(409, '订阅账号关联异常，请联系客服。')
             else:
                 now = int(time.time())
+                invite_id = await ResellerInvites.registration_invite(email, db=db)
                 user = User(id=str(uuid.uuid4()), email=email, role='user',
                             name=str(identity.get('name') or email.split('@')[0]),
                             profile_image_url='/user.png', created_at=now,
@@ -83,6 +85,8 @@ async def resolve_billing_user(identity: dict):
                 db.add(user)
                 db.add(Auth(id=user.id, email=email, active=True,
                             password=get_password_hash(str(uuid.uuid4()))))
+                if invite_id:
+                    db.add(ResellerCustomer(user_id=user.id, invite_id=invite_id, created_at=now))
             now = int(time.time())
             db.add(UserKyberAccount(user_id=user.id, kyber_user_id=kyber_id,
                                    kyber_email=email, extra_usage_enabled=False,
