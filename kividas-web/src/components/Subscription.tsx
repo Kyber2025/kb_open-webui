@@ -6,19 +6,19 @@ import "./subscription.css";
 
 type SubscriptionState = { tier?: Tier | null; expires_at?: number | null; subscription?: { tier_id: string; expires_at?: number } | null };
 const gift = new URL("./kividas-redeem-gift.png", import.meta.url).href;
-function SubscriptionFrame({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+function SubscriptionFrame({ title, children, onClose, models = false }: { title: string; children: ReactNode; onClose: () => void; models?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
   useEffect(() => { const element = dialog.current; element?.showModal(); return () => element?.close(); }, []);
-  return <dialog ref={dialog} className="kvs-dialog" aria-labelledby={id}
+  return <dialog ref={dialog} className={`kvs-dialog ${models ? "kvs-models-dialog" : ""}`} aria-labelledby={id}
     onCancel={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
     onClick={(e) => {
       if (e.target !== dialog.current) return;
       const bounds = e.currentTarget.getBoundingClientRect();
       if (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) onClose();
     }}>
-    <header className="kvs-header"><div><div className="kvs-eyebrow">KIVIDAS</div><h2 className="kvs-title" id={id}>{title}</h2></div>
-      <button type="button" className="kvs-close" aria-label="Close subscription" onClick={onClose}>×</button>
+    <header className="kvs-header"><div>{!models && <div className="kvs-eyebrow">KIVIDAS</div>}<h2 className="kvs-title" id={id}>{title}</h2></div>
+      <button type="button" className="kvs-close" aria-label={models ? "Close models" : "Close subscription"} onClick={onClose}>×</button>
     </header>
     <div className="kvs-body">{children}</div>
   </dialog>;
