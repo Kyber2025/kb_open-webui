@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Copy, Download, Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import type { ManagedUser } from '../lib/admin-users';
-import { desktopKeysApi, desktopKeyStatus, downloadDesktopClientText, DESKTOP_INSTALLATION_HEADER, validDesktopConcurrency, type DesktopKeys, type DesktopKey } from '../lib/desktop-keys';
+import { desktopKeysApi, desktopKeyStatus, desktopDevicePolicyText, downloadDesktopClientText, DESKTOP_INSTALLATION_HEADER, validDesktopConcurrency, type DesktopKeys, type DesktopKey } from '../lib/desktop-keys';
 import { Modal, Loading, ErrorPanel, messageOf, useNotify } from './UI';
 import { useKeyRefresh } from '../lib/use-key-refresh';
 
@@ -87,7 +87,7 @@ export function DesktopKeysModal({ user, onClose }: { user: ManagedUser; onClose
       {data && <>
         <button className="btn primary" disabled={busy || !data.eligible || active >= data.policy.maxActiveKeys} onClick={() => void generate()}><Plus size={16}/>生成 Key</button>
         {!data.eligible && <p className="muted">{data.reason}</p>}
-        <p className="muted">每个订阅账号仅限一台设备，最多保留 {data.policy.maxActiveKeys} 个有效 Key。{active >= data.policy.maxActiveKeys && '更换电脑请先停用旧 Key，再生成新资料。'}</p>
+        <p className="muted">{desktopDevicePolicyText(data.policy)}{active >= data.policy.maxActiveKeys && '更换电脑请先停用旧 Key，再生成新资料。'}</p>
         <div className="desktop-key-list">{data.keys.map(key => <article key={key.id}>
           <div className="row between"><strong>Key ···{key.suffix}</strong><div className="row"><span className="badge">{desktopKeyStatus(key)}</span><button className="icon-btn danger" title="删除 Key" aria-label={`删除 Key ···${key.suffix}`} disabled={busy} onClick={() => setConfirm({id: key.id, action: 'delete'})}><Trash2 size={16}/></button></div></div>
           <p className="muted">{key.label}</p>

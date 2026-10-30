@@ -2,15 +2,15 @@ import { request } from './api';
 export interface DesktopKey {
   id: string; label: string; suffix: string; createdAt: string; expiresAt: string | null;
   concurrentLimit: number; canReveal: boolean; lastRevealedAt: string | null;
-  installationId: string | null;
+  installationId: string | null; planLimitExceeded?: boolean;
   revokedAt: string | null; revokeReason: string | null; boundAt: string | null; lastUsedAt: string | null;
 }
 export interface DesktopKeys {
   eligible: boolean; reason: string | null;
-  policy: { maxActiveKeys: number; requestsPerMinute: number; concurrentPerKey: number; concurrentPerUser: number; networksPerHour: number };
+  policy: { maxActiveKeys: number; maxDevices?: number; requestsPerMinute: number; concurrentPerKey: number; concurrentPerUser: number; networksPerHour: number };
   keys: DesktopKey[];
 }
-export interface CreatedDesktopKey { key: DesktopKey; token: string; gatewayUrl: string; usageUrl: string }
+export interface CreatedDesktopKey { key: DesktopKey; token: string; gatewayUrl: string; usageUrl: string; policy?: Pick<DesktopKeys['policy'], 'maxActiveKeys' | 'maxDevices'> }
 const path = (id: string) => `/api/v1/kyber/admin/users/${encodeURIComponent(id)}/desktop-keys`;
 export const desktopKeysApi = {
   list: (id: string) => request<DesktopKeys>(path(id)),
@@ -21,7 +21,10 @@ export const desktopKeysApi = {
   delete: (id: string, keyId: string) => request<{ok: boolean}>(`${path(id)}/${encodeURIComponent(keyId)}/delete`, { method: 'POST' }),
 };
 export function desktopKeyStatus(key: DesktopKey, now = Date.now()) {
-  return key.revokedAt ? '已停用' : (!key.expiresAt || new Date(key.expiresAt).getTime() <= now) ? '订阅已到期' : key.boundAt ? '已绑定电脑' : '等待首次使用';
+  return key.revokedAt ? '已停用' : (!key.expiresAt || new Date(key.expiresAt).getTime() <= now) ? '订阅已到期' : key.planLimitExceeded ? '超出当前档位上限' : key.boundAt ? '已绑定电脑' : '等待首次使用';
+}
+export function desktopDevicePolicyText(policy: Pick<DesktopKeys['policy'], 'maxActiveKeys' | 'maxDevices'>) {
+  return `当前订阅最多保留 ${policy.maxActiveKeys} 个有效 Key，可用于 ${policy.maxDevices ?? policy.maxActiveKeys} 台电脑。每个 Key 仅绑定一台电脑，不同电脑请使用各自的 Key 和安装识别码。`;
 }
 export const DESKTOP_INSTALLATION_HEADER = 'X-Kividas-Device-ID';
 export function desktopClientText(created: CreatedDesktopKey, email: string, password = '') {
@@ -43,7 +46,8 @@ Gateway API key：${created.token}
 保存后完全退出 Claude，再重新打开。不要只关闭窗口。
 Mac：Claude → Quit Claude（或按 ⌘Q）。
 Windows：左上角 ≡ → File → Exit。
-每个订阅账号仅限一台设备，只能保留一个有效 Key。此 Key 和安装识别码可重复下载，在同一台电脑沿用；更换设备请联系管理员先停用旧 Key，再生成新资料。
+${desktopDevicePolicyText(created.policy ?? { maxActiveKeys: 1 })}
+此 Key 和安装识别码可重复下载，在同一台电脑沿用；名额已满时，更换设备请联系管理员先停用旧 Key，再生成新资料。
 
 三、Kividas 网页登录资料与用量
 登录网址：${created.usageUrl}
