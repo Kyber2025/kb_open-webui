@@ -29,13 +29,14 @@ import {
 } from "../lib/skills";
 import { ModelPicker } from "../components/ModelPicker";
 import { UsageRing } from "../components/UsageRing";
-import { ReplyStatus, useCitationCard } from "../components/ReplyStatus";
-import { citationExtension, citationList } from "../lib/reply-status";
+import { WorkingStatus, useCitationCard } from "../components/ReplyStatus";
+import { citationExtension, citationList, replyText, workingLabel } from "../lib/reply-status";
 import {
   effortOptions,
   modelLabel,
   reasoningParams,
   supportsEffort,
+  toolParams,
   validEffort,
   type Effort,
 } from "../lib/model-menu";
@@ -423,27 +424,32 @@ export function ChatPage({
               : []),
             ...next
               .filter((m) => m.id !== assistant.id)
-              .map((m) => ({
-                role: m.role,
-                content: m.files?.some((f) => f.type === "image")
-                  ? [
-                      { type: "text", text: m.content },
-                      ...m.files
-                        .filter((f) => f.type === "image")
-                        .map((f) => ({
-                          type: "image_url",
-                          image_url: { url: f.url },
-                        })),
-                    ]
-                  : m.content,
-              })),
+              .map((m) => {
+                // Earlier replies go back as their text only, without tool calls and results.
+                const text = m.role === "assistant" ? replyText(m) : m.content;
+                return {
+                  role: m.role,
+                  content: m.files?.some((f) => f.type === "image")
+                    ? [
+                        { type: "text", text },
+                        ...m.files
+                          .filter((f) => f.type === "image")
+                          .map((f) => ({
+                            type: "image_url",
+                            image_url: { url: f.url },
+                          })),
+                      ]
+                    : text,
+                };
+              }),
           ],
           files: next
             .flatMap((m) => m.files ?? [])
             .filter((f) => f.type === "file"),
-          // Always on: the server's query generator decides per message whether to search.
+          // Always on. Claude in a saved chat decides by itself whether to search;
+          // otherwise the server's query generator decides per message.
           features: { web_search: !!config.features?.enable_web_search, memory },
-          params: reasoningParams(selected, effort),
+          params: { ...reasoningParams(selected, effort), ...toolParams(selected, keepHistory) },
           skill_ids: selectedSkillIds(chosenSkills, skills),
           tool_ids: chosenTools,
           ...(keepHistory
@@ -595,7 +601,11 @@ export function ChatPage({
               </div>
             ) : (
               <div className="messages">
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  const text = m.role === "assistant" ? replyText(m) : m.content;
+                  const working =
+                    busy && i === messages.length - 1 && m.role === "assistant" ? workingLabel(m) : null;
+                  return (
                   <article className={`message ${m.role}`} key={m.id}>
                     <div className="message-body">
                       {m.files?.length ? (
@@ -612,24 +622,17 @@ export function ChatPage({
                           )}
                         </div>
                       ) : null}
-                      {m.role === "assistant" && (
-                        <ReplyStatus
-                          history={m.statusHistory}
-                          live={busy && i === messages.length - 1}
-                          waiting={busy && i === messages.length - 1 && !m.content}
-                          startedAt={m.timestamp}
-                        />
-                      )}
-                      {m.content ? <Markdown text={m.content} sources={m.sources} /> : null}
+                      {text ? <Markdown text={text} sources={m.sources} /> : null}
+                      {working !== null && <WorkingStatus label={working} startedAt={m.timestamp} />}
                       {m.error && <p className="error" role="alert">{typeof m.error === "string" ? m.error : m.error.content || m.error.message || "Unable to complete this response."}</p>}
-                      {m.role === "assistant" && m.content && (
+                      {m.role === "assistant" && text && (
                         <div className="message-actions">
                           <button
                             className="icon-btn"
                             aria-label="Copy response"
                             onClick={() =>
                               navigator.clipboard
-                                .writeText(m.content)
+                                .writeText(text)
                                 .then(() => notify("Response copied"))
                                 .catch((e) => notify(messageOf(e), true))
                             }
@@ -644,7 +647,8 @@ export function ChatPage({
                       )}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
                 <div ref={bottom} />
               </div>
             )}

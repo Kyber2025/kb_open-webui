@@ -3,6 +3,7 @@ import {
   modelLabel,
   primaryModels,
   reasoningParams,
+  toolParams,
   validEffort,
 } from "../src/lib/model-menu";
 import { complete } from "../src/lib/api";
@@ -31,6 +32,13 @@ describe("model and effort selection", () => {
   });
   it("falls back safely for invalid saved effort values", () =>
     expect(validEffort("ultra")).toBe("medium"));
+  it("lets Claude decide when to search only in saved chats", () => {
+    expect(toolParams(opus, true)).toEqual({ function_calling: "native" });
+    expect(toolParams({ id: "claude-fable-5-1", name: "Claude Fable 5.1" }, true)).toEqual({ function_calling: "native" });
+    expect(toolParams(opus, false)).toEqual({});
+    expect(toolParams({ id: "gpt-5", name: "GPT-5" }, true)).toEqual({});
+    expect(toolParams(undefined, true)).toEqual({});
+  });
   it("maps the Extra label to the gateway's xhigh value", () =>
     expect(reasoningParams(opus, "xhigh")).toEqual({
       reasoning_effort: "xhigh",

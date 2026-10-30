@@ -48,6 +48,29 @@ describe("production saved-chat transport", () => {
     expect(seen[2]).toEqual({ sources: [{ source: { name: "q" }, document: ["d"], metadata: [{ source: "https://a.test" }] }] });
     expect(seen[3].content).toBe("Answer [1]");
   });
+  it("keeps the model's own tool calls and collects the sources they found", async () => {
+    const seen: any[] = [];
+    const output = [
+      { type: "function_call", call_id: "c1", name: "search_web", arguments: '{"query":"深圳天气"}', status: "completed" },
+      { type: "function_call_output", call_id: "c1", output: [{ type: "input_text", text: "[]" }] },
+      { type: "message", content: [{ type: "output_text", text: "多云 [1]" }] },
+    ];
+    const page = (url: string) => ({ source: { name: "search_web", id: "search_web" }, document: ["t"], metadata: [{ source: url, name: "T", url }] });
+    fetchMock.mockImplementationOnce(async () => {
+      event("chat:completion", { content: '<details type="tool_calls" done="false">', output: output.slice(0, 1) });
+      event("source", page("https://a.test"));
+      event("source", page("https://b.test"));
+      event("source", { type: "code_execution", data: {} });
+      event("chat:completion", { content: "多云 [1]", output });
+      return json(null);
+    }).mockResolvedValueOnce(saved({ content: "多云 [1]", output, done: true }));
+    await complete(payload, new AbortController().signal, vi.fn(), (m) => seen.push(m));
+    expect(seen[0].output).toHaveLength(1);
+    expect(seen[1].sources.map((s: any) => s.metadata[0].source)).toEqual(["https://a.test"]);
+    expect(seen[2].sources.map((s: any) => s.metadata[0].source)).toEqual(["https://a.test", "https://b.test"]);
+    expect(seen).toHaveLength(5);
+    expect(seen.at(-1).output).toEqual(output);
+  });
   it("recovers the saved reply if the websocket is unavailable", async () => {
     fetchMock.mockResolvedValueOnce(json(null)).mockResolvedValueOnce(saved({ content: "Recovered reply", done: true }));
     const delta = vi.fn();

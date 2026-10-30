@@ -123,6 +123,8 @@ from open_webui.utils.tools import (
     get_terminal_tools,
     get_tools,
     get_updated_tool_function,
+    is_builtin_category_enabled,
+    KIVIDAS_CHAT_TOOLS_PROMPT,
 )
 from open_webui.utils.webhook import post_webhook
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -2590,14 +2592,21 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     form_data['messages'],
                 )
 
+        # A feature skips its forced handler only when native FC actually offers the
+        # model that builtin category as a tool; otherwise it keeps working as before.
+        def native_tool(category: str) -> bool:
+            return metadata.get('params', {}).get('function_calling') == 'native' and is_builtin_category_enabled(
+                model, category
+            )
+
         if 'memory' in features and features['memory']:
             # Skip forced memory injection when native FC is enabled - model can use memory tools
-            if metadata.get('params', {}).get('function_calling') != 'native':
+            if not native_tool('memory'):
                 form_data = await chat_memory_handler(request, form_data, extra_params, user)
 
         if 'web_search' in features and features['web_search']:
             # Skip forced RAG web search when native FC is enabled - model can use web_search tool
-            if metadata.get('params', {}).get('function_calling') != 'native':
+            if not native_tool('web_search'):
                 form_data = await chat_web_search_handler(request, form_data, extra_params, user)
 
         if 'image_generation' in features and features['image_generation']:
@@ -2613,7 +2622,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 or 'imagine-video' in _sel_model
                 or _sel_model.endswith('-image')
             )
-            if metadata.get('params', {}).get('function_calling') != 'native' and not _is_image_model:
+            if not native_tool('image_generation') and not _is_image_model:
                 form_data = await chat_image_generation_handler(request, form_data, extra_params, user)
 
         if 'code_interpreter' in features and features['code_interpreter']:
@@ -2621,7 +2630,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
             # Skip XML-tag prompt injection when native FC is enabled —
             # execute_code will be injected as a builtin tool instead
-            if metadata.get('params', {}).get('function_calling') != 'native':
+            if not native_tool('code_interpreter'):
                 prompt = (
                     request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE
                     if request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE != ''
@@ -2900,6 +2909,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             for name, tool_dict in builtin_tools.items():
                 if name not in tools_dict:
                     tools_dict[name] = tool_dict
+            if 'search_web' in builtin_tools:
+                form_data['messages'] = add_or_update_system_message(
+                    KIVIDAS_CHAT_TOOLS_PROMPT,
+                    form_data['messages'],
+                    append=True,
+                )
 
         if tools_dict:
             # Always store resolved tools in metadata so downstream consumers

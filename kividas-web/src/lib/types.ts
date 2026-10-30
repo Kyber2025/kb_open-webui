@@ -111,7 +111,17 @@ export interface MessageStatus {
 export interface MessageSource {
   source?: { id?: string; name?: string; type?: string; urls?: string[] };
   document?: string[];
-  metadata?: { source?: string; title?: string; description?: string }[];
+  metadata?: { source?: string; title?: string; name?: string; url?: string; description?: string }[];
+}
+/** The server's ordered reply items: text, the model's tool calls and their results. */
+export interface OutputItem {
+  type?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  status?: string;
+  content?: { type?: string; text?: string }[];
+  output?: { type?: string; text?: string }[];
 }
 export interface Message {
   id: string;
@@ -126,6 +136,7 @@ export interface Message {
   files?: Attachment[];
   statusHistory?: MessageStatus[];
   sources?: MessageSource[];
+  output?: OutputItem[];
 }
 export interface ChatData {
   skill_ids?: string[];

@@ -223,6 +223,28 @@ export function demoBackend(): Plugin {
       ];
       const searchReply =
         "深圳今天多云间晴，气温 25–31°C，降水概率约 5% [1]。\n\n周末仍以多云为主，最高 30°C 左右，基本不会下雨 [1][2]。早晚体感舒适，白天注意防晒。";
+      // A saved Claude chat: the model answered "hi" directly, then searched and read a page by itself.
+      const found = [
+        { title: "深圳天气预报,深圳7天天气预报,深圳15天天气预报 - 中国天气网", link: weatherUrl, snippet: "今天多云间晴，25–31°C。" },
+        { title: "Shenzhen, Guangdong, China Weather Forecast | AccuWeather", link: accuUrl, snippet: "Partly sunny, high 31°C." },
+        { title: "9-day Weather Forecast | Hong Kong Observatory", link: hkoUrl, snippet: "Mainly fine." },
+      ];
+      const said = (text: string) => ({ type: "message", content: [{ type: "output_text", text }] });
+      const toolOutput = [
+        { type: "function_call", call_id: "toolu_demo1", name: "search_web", arguments: JSON.stringify({ query: "深圳天气 今天" }), status: "completed" },
+        { type: "function_call_output", call_id: "toolu_demo1", output: [{ type: "input_text", text: JSON.stringify(found) }], status: "completed" },
+        { type: "function_call", call_id: "toolu_demo2", name: "fetch_url", arguments: JSON.stringify({ url: weatherUrl }), status: "completed" },
+        { type: "function_call_output", call_id: "toolu_demo2", output: [{ type: "input_text", text: "深圳 今天 多云间晴 25/31℃" }], status: "completed" },
+        said(searchReply),
+      ];
+      const toolSources = [
+        {
+          source: { name: "search_web", id: "search_web" },
+          document: found.map((r) => `${r.title}\n${r.snippet}`),
+          metadata: found.map((r) => ({ source: r.link, name: r.title, url: r.link })),
+        },
+        { source: { name: weatherUrl, id: weatherUrl }, document: ["深圳 今天 多云间晴 25/31℃"], metadata: [{ source: weatherUrl, name: weatherUrl, url: weatherUrl }] },
+      ];
       let chats: Chat[] = [
         {
           id: "demo-search",
@@ -232,9 +254,33 @@ export function demoBackend(): Plugin {
             title: "深圳天气",
             models: [models[0].id],
             messages: [
+              { id: "demo-s0", role: "user", content: "hi" },
+              { id: "demo-s0a", role: "assistant", content: "Hi! How can I help you today?", output: [said("Hi! How can I help you today?")] },
               { id: "demo-s1", role: "user", content: "深圳今天天气怎么样？" },
               {
                 id: "demo-s2",
+                role: "assistant",
+                content:
+                  '<details type="tool_calls" done="true" id="toolu_demo1" name="search_web">\n<summary>Tool Executed</summary>\n</details>\n' +
+                  '<details type="tool_calls" done="true" id="toolu_demo2" name="fetch_url">\n<summary>Tool Executed</summary>\n</details>\n' +
+                  searchReply,
+                output: toolOutput,
+                sources: toolSources,
+              },
+            ],
+          },
+        },
+        {
+          id: "demo-search-step",
+          title: "深圳天气（服务器搜索）",
+          updated_at: 1780000050,
+          chat: {
+            title: "深圳天气（服务器搜索）",
+            models: [models[0].id],
+            messages: [
+              { id: "demo-t1", role: "user", content: "深圳今天天气怎么样？" },
+              {
+                id: "demo-t2",
                 role: "assistant",
                 content: searchReply,
                 statusHistory: searchStatus,

@@ -1,16 +1,14 @@
-/* Reply status rows, search steps and source pills, matched to claude.ai (10-30). */
+/* Reply working row and source pills, matched to claude.ai (10-30). */
 :root { --status-ink: #6b6a64; --status-peak: #d3d2cc; --working-dot: #d97757; --pill-bg: #f9f9f8; --pill-line: #00000014; }
 :root[data-theme="dark"] { --status-ink: #b7b6ad; --status-peak: #f7f6ef; --pill-bg: #ffffff0d; --pill-line: #ffffff1f; }
 
 .reply-status { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: -2px 0 10px; }
 .reply-status:has(+ .error) { margin-bottom: 4px; }
-.reply-status-line { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 28px; padding: 0; border: 0; background: none; color: var(--status-ink); font: inherit; font-size: 15px; line-height: 21px; text-align: start; }
-button.reply-status-line { cursor: pointer; }
-button.reply-status-line:hover, button.reply-status-line:focus-visible { color: var(--ink); }
+/* A search the model starts after writing some of its reply. */
+.markdown + .reply-status { margin-top: 12px; }
+.reply-status-line { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 28px; color: var(--status-ink); font-size: 15px; line-height: 21px; }
 .reply-status-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reply-status-elapsed { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
-.reply-caret { flex: none; width: 6px; height: 8px; margin-left: -2px; transition: transform 0.15s ease; }
-[aria-expanded="true"] > .reply-caret { transform: rotate(90deg); }
 
 .working-dots { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 2.5px; width: 20px; height: 21px; margin-right: 4px; }
 .working-dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--working-dot); opacity: 0.2857; animation: working-dot 1.8s linear infinite; }
@@ -31,18 +29,6 @@ button.reply-status-line:hover, button.reply-status-line:focus-visible { color: 
   .working-dots i { opacity: 0.7; }
 }
 
-.reply-steps { width: 100%; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 14px; line-height: 20px; }
-.reply-step { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; background: none; color: var(--status-ink); font: inherit; text-align: start; cursor: pointer; }
-.reply-step:disabled { cursor: default; color: var(--status-ink); }
-.reply-step > span { flex: none; white-space: nowrap; }
-.reply-step:not(:disabled):hover strong { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
-.reply-step strong { min-width: 0; overflow: hidden; color: var(--ink); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.reply-results { margin: 0 12px 12px; padding: 4px; border-radius: 8px; background: var(--soft); font-size: 13px; line-height: 17px; }
-.reply-results > span { display: block; padding: 4px 6px 2px; color: var(--status-ink); }
-.reply-result { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px; border-radius: 4px; color: var(--ink); text-decoration: none; }
-.reply-result:hover { background: var(--hover); }
-.reply-result-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reply-result-host { max-width: min(180px, 34vw); overflow: hidden; padding-left: 12px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .favicon { display: block; flex: none; width: 16px; height: 16px; object-fit: contain; color: var(--muted); }
 
 .markdown .citation { display: inline-flex; align-items: center; max-width: 180px; height: 18px; margin: 0 2px; padding: 0 6px; overflow: hidden; vertical-align: baseline; transform: translateY(-1px); border: 0.5px solid var(--pill-line); border-radius: 999px; background: var(--pill-bg); color: var(--status-ink); font-size: 12px; font-weight: 400; line-height: 17px; text-decoration: none; white-space: nowrap; transition: background-color 0.15s, color 0.15s; }

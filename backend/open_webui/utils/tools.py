@@ -427,6 +427,31 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
     return tools_dict
 
 
+# Kividas Chat gives models web search only, the way Kividas Code's Chat does. Other
+# builtin categories stay off unless a model turns them on in meta.builtinTools;
+# KIVIDAS_BUILTIN_TOOLS widens the default ('*' restores upstream's all-on behaviour).
+KIVIDAS_BUILTIN_TOOLS = frozenset(
+    name.strip() for name in os.environ.get('KIVIDAS_BUILTIN_TOOLS', 'web_search').split(',') if name.strip()
+)
+
+
+# Sent with the search tools. The gateway runs Claude under a Claude Code identity, and
+# with tools in hand models otherwise greet chat users as a coding CLI.
+KIVIDAS_CHAT_TOOLS_PROMPT = (
+    'You are Claude, an AI assistant made by Anthropic, chatting with the user in Kividas Chat - '
+    'a general chat app, not a coding tool or terminal. Reply naturally in the user\'s language. '
+    'You can call search_web and fetch_url: use them only when the question needs current, local or '
+    'external facts you do not reliably know - never for greetings, small talk or anything you can '
+    'answer from knowledge.'
+)
+
+
+def is_builtin_category_enabled(model: Optional[dict], category: str) -> bool:
+    """Whether native function calling offers this builtin tool category to the model."""
+    builtin_tools = (((model or {}).get('info') or {}).get('meta') or {}).get('builtinTools') or {}
+    return builtin_tools.get(category, '*' in KIVIDAS_BUILTIN_TOOLS or category in KIVIDAS_BUILTIN_TOOLS)
+
+
 async def get_builtin_tools(
     request: Request, extra_params: dict, features: dict = None, model: dict = None
 ) -> dict[str, dict]:
@@ -444,10 +469,9 @@ async def get_builtin_tools(
         return (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get(name, default)
 
     # Helper to check if a builtin tool category is enabled via meta.builtinTools
-    # Defaults to True if not specified (backward compatible)
+    # (defaults to KIVIDAS_BUILTIN_TOOLS when the model does not say)
     def is_builtin_tool_enabled(category: str) -> bool:
-        builtin_tools = model.get('info', {}).get('meta', {}).get('builtinTools', {})
-        return builtin_tools.get(category, True)
+        return is_builtin_category_enabled(model, category)
 
     # Helper to check user-level feature permission (admins always pass)
     user = extra_params.get('__user__', {})

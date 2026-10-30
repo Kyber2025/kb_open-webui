@@ -11,6 +11,7 @@ import type {
   GuestConfig,
   Model,
   Message,
+  MessageSource,
   MessageStatus,
   Tier,
   SubscriptionCheckout,
@@ -247,8 +248,10 @@ export async function complete(
   let content = "";
   let eventError: Error | undefined;
   let statuses: MessageStatus[] = [];
+  let sources: MessageSource[] = [];
   const delta = (text: string) => { content += text; onDelta(text); };
   const snapshot = (message: Partial<Message>) => {
+    if (Array.isArray(message.sources)) sources = message.sources;
     if (typeof message.content === "string") {
       if (onMessage) onMessage(message);
       else if (message.content.startsWith(content)) onDelta(message.content.slice(content.length));
@@ -262,11 +265,15 @@ export async function complete(
         if (type === "chat:completion") {
           if (typeof data?.content === "string") snapshot(data);
           else if (typeof data?.choices?.[0]?.delta?.content === "string") delta(data.choices[0].delta.content);
-          else if (Array.isArray(data?.sources)) onMessage?.({ sources: data.sources });
+          else if (Array.isArray(data?.sources)) onMessage?.({ sources: (sources = data.sources) });
           if (data?.error) eventError = new Error(errorText(data));
         } else if (type === "status") {
           // Web search and retrieval progress; the saved message keeps the same list.
           if (data && typeof data === "object") onMessage?.({ statusHistory: (statuses = [...statuses, data]) });
+        } else if (type === "source" || type === "citation") {
+          // Pages the model's own searches found arrive one source at a time; the
+          // server appends each to the saved message the same way.
+          if (data && typeof data === "object" && !data.type) onMessage?.({ sources: (sources = [...sources, data]) });
         } else if (type === "chat:message:error") {
           snapshot({ error: data?.error });
         } else if (type === "chat:message:delta" || type === "message") {

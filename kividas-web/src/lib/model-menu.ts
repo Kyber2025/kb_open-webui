@@ -56,3 +56,12 @@ export function supportsEffort(model: Model | undefined) {
 export function reasoningParams(model: Model | undefined, effort: Effort) {
   return supportsEffort(model) ? { reasoning_effort: effort } : {};
 }
+/**
+ * Claude models choose for themselves when to search, through native tool calls,
+ * the way Kividas Code's Chat does. The server only runs tools for saved chats,
+ * whose replies stream over the socket; other models and temporary chats keep
+ * the server's per-message search step.
+ */
+export function toolParams(model: Model | undefined, saved: boolean) {
+  return saved && model && family(model) ? { function_calling: "native" } : {};
+}

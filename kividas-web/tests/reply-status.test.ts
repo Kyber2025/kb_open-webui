@@ -3,10 +3,14 @@ import { Marked } from "marked";
 import {
   citationExtension,
   citationList,
+  replyParts,
+  replyText,
   siteName,
   statusView,
+  workingLabel,
+  type ToolStep,
 } from "../src/lib/reply-status";
-import type { MessageSource, MessageStatus } from "../src/lib/types";
+import type { MessageSource, MessageStatus, OutputItem } from "../src/lib/types";
 
 const searching: MessageStatus = { action: "web_search", description: "Searching the web", done: false };
 const queries: MessageStatus = { action: "web_search_queries_generated", queries: ["深圳天气预报", "Shenzhen weather"], done: false };
@@ -50,6 +54,77 @@ describe("status line", () => {
   it("labels other server steps from their action or description", () => {
     expect(statusView([{ action: "sources_retrieved", count: 1, done: true }])?.label).toBe("Retrieved 1 source");
     expect(statusView([{ description: "Creating image", done: false }])).toMatchObject({ label: "Creating image", running: true });
+  });
+});
+
+const call = (id: string, name: string, args: object, status = "completed"): OutputItem => ({
+  type: "function_call", call_id: id, name, arguments: JSON.stringify(args), status,
+});
+const result = (id: string, text: string): OutputItem => ({
+  type: "function_call_output", call_id: id, output: [{ type: "input_text", text }],
+});
+const say = (text: string): OutputItem => ({ type: "message", content: [{ type: "output_text", text }] });
+const found = JSON.stringify([
+  { title: "深圳天气预报", link: "https://www.weather.com.cn/sz", snippet: "多云" },
+  { title: "", link: "https://example.org/a", snippet: "" },
+  { title: "bad", link: "javascript:alert(1)" },
+]);
+describe("searches the model makes itself", () => {
+  it("leaves replies without tool calls on the content path", () => {
+    expect(replyParts(undefined)).toBeNull();
+    expect(replyParts([say("Hi! How can I help you today?")])).toBeNull();
+  });
+
+  it("keeps text and back-to-back tool calls in order", () => {
+    const parts = replyParts([
+      say("Let me check."),
+      call("a", "search_web", { query: "深圳天气" }), call("b", "fetch_url", { url: "https://wttr.in/Shenzhen?format=j1" }),
+      result("a", found), result("b", "{}"), say(""),
+      call("c", "fetch_url", { url: "https://www.weather.com.cn/sz" }, "in_progress"),
+    ])!;
+    expect(parts.map((p) => p.kind)).toEqual(["text", "tools"]);
+    expect((parts[1] as { steps: ToolStep[] }).steps.map((s) => [s.kind, s.detail, s.done])).toEqual([
+      ["search", "深圳天气", true], ["fetch", "https://wttr.in/Shenzhen?format=j1", true], ["fetch", "https://www.weather.com.cn/sz", false],
+    ]);
+  });
+
+  it("shows only the step that is running and leaves no record once it is done", () => {
+    expect(workingLabel({ output: [call("a", "search_web", { query: "深圳天气" }, "in_progress")] })).toBe("Searching for 深圳天气");
+    expect(workingLabel({ output: [call("a", "fetch_url", { url: "https://www.bbc.co.uk/news" }, "in_progress")] })).toBe("Reading bbc.co.uk");
+    expect(workingLabel({ output: [call("a", "notion_search", {}, "in_progress")] })).toBe("Using notion_search");
+    // Searched, answer not started yet: dots alone.
+    expect(workingLabel({ output: [call("a", "search_web", { query: "q" }), result("a", found), say("")] })).toBe("");
+    // Answer streaming: no row and no "Searched the web".
+    expect(workingLabel({ output: [call("a", "search_web", { query: "q" }), result("a", found), say("今天多云")] })).toBeNull();
+  });
+
+  it("treats the server's own search step the same way", () => {
+    const done: MessageStatus = { action: "sources_retrieved", count: 3, done: true };
+    expect(workingLabel({ statusHistory: [searching, queries] })).toBe("Searching for 深圳天气预报");
+    expect(workingLabel({ statusHistory: [searching, queries, searched, done] })).toBe("");
+    expect(workingLabel({ statusHistory: [searching, queries, searched, done], content: "Answer [1]" })).toBeNull();
+    expect(workingLabel({ content: "" })).toBe("");
+  });
+
+  it("copies and resends only the reply's own words", () => {
+    expect(replyText({ output: [call("a", "search_web", { query: "q" }), result("a", found), say("今天多云 [1]。"), say("出门带伞。")] })).toBe("今天多云 [1]。\n\n出门带伞。");
+    expect(replyText({ content: '<details type="tool_calls" done="true" id="a" name="search_web" arguments="&quot;{}&quot;">\n<summary>Tool Executed</summary>\n&quot;[]&quot;\n</details>\n今天多云。' })).toBe("今天多云。");
+    expect(replyText({ content: "Plain **answer**" })).toBe("Plain **answer**");
+  });
+
+  it("numbers the search tool's sources and names them by page title", () => {
+    const found: MessageSource[] = [
+      { source: { name: "search_web", id: "search_web" }, document: ["a", "b"], metadata: [
+        { source: "https://www.weather.com.cn/sz", name: "深圳天气预报", url: "https://www.weather.com.cn/sz" },
+        { source: "https://example.org/a", name: "", url: "https://example.org/a" },
+      ] },
+      { source: { name: "https://wttr.in/x", id: "https://wttr.in/x" }, document: ["c"], metadata: [{ source: "https://wttr.in/x", name: "https://wttr.in/x", url: "https://wttr.in/x" }] },
+    ];
+    expect(citationList(found)).toEqual([
+      { n: 1, title: "深圳天气预报", site: "weather", url: "https://www.weather.com.cn/sz", host: "weather.com.cn" },
+      { n: 2, title: "example.org", site: "example", url: "https://example.org/a", host: "example.org" },
+      { n: 3, title: "wttr.in", site: "wttr", url: "https://wttr.in/x", host: "wttr.in" },
+    ]);
   });
 });
 
