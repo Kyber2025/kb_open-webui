@@ -124,6 +124,12 @@ class ForwardedForTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RouteTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        portal = patch.dict('sys.modules', {'open_webui.utils.reseller_portal':
+            SimpleNamespace(require_portal_registration=AsyncMock())})
+        portal.start()
+        self.addCleanup(portal.stop)
+
     def request(self, xff):
         config = SimpleNamespace(ENABLE_KYBER_AUTH_BRIDGE=True)
         return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)),
@@ -134,7 +140,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         # (Documentation ranges such as 198.51.100.0/24 count as non-public here.)
         request = self.request('1.1.1.1, 8.8.4.4, 10.0.0.5, 127.0.0.1')
         form = SimpleNamespace(email='User@Example.com', code=' 123456 ', password='password1', name=None,
-                               new_password='password2')
+                               new_password='password2', invite_token=None)
         await auths.register_send_code(request, form, db=None)
         await auths.register_verify(request, None, form, db=None)
         await auths.password_forgot(request, form, db=None)
