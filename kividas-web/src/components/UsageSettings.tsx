@@ -3,9 +3,11 @@ import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import { usagePercent, type UsageWindow } from "../lib/admin-users";
 import { usageResetLabel } from "./AdminUsage";
+import { retainLastUsage, type OfficialUsageMeta } from '../lib/usage';
 import "./usage-settings.css";
 
 type Usage = {
+  officialUsage?: OfficialUsageMeta | null;
   linked: boolean;
   tp5h?: UsageWindow;
   tpw?: UsageWindow;
@@ -15,10 +17,10 @@ type Usage = {
 function UsageRow({ value, label, short, loading, now }: {
   value?: UsageWindow; label: string; short?: boolean; loading: boolean; now: number;
 }) {
-  const valid = value && Number.isFinite(value.used) && Number.isFinite(value.limit) && value.used >= 0 && value.limit >= 0;
+  const valid = value && typeof value.used === 'number' && Number.isFinite(value.used) && Number.isFinite(value.limit) && value.used >= 0 && value.limit >= 0;
   const percent = valid ? usagePercent(value) : null;
   const reset = !valid ? "Reset time unavailable" : value.limit === 0 ? "No usage limit"
-    : !value.resetAt && value.used > 0 ? "Reset time unavailable" : usageResetLabel(value.resetAt, !!short, now);
+    : !value.resetAt && value.used! > 0 ? "Reset time unavailable" : usageResetLabel(value.resetAt, !!short, now);
   return <div className="kvu-row">
     <div className="kvu-row-label"><div>{label}</div><div className="kvu-muted kvu-reset">{loading && !valid ? "Loading usage…" : reset}</div></div>
     <div className={`kvu-track${percent === null ? " kvu-track-empty" : ""}`} role={percent !== null ? "progressbar" : undefined}
@@ -44,7 +46,7 @@ export function UsageSettings({ billing }: { billing: () => void }) {
       try {
         const next: Usage = await api.usage();
         if (!next?.linked || (!next.tp5h && !next.tpw && !next.enterprise)) throw new Error("unavailable");
-        if (active) { setData(next); setUpdated(Date.now()); setNow(Date.now()); }
+        if (active) { setData(previous => retainLastUsage(previous, next)); setUpdated(Date.now()); setNow(Date.now()); }
       } catch {
         if (active) setError("Couldn’t load usage. Please refresh to try again.");
       } finally { pending = false; if (active) setLoading(false); }

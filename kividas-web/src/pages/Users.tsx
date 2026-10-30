@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api, request } from "../lib/api";
 import { AdminUsage } from "../components/AdminUsage";
+import { usageWindowDetail } from '../lib/usage';
 import { activeMessages } from "../lib/domain";
 import {
   usersApi,
@@ -58,11 +59,7 @@ function Usage({ plan }: { plan?: UserPlan }) {
         return (
           <div
             key={key}
-            title={
-              value
-                ? `${value.used.toLocaleString()} / ${value.limit > 0 ? value.limit.toLocaleString() : "Unlimited"} tokens`
-                : "Unavailable"
-            }
+            title={usageWindowDetail(value)}
           >
             <span>{key}</span>
             <div className="usage-track">
@@ -78,7 +75,7 @@ function Usage({ plan }: { plan?: UserPlan }) {
                 }}
               />
             </div>
-            <span>{percent === null ? "∞" : `${percent}%`}</span>
+            <span>{!value || value.used === null ? '—' : percent === null ? "∞" : `${percent}%`}</span>
           </div>
         );
       })}

@@ -1,20 +1,19 @@
 import { request } from "./api";
 import type { Chat, Tier, User } from "./types";
+import { windowPercent, type UsageWindow, type OfficialUsageMeta } from './usage';
+export type { UsageWindow } from './usage';
 export interface ManagedUser extends User {
   created_at?: number;
   last_active_at?: number;
   info?: { banned_at?: number; ban_reason?: string; role_before_ban?: string };
-}
-export interface UsageWindow {
-  used: number;
-  limit: number;
-  resetAt?: string | number;
 }
 export interface UserPlan {
   tier?: Tier;
   expires_at?: number | null;
   kyber_linked?: boolean;
   usage?: {
+    usageSource?: 'official_cache' | 'local_tokens';
+    officialUsage?: OfficialUsageMeta | null;
     tp5h?: UsageWindow;
     tpw?: UsageWindow;
     tpwFable?: UsageWindow;
@@ -94,12 +93,8 @@ export function pageItems(page: number, pages: number): (number | "…")[] {
   return items;
 }
 export function usagePercent(window: UsageWindow | undefined) {
-  return window && window.limit > 0
-    ? Math.max(
-        0,
-        Math.min(100, Math.round((window.used / window.limit) * 1000) / 10),
-      )
-    : null;
+  const percent = windowPercent(window);
+  return percent === null ? null : Math.min(100, percent);
 }
 export function syncWarning(result: UserPlan) {
   return result.token_billing_enabled &&

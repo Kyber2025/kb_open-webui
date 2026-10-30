@@ -1,12 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
-import { resetLabel, usageSummary, windowPercent, type UsageLimits, type UsageWindow } from "../lib/usage";
+import { resetLabel, usageSummary, windowPercent, retainLastUsage, type UsageLimits, type UsageWindow } from "../lib/usage";
 import "./usage-ring.css";
 
 function UsageRow({ label, value, now }: { label: string; value?: UsageWindow | null; now: number }) {
   const percent = windowPercent(value);
-  const unlimited = value?.limit === 0 && Number.isFinite(value.used) && value.used >= 0;
+  const unlimited = value?.limit === 0 && typeof value.used === 'number' && Number.isFinite(value.used) && value.used >= 0;
   const reset = value?.resetAt;
   const starts = value?.used === 0 && !reset && percent !== null;
   const text = percent === null ? unlimited ? "Unlimited" : "Unavailable" : `${percent}%`;
@@ -64,7 +64,7 @@ export function UsageRing() {
       try {
         const next: UsageLimits = await api.usage();
         if (!next || typeof next.linked !== "boolean") throw new Error("Invalid usage response");
-        if (active) { setData(next); setUpdated(Date.now()); setNow(Date.now()); setError(""); }
+        if (active) { setData(previous => retainLastUsage(previous, next)); setUpdated(Date.now()); setNow(Date.now()); setError(""); }
       } catch {
         if (active) setError("Couldn’t refresh usage. Try again.");
       } finally { pending = false; if (active) setLoading(false); }
