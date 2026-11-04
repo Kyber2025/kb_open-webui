@@ -25,7 +25,7 @@ export function GatewayResources({ configurationNote }: { configurationNote?: Re
     {configurationNote}
     <section className="gateway-usage-downloads" aria-label="远程用量 MCP">
       <h3>直接问 Claude 查用量</h3>
-      <p className="muted">一键配置 r4 已包含用量 MCP。新用户随网关一起配置；老用户选择“只补用量 MCP”，优先读取已有身份，无需安装悬浮球。</p>
+      <p className="muted">与上方“网关一键配置”使用同一工具。新用户随网关一起配置；老用户选择“只补用量 MCP”，优先读取已有身份，无需安装悬浮球。</p>
       <div className="gateway-resources">{usageMcpResources.map(tile)}</div>
     </section>
     <section className="gateway-usage-downloads" aria-label="用量悬浮球下载">

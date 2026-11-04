@@ -15,7 +15,7 @@ describe('subscriber Gateway downloads', () => {
     expect(Object.keys(gatewayApi)).toEqual(['status', 'create', 'download']);
   });
   it('puts the one-click setup first with the only recommended badge', () => {
-    expect(gatewayResources[0]).toMatchObject({ id: 'setup', title: '一键配置', badge: '推荐', format: 'ZIP' });
+    expect(gatewayResources[0]).toMatchObject({ id: 'setup', title: '网关一键配置', badge: '推荐', format: 'ZIP' });
     expect(gatewayResources.filter(resource => resource.badge)).toHaveLength(1);
   });
   it('ships valid files for guides and both installers', () => {
