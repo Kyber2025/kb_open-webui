@@ -23,7 +23,7 @@ export async function downloadGatewayResource(resource: GatewayResource) {
 }
 
 export interface GatewayResource {
-  id: 'setup' | 'mac' | 'windows' | 'cli' | 'usage-windows' | 'usage-mac';
+  id: 'setup' | 'mac' | 'windows' | 'cli' | 'usage-windows' | 'usage-mac' | 'mcp-guide';
   title: string;
   detail: string;
   file: string;
@@ -41,4 +41,9 @@ export const gatewayResources: readonly GatewayResource[] = [
   { id: 'cli', title: 'Claude Code CLI', detail: 'Mac / Windows 网关配置教程', file: 'claude-code-cli.pdf', name: 'ClaudeCodeCLI网关配置教程Mac与Windows版.pdf', format: 'PDF', size: '332 KB' },
   { id: 'usage-windows', title: '用量悬浮球 · Windows', detail: 'Windows 10 / 11 · v0.4.1', file: 'kividas-usage-windows-0.4.1.exe', name: 'Kividas-Usage-Setup-0.4.1.exe', format: 'EXE', size: '114 KB' },
   { id: 'usage-mac', title: '用量悬浮球 · macOS', detail: 'Apple Silicon / Intel · macOS 13+', file: 'kividas-usage-macos-0.4.1.dmg', name: 'Kividas-Usage-0.4.1.dmg', format: 'DMG', size: '0.94 MB' },
+];
+
+export const usageMcpResources: readonly GatewayResource[] = [
+  gatewayResources[0],
+  { id: 'mcp-guide', title: '用量 MCP 接入教程', detail: 'Windows / Mac · 三步接入', file: 'kividas-usage-mcp-guide-r4.pdf', name: 'Kividas用量MCP接入教程Windows与Mac.pdf', format: 'PDF', size: '53 KB' },
 ];

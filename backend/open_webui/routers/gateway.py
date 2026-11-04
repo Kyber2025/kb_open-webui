@@ -17,6 +17,7 @@ RESOURCE_FILES = {
     'claude-code-cli.pdf': 'application/pdf',
     'kividas-gateway-setup-r3.zip': 'application/zip',
     'kividas-gateway-setup-r4.zip': 'application/zip',
+    'kividas-usage-mcp-guide-r4.pdf': 'application/pdf',
     'kividas-usage-windows-0.4.1.exe': 'application/octet-stream',
     'kividas-usage-macos-0.4.1.dmg': 'application/x-apple-diskimage',
 }

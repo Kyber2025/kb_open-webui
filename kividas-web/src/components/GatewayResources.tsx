@@ -1,6 +1,6 @@
 import { Download, FileText, Package } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { downloadGatewayResource, gatewayResources, type GatewayResource } from '../lib/gateway';
+import { downloadGatewayResource, gatewayResources, usageMcpResources, type GatewayResource } from '../lib/gateway';
 import { messageOf, useNotify } from './UI';
 
 export function GatewayResources({ configurationNote }: { configurationNote?: ReactNode }) {
@@ -26,7 +26,7 @@ export function GatewayResources({ configurationNote }: { configurationNote?: Re
     <section className="gateway-usage-downloads" aria-label="远程用量 MCP">
       <h3>直接问 Claude 查用量</h3>
       <p className="muted">一键配置 r4 已包含用量 MCP。新用户随网关一起配置；老用户选择“只补用量 MCP”，优先读取已有身份，无需安装悬浮球。</p>
-      <a href="https://ai.kividas.com/api/mcp/usage/guide" target="_blank" rel="noopener noreferrer">查看 Windows / Mac 三步教程 ↗</a>
+      <div className="gateway-resources">{usageMcpResources.map(tile)}</div>
     </section>
     <section className="gateway-usage-downloads" aria-label="用量悬浮球下载">
       <h3>用量悬浮球</h3>

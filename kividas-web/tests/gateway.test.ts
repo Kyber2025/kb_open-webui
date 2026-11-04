@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { gatewayApi, gatewayResources } from '../src/lib/gateway';
+import { gatewayApi, gatewayResources, usageMcpResources } from '../src/lib/gateway';
 afterEach(() => vi.unstubAllGlobals());
 describe('subscriber Gateway downloads', () => {
   it('uses only the current-session endpoints and never sends a user id or policy', async () => {
@@ -20,7 +20,7 @@ describe('subscriber Gateway downloads', () => {
   });
   it('ships valid files for guides and both installers', () => {
     expect(gatewayResources).toHaveLength(6);
-    for (const resource of gatewayResources) {
+    for (const resource of [...gatewayResources, ...usageMcpResources]) {
       const bytes = readFileSync(new URL(`../public/gateway/${resource.file}`, import.meta.url));
       if (resource.format === 'DMG') expect(bytes.subarray(-512, -508).toString()).toBe('koly');
       else { const magic = resource.format === 'PDF' ? '%PDF' : resource.format === 'EXE' ? 'MZ' : 'PK'; expect(bytes.subarray(0, magic.length).toString()).toBe(magic); }
