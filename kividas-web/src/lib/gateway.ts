@@ -23,12 +23,12 @@ export async function downloadGatewayResource(resource: GatewayResource) {
 }
 
 export interface GatewayResource {
-  id: 'setup' | 'mac' | 'windows' | 'cli';
+  id: 'setup' | 'mac' | 'windows' | 'cli' | 'usage-windows' | 'usage-mac';
   title: string;
   detail: string;
   file: string;
   name: string;
-  format: 'PDF' | 'ZIP';
+  format: 'PDF' | 'ZIP' | 'EXE' | 'DMG';
   size: string;
   /** Small tag in the tile's top-right corner, e.g. "推荐". */
   badge?: string;
@@ -39,4 +39,6 @@ export const gatewayResources: readonly GatewayResource[] = [
   { id: 'mac', title: 'Claude Desktop · macOS', detail: 'Mac 网关配置教程', file: 'claude-desktop-macos.pdf', name: 'Claude配置网关教程Mac版.pdf', format: 'PDF', size: '794 KB' },
   { id: 'windows', title: 'Claude Desktop · Windows', detail: 'Windows 网关配置教程', file: 'claude-desktop-windows.pdf', name: 'Claude配置网关教程Windows版.pdf', format: 'PDF', size: '1.04 MB' },
   { id: 'cli', title: 'Claude Code CLI', detail: 'Mac / Windows 网关配置教程', file: 'claude-code-cli.pdf', name: 'ClaudeCodeCLI网关配置教程Mac与Windows版.pdf', format: 'PDF', size: '332 KB' },
+  { id: 'usage-windows', title: '用量悬浮球 · Windows', detail: 'Windows 10 / 11 · v0.4.1', file: 'kividas-usage-windows-0.4.1.exe', name: 'Kividas-Usage-Setup-0.4.1.exe', format: 'EXE', size: '114 KB' },
+  { id: 'usage-mac', title: '用量悬浮球 · macOS', detail: 'Apple Silicon / Intel · macOS 13+', file: 'kividas-usage-macos-0.4.1.dmg', name: 'Kividas-Usage-0.4.1.dmg', format: 'DMG', size: '0.94 MB' },
 ];

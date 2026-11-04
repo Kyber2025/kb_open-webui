@@ -18,13 +18,15 @@ describe('subscriber Gateway downloads', () => {
     expect(gatewayResources[0]).toMatchObject({ id: 'setup', title: '一键配置', badge: '推荐', format: 'ZIP' });
     expect(gatewayResources.filter(resource => resource.badge)).toHaveLength(1);
   });
-  it('ships actual PDF and ZIP files at every download link', () => {
-    expect(gatewayResources).toHaveLength(4);
+  it('ships valid files for guides and both installers', () => {
+    expect(gatewayResources).toHaveLength(6);
     for (const resource of gatewayResources) {
       const bytes = readFileSync(new URL(`../public/gateway/${resource.file}`, import.meta.url));
-      expect(bytes.subarray(0, resource.format === 'PDF' ? 4 : 2).toString()).toBe(resource.format === 'PDF' ? '%PDF' : 'PK');
+      if (resource.format === 'DMG') expect(bytes.subarray(-512, -508).toString()).toBe('koly');
+      else { const magic = resource.format === 'PDF' ? '%PDF' : resource.format === 'EXE' ? 'MZ' : 'PK'; expect(bytes.subarray(0, magic.length).toString()).toBe(magic); }
       const managed = readFileSync(new URL(`../public/gateway/reseller/${resource.file}`, import.meta.url));
-      expect(managed.subarray(0, resource.format === 'PDF' ? 4 : 2).toString()).toBe(resource.format === 'PDF' ? '%PDF' : 'PK');
+      if (resource.format === 'EXE' || resource.format === 'DMG') expect(managed.equals(bytes)).toBe(true);
+      else expect(managed.subarray(0, resource.format === 'PDF' ? 4 : 2).toString()).toBe(resource.format === 'PDF' ? '%PDF' : 'PK');
     }
   });
 });

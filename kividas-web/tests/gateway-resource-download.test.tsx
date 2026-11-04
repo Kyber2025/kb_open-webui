@@ -27,6 +27,6 @@ it('downloads through the authenticated account endpoint without a public origin
       expect(options.headers.get('Authorization')).toBe('Bearer subscriber-test-session');
       expect(options.credentials).toBe('include');
     }
-    expect(click).toHaveBeenCalledTimes(4);
+    expect(click).toHaveBeenCalledTimes(gatewayResources.length);
   } finally { await act(async () => root.unmount()); host.remove(); localStorage.clear(); }
 });

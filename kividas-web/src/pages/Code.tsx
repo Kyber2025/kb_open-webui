@@ -243,11 +243,10 @@ function GatewayPanel({ onGateway }: { onGateway: () => void }) {
         我的 Gateway 接入资料
         <ArrowUpRight size={17} />
       </button>
-      <GatewayResources />
-      <p className="gateway-mac-help">
+      <GatewayResources configurationNote={<p className="gateway-mac-help">
         Mac 配置工具：解压后，在终端输入 <code>/bin/bash </code>
         （末尾留一个空格），再拖入“配置Mac.sh”并回车。完整步骤见压缩包内的“Mac启动说明.txt”。
-      </p>
+      </p>} />
     </>
   );
 }

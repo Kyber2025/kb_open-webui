@@ -16,6 +16,8 @@ RESOURCE_FILES = {
     'claude-desktop-windows.pdf': 'application/pdf',
     'claude-code-cli.pdf': 'application/pdf',
     'kividas-gateway-setup-r3.zip': 'application/zip',
+    'kividas-usage-windows-0.4.1.exe': 'application/octet-stream',
+    'kividas-usage-macos-0.4.1.dmg': 'application/x-apple-diskimage',
 }
 
 

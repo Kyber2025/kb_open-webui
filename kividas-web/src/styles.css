@@ -3438,3 +3438,7 @@ td code {
   .code-method-panel .gateway-resources { grid-template-columns: 1fr; }
   .code-method-panel .gateway-open { width: 100%; justify-content: center; }
 }
+
+.gateway-usage-downloads { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--border); }
+.gateway-usage-downloads h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.gateway-usage-downloads > p { font-size: 13px; line-height: 1.7; margin: 0 0 14px; }
