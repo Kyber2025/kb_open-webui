@@ -125,7 +125,7 @@ export function UsageRing() {
         : !data.linked ? <p className="kv-ring-note">Usage is not linked to this login. Sign in with the platform account assigned to you, or contact your administrator.</p>
         : data.enterprise ? <UsageRow label="Seat allowance" value={{ used: data.enterprise.used, limit: data.enterprise.quota, resetAt: data.enterprise.cycleEndsAt }} now={now} />
         : <>
-          <UsageRow label="5-hour limit" value={data.tp5h} now={now} />
+          {data.tp5h?.supported !== false && <UsageRow label="5-hour limit" value={data.tp5h} now={now} />}
           <UsageRow label="Weekly · all models" value={data.tpw} now={now} />
           {data.tpwFable && <UsageRow label="Weekly · Fable" value={data.tpwFable} now={now} />}
         </>}

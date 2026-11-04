@@ -65,7 +65,7 @@ export function UsageSettings({ billing }: { billing: () => void }) {
   return <div className="kvu-settings" aria-busy={loading}>
     <div className="kvu-heading"><h2>Plan usage limits</h2><span className="kvu-muted">{plan}</span></div>
     {error && <div className="kvu-error" role="alert">{error}{data && " Showing the last available reading."}</div>}
-    <UsageRow label="Current session" value={data?.tp5h} short loading={loading} now={now} />
+    {data?.tp5h?.supported !== false && <UsageRow label="Current session" value={data?.tp5h} short loading={loading} now={now} />}
     <h2 className="kvu-weekly-title">Weekly limits</h2>
     <UsageRow label="All models" value={data?.tpw} loading={loading} now={now} />
     {data?.tpwFable && <UsageRow label="Fable" value={data.tpwFable} loading={loading} now={now} />}

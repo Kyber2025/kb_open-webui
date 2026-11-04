@@ -1,5 +1,5 @@
 export type UsageWindow = { used: number | null; limit: number; resetAt?: string | number | null;
-  unit?: 'percent'; stopAt?: number; stale?: boolean };
+  unit?: 'percent'; stopAt?: number; stale?: boolean; supported?: boolean };
 export type OfficialUsageMeta = { source: 'official_cache'; provider: 'claude'; bindingId?: string | null; observedAt: string | null; stale: boolean };
 export type AccountWindow = { usedPercent: number | null; resetsAt?: string | null };
 export type UsageLimits = {
@@ -20,7 +20,7 @@ export type UsageLimits = {
 };
 
 export function windowPercent(value?: UsageWindow | null): number | null {
-  if (!value || typeof value.used !== 'number' || !Number.isFinite(value.used) || value.used < 0 || !Number.isFinite(value.limit) || value.limit <= 0) return null;
+  if (!value || value.supported === false || typeof value.used !== 'number' || !Number.isFinite(value.used) || value.used < 0 || !Number.isFinite(value.limit) || value.limit <= 0) return null;
   return Math.round(value.used / value.limit * 1000) / 10;
 }
 
@@ -55,8 +55,8 @@ export function officialCacheNote(meta?: OfficialUsageMeta | null, now = Date.no
  * allocation, subscription mode or login. Components are keyed by login. */
 export function retainLastUsage<T extends { officialUsage?: OfficialUsageMeta | null; tp5h?: UsageWindow; tpw?: UsageWindow }>(previous: T | null, next: T): T {
   if (!next.officialUsage?.bindingId || next.officialUsage.bindingId !== previous?.officialUsage?.bindingId) return next;
-  const missing = (value?: UsageWindow) => !value || value.used === null;
-  const keepFive = missing(next.tp5h) && !missing(previous.tp5h);
+  const missing = (value?: UsageWindow) => value?.supported !== false && (!value || value.used === null);
+  const keepFive = missing(next.tp5h) && previous.tp5h?.supported !== false && !missing(previous.tp5h);
   const keepWeek = missing(next.tpw) && !missing(previous.tpw);
   if (!keepFive && !keepWeek) return next;
   return { ...next,

@@ -677,7 +677,7 @@ function GiftCards() {
           <span className="muted small">
             {genTier
               ? `Each code grants ${tierName(genTier)} for ${duration || tiers.find((t) => t.id === genTier)?.duration_days} days.`
-              : "Create an enabled Max 5x or Max 20x plan first."}
+              : "Create an enabled Max or Ultra plan first."}
           </span>
           <button className="btn primary" disabled={busy || !genTier}>
             <Plus size={16} />

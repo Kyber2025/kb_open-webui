@@ -15,7 +15,7 @@ let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.clearAllMocks(); Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.mocked(api.usage).mockResolvedValue(official);
-  vi.mocked(api.subscription).mockResolvedValue({ tier: { name: 'Max 20x' } } as any);
+  vi.mocked(api.subscription).mockResolvedValue({ tier: { name: 'Ultra' } } as any);
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
@@ -49,4 +49,22 @@ it('prevents local resets of official windows while leaving 5x reset controls', 
   await act(async () => root.render(<AdminUsage plan={{ kyber_linked: true, usage: { tp5h: { used: 400, limit: 1000 } } }} busy={false} onReset={onReset} />));
   expect(host.textContent).toContain('400 / 1,000 tokens');
   expect(host.querySelectorAll('button').length).toBeGreaterThan(0);
+});
+
+it('removal hides session in settings and old cache cannot restore it', async () => {
+  await act(async () => root.render(<UsageSettings billing={() => {}} />));
+  expect(host.textContent).toContain('Current session');
+  vi.mocked(api.usage).mockResolvedValue({ ...official, tp5h: { ...official.tp5h, supported: false, used: null } });
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Refresh usage"]')!.click());
+  expect(host.textContent).not.toContain('Current session');
+  expect(host.textContent).not.toContain('60% used');
+  expect(host.textContent).toContain('25% used');
+});
+it('the weekly ring and popup have no session for verified accounts', async () => {
+  vi.mocked(api.usage).mockResolvedValue({ ...official, tp5h: { ...official.tp5h, supported: false, used: null } });
+  await act(async () => root.render(<UsageRing />));
+  expect(host.querySelector('button')!.getAttribute('aria-label')).toContain('25%');
+  await act(async () => host.querySelector('button')!.click());
+  expect(host.textContent).not.toContain('Current session');
+  expect(host.textContent).not.toContain('5 hours');
 });

@@ -66,7 +66,7 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
         <div className="kvs-price"><span className="kvs-currency">US$</span><strong>{new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(plan.price_usd)}</strong><span className="kvs-period">{plan.price_usd === 0 ? "Free" : `/ ${plan.duration_days} days`}</span></div>
         <p className="kvs-plan-description">{plan.description || "Access to Kividas."}</p>
         {plan.price_usd > 0 ? <div className="kvs-purchase"><p className="kvs-stock" data-available={(plan.remaining ?? 0) > 0}>{plan.remaining == null ? "可购买数量暂不可用" : `剩余可购买：${plan.remaining}`}</p>
-          <button type="button" className="kvs-button kvs-redeem-button" disabled={loading || busy || !plan.can_purchase} onClick={() => { setResumeOrder(false); setCheckoutPlan(plan); }}>{!plan.can_purchase ? plan.remaining === 0 ? "已售罄" : "暂不可购买" : currentId === "pro" && plan.id === "ultra" ? "升级到 Max 20x" : plan.id === currentId ? "USDT 续订" : "USDT 购买"}</button></div>
+          <button type="button" className="kvs-button kvs-redeem-button" disabled={loading || busy || !plan.can_purchase} onClick={() => { setResumeOrder(false); setCheckoutPlan(plan); }}>{!plan.can_purchase ? plan.remaining === 0 ? "已售罄" : "暂不可购买" : currentId === "pro" && plan.id === "ultra" ? "升级到 Ultra" : plan.id === currentId ? "USDT 续订" : "USDT 购买"}</button></div>
           : <p className="kvs-included">Included with your Kividas account</p>}
       </article>)}{!plans.length && <p className="kvs-muted">No plans are currently available.</p>}</div>
       </>}

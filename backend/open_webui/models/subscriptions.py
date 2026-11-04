@@ -132,6 +132,13 @@ class SubscriptionModelSelection(BaseModel):
 class SubscriptionTierModel(SubscriptionModelSelection):
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator('name')
+    @classmethod
+    def current_plan_name(cls, value):
+        # Existing rows keep their IDs, prices and limits; normalize legacy display names.
+        return {'max 5x': 'Max', 'max 20x': 'Ultra'}.get(value.strip().lower(), value)
+
+
     id: str
     name: str
     description: Optional[str] = None
