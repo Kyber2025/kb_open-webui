@@ -2057,6 +2057,12 @@ td code {
 .users-content {
   max-width: 1400px;
 }
+/* The default 1120px admin column would otherwise cap the 1400px above and push
+   the row actions out of view. Keyed on the section, which also renders while
+   the table is loading, so the page does not change width on sort or paging. */
+.admin-layout:has(.users-content) {
+  max-width: 1488px;
+}
 .user-count {
   font-size: 18px;
   margin-left: 8px;
@@ -2088,7 +2094,8 @@ td code {
 }
 .users-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate; /* collapsed borders do not travel with sticky cells */
+  border-spacing: 0;
   text-align: left;
   font-size: 12px;
   white-space: nowrap;
@@ -2201,6 +2208,22 @@ td code {
 .user-actions .icon-btn {
   width: 28px;
   height: 28px;
+}
+/* Keep the row actions on screen when the table still overflows. Below 900px
+   the six buttons would cover most of the table, so they scroll with it there. */
+@media (min-width: 900px) {
+  .users-table th:last-child,
+  .users-table td:last-child {
+    position: sticky;
+    right: 0;
+    box-shadow: -8px 0 8px -8px rgb(0 0 0 / 0.14);
+  }
+  .users-table td:last-child {
+    background: var(--canvas);
+  }
+  .users-table tbody tr:hover td:last-child {
+    background: var(--soft);
+  }
 }
 .user-pagination {
   display: flex;
