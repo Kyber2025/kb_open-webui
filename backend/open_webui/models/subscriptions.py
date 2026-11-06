@@ -671,6 +671,20 @@ class SubscriptionUsageTable:
 
 
 class GiftCardsTable:
+    async def available_counts_by_tier(self, db: Optional[AsyncSession] = None) -> dict[str, int]:
+        """Each enabled, unredeemed code commits one future seat in its own tier.
+
+        Count in SQL rather than using the paginated admin list. Redeemed cards
+        already occupy gateway seats and must not be deducted a second time.
+        """
+        async with get_async_db_context(db) as db:
+            rows = await db.execute(
+                select(GiftCard.tier_id, func.count())
+                .where(GiftCard.enabled.is_(True), GiftCard.redeemed_by.is_(None))
+                .group_by(GiftCard.tier_id)
+            )
+            return dict(rows.all())
+
     async def insert_many(
         self, cards: list[dict], db: Optional[AsyncSession] = None
     ) -> list[GiftCardModel]:

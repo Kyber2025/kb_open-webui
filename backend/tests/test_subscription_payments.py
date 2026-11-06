@@ -15,7 +15,7 @@ from sqlalchemy import select
 from open_webui.internal.db import Base, engine, get_async_db
 from open_webui.models.users import User
 from open_webui.models.kyber_accounts import UserKyberAccount
-from open_webui.models.subscriptions import SubscriptionTier, SubscriptionOrder, UserSubscription
+from open_webui.models.subscriptions import SubscriptionTier, SubscriptionOrder, UserSubscription, GiftCards
 from open_webui.models.subscription_changes import SubscriptionChange
 from open_webui.utils import subscription_payments as payments, claude_allocation as allocation, subscription
 
@@ -76,6 +76,69 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(subs),1)
             self.assertLess(abs(subs[0].expires_at-self.now-30*86400),15)
             self.assertEqual(len((await db.execute(select(SubscriptionChange))).scalars().all()),1)
+
+    async def test_issued_codes_update_stock_through_their_lifecycle(self):
+        async def stock():
+            return {p['id']: p for p in await payments.plans_with_capacity(self.request, self.user)}
+        self.assertEqual((await stock())['ultra']['remaining'], 2)
+        cards = await subscription.generate_gift_cards(self.user, 'ultra', 1, 30, None)
+        code = cards[0].code
+        self.assertEqual((await stock())['ultra']['remaining'], 1)
+        self.assertEqual((await stock())['pro']['remaining'], 2)
+        await GiftCards.set_enabled(code, False)
+        self.assertEqual((await stock())['ultra']['remaining'], 2)
+        await GiftCards.set_enabled(code, True)
+        self.assertEqual((await stock())['ultra']['remaining'], 1)
+        # Once redeemed, gateway occupancy replaces the code's commitment.
+        await allocation.change_subscription(self.request, self.user.id, 'ultra',
+            operation_id='gift:' + code, gift_code=code)
+        with patch.object(allocation, 'resource_call', AsyncMock(return_value={
+                'ultra': {'remaining': 1, 'can_purchase': True}})):
+            self.assertEqual((await stock())['ultra']['remaining'], 1)
+            more = await subscription.generate_gift_cards(self.user, 'ultra', 1, 7, None)
+            self.assertEqual((await stock())['ultra']['remaining'], 0)
+            await GiftCards.delete(more[0].code)
+            self.assertEqual((await stock())['ultra']['remaining'], 1)
+
+    async def test_codes_exhaust_stock_and_block_new_checkout_but_allow_renewal(self):
+        await subscription.generate_gift_cards(self.user, 'pro', 3, 30, None)
+        rows = {p['id']: p for p in await payments.plans_with_capacity(self.request, self.user)}
+        self.assertEqual(rows['pro']['remaining'], 0)
+        self.assertFalse(rows['pro']['can_purchase'])
+        self.assertTrue(rows['ultra']['can_purchase'])
+        with self.assertRaises(HTTPException) as caught:
+            await payments.create_checkout(self.request, self.user, 'pro', '56')
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(self.orders, {})
+        async with get_async_db() as db:
+            db.add(UserSubscription(id='renewable', user_id=self.user.id, tier_id='pro', status='active',
+                started_at=self.now, expires_at=self.now+86400, created_at=self.now, updated_at=self.now))
+            await db.commit()
+        rows = {p['id']: p for p in await payments.plans_with_capacity(self.request, self.user)}
+        self.assertEqual(rows['pro']['remaining'], 0)
+        self.assertTrue(rows['pro']['can_purchase'])
+        self.assertEqual((await payments.create_checkout(self.request, self.user, 'pro', '56'))['status'], 'PENDING')
+        # A local subscription must not override a gateway refusal.
+        self.full = True
+        self.assertFalse(next(p for p in await payments.plans_with_capacity(self.request, self.user)
+            if p['id'] == 'pro')['can_purchase'])
+
+    async def test_stock_counts_all_codes_without_admin_list_limit(self):
+        await GiftCards.insert_many([dict(code=f'BULK-{i}', tier_id='pro', duration_days=7 if i%2 else 30)
+            for i in range(501)])
+        await GiftCards.insert_many([dict(code='ULTRA-AVAILABLE', tier_id='ultra', duration_days=30),
+            dict(code='PRO-DISABLED', tier_id='pro', duration_days=30),
+            dict(code='PRO-REDEEMED', tier_id='pro', duration_days=30)])
+        await GiftCards.set_enabled('PRO-DISABLED', False)
+        await GiftCards.claim('PRO-REDEEMED', self.user.id)
+        self.assertEqual(await GiftCards.available_counts_by_tier(), {'pro': 501, 'ultra': 1})
+
+    async def test_stock_query_failure_does_not_expose_unadjusted_capacity(self):
+        with patch.object(GiftCards, 'available_counts_by_tier', AsyncMock(side_effect=RuntimeError('db unavailable'))):
+            rows = await payments.plans_with_capacity(self.request, self.user)
+        pro = next(p for p in rows if p['id'] == 'pro')
+        self.assertIsNone(pro['remaining'])
+        self.assertFalse(pro['can_purchase'])
 
     async def test_unpaid_network_choice_reuses_only_current_quote(self):
         async with get_async_db() as db:

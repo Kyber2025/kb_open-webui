@@ -89,10 +89,26 @@ def validate_order(order, data):
     return expires
 
 
+async def purchase_capacity(request, user_id, kyber_user_id, db=None):
+    from open_webui.models.subscriptions import GiftCards, UserSubscriptions
+    from open_webui.utils.claude_allocation import resource_call
+    capacity = await resource_call(request, 'capacity', {'userId': kyber_user_id})
+    issued = await GiftCards.available_counts_by_tier(db=db)
+    current = await UserSubscriptions.get_active_for_user(user_id, db=db)
+    result = {}
+    for tier_id, stock in capacity.items():
+        remaining = max(0, stock['remaining'] - issued.get(tier_id, 0))
+        # Same-tier renewal reuses the subscriber's seat. Keep the gateway's
+        # permission check for pending switches and unavailable allocations.
+        renewal = bool(current and current.tier_id == tier_id)
+        result[tier_id] = {**stock, 'remaining': remaining,
+            'can_purchase': bool(stock.get('can_purchase')) and (remaining > 0 or renewal)}
+    return result
+
+
 async def plans_with_capacity(request, user):
     from open_webui.models.subscriptions import SubscriptionTiers
     from open_webui.models.kyber_accounts import UserKyberAccounts
-    from open_webui.utils.claude_allocation import resource_call
     tiers = await SubscriptionTiers.list_tiers(enabled_only=True)
     capacity = {}
     linked = False
@@ -101,8 +117,8 @@ async def plans_with_capacity(request, user):
         link = await UserKyberAccounts.get_by_user_id(user.id)
         linked = bool(link and link.kyber_user_id)
         # Unlinked local administrators can see stock, but cannot buy.
-        capacity = await resource_call(request, 'capacity', {
-            'userId': link.kyber_user_id if linked else 'unlinked-web:' + user.id})
+        capacity = await purchase_capacity(request, user.id,
+            link.kyber_user_id if linked else 'unlinked-web:' + user.id)
     except Exception:
         log.warning('Subscription checkout capacity unavailable')
     return [{**tier.model_dump(), 'remaining': capacity.get(tier.id, {}).get('remaining'),
@@ -116,7 +132,6 @@ async def create_checkout(request, user, tier_id, chain_id):
     from open_webui.models.users import User
     from open_webui.models.subscriptions import SubscriptionOrder, SubscriptionTier
     from open_webui.models.kyber_accounts import UserKyberAccounts
-    from open_webui.utils.claude_allocation import resource_call
     credentials()
     chains = {str(c['id']) for c in request.app.state.config.SUBSCRIPTION_CHAINS or []}
     if chain_id not in chains:
@@ -147,7 +162,7 @@ async def create_checkout(request, user, tier_id, chain_id):
             link = await UserKyberAccounts.get_by_user_id(user.id)
             if not link or not link.kyber_user_id:
                 raise HTTPException(409, '用户尚未关联平台账号，请联系管理员处理')
-            capacity = await resource_call(request, 'capacity', {'userId': link.kyber_user_id})
+            capacity = await purchase_capacity(request, user.id, link.kyber_user_id, db=db)
             if not capacity.get(tier_id, {}).get('can_purchase'):
                 raise HTTPException(409, '当前套餐暂无可购买名额')
             db.add(SubscriptionOrder(id=order_id, logical_order_id=logical, user_id=user.id, tier_id=tier_id,
