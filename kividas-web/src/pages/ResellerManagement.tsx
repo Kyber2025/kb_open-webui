@@ -39,11 +39,18 @@ export function ResellerManagement(){
     {adding&&<Modal title="指定已注册用户为代理商" onClose={()=>setAdding(false)} wide>
       {error&&<ErrorPanel error={error}/>}
       <form className="commerce-assign" onSubmit={e=>{e.preventDefault();void run(async()=>{await commerceApi.assign(selected,invite,name);setAdding(false);setSelected('');setName('');setInvite('');notify('代理商已开通');});}}>
-        <label>搜索注册用户<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="用户邮箱或名称"/></label><button type="button" className="btn" disabled={busy||!search.trim()} onClick={()=>void run(async()=>setUsers((await commerceApi.users(search)).users))}>搜索</button>
-        <div className="commerce-user-results">{users.map(u=><label key={u.id}><input type="radio" name="reseller-user" required checked={selected===u.id} onChange={()=>setSelected(u.id)}/><span>{u.name} · {u.email}{data?.items.some(a=>a.user_id===u.id)?'（已是代理）':''}</span></label>)}</div>
+        <div className="commerce-user-search">
+          <label>搜索注册用户<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="用户邮箱或名称"/></label>
+          <button type="button" className="btn" disabled={busy||!search.trim()} onClick={()=>void run(async()=>setUsers((await commerceApi.users(search)).users))}>搜索</button>
+        </div>
+        {users.length>0&&<div className="commerce-user-results">{users.map(u=><label className="commerce-user-option" data-selected={selected===u.id} key={u.id}>
+          <input type="radio" name="reseller-user" required checked={selected===u.id} onChange={()=>setSelected(u.id)}/>
+          <span className="commerce-user-identity"><strong>{u.name}</strong><span>{u.email}</span></span>
+          {data?.items.some(a=>a.user_id===u.id)&&<span className="commerce-user-badge">已是代理</span>}
+        </label>)}</div>}
         <label>代理名称<input maxLength={100} value={name} onChange={e=>setName(e.target.value)} placeholder="留空使用用户名称"/></label>
         <label>关联邀请链接<select value={invite} onChange={e=>setInvite(e.target.value)}><option value="">创建新的专属邀请链接</option>{invites.filter(i=>!data?.items.some(a=>a.invite_id===i.id)).map(i=><option key={i.id} value={i.id}>{i.name}（{i.customers} 位客户）</option>)}</select></label>
-        <p className="muted">代理商可按代理价采购激活码，仅能查看自己的订单。邀请客户继续使用兑换码开通。</p><button className="btn primary" disabled={busy||!selected||data?.items.some(a=>a.user_id===selected)}>开通代理权限</button>
+        <div className="commerce-assign-footer"><p className="muted">代理商可按代理价采购激活码，仅能查看自己的订单。邀请客户继续使用兑换码开通。</p><button className="btn primary" disabled={busy||!selected||data?.items.some(a=>a.user_id===selected)}>开通代理权限</button></div>
       </form>
     </Modal>}
     {editing&&<Modal title={`${editing.name} · 专属价格`} onClose={()=>setEditing(undefined)} wide><Prices prices={editing.prices} scope={editing.user_id} onSaved={async()=>{await load();notify('专属代理价已保存');}}/></Modal>}
