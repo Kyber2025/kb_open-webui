@@ -559,10 +559,10 @@ async def admin_reset_user_usage(
 
 
 @router.post('/admin/gift-cards')
-async def admin_generate_gift_cards(form_data: GiftCardGenerateForm, user=Depends(get_admin_user)):
+async def admin_generate_gift_cards(request: Request, form_data: GiftCardGenerateForm, user=Depends(get_admin_user)):
     """Generate a batch of single-use gift cards for a tier. Returns the new codes."""
     return await generate_gift_cards(
-        user, form_data.tier_id, form_data.count, form_data.duration_days, form_data.note
+        user, form_data.tier_id, form_data.count, form_data.duration_days, form_data.note, request=request
     )
 
 
@@ -589,12 +589,10 @@ async def admin_list_gift_cards(
 
 @router.post('/admin/gift-cards/{code}/status')
 async def admin_set_gift_card_status(
-    code: str, form_data: GiftCardStatusForm, user=Depends(get_admin_user)
+    request: Request, code: str, form_data: GiftCardStatusForm, user=Depends(get_admin_user)
 ):
-    ok = await GiftCards.set_enabled(code, form_data.enabled)
-    if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift card not found')
-    return {'success': True, 'enabled': form_data.enabled}
+    from open_webui.utils.commerce_inventory import change_card
+    return await change_card(request, code, enabled=form_data.enabled)
 
 
 @router.post('/admin/gift-cards/{code}/invalidate')
@@ -606,6 +604,6 @@ async def admin_invalidate_gift_card(request: Request, code: str, user=Depends(g
 
 
 @router.delete('/admin/gift-cards/{code}')
-async def admin_delete_gift_card(code: str, user=Depends(get_admin_user)):
-    ok = await GiftCards.delete(code)
-    return {'success': ok}
+async def admin_delete_gift_card(request: Request, code: str, user=Depends(get_admin_user)):
+    from open_webui.utils.commerce_inventory import change_card
+    return await change_card(request, code, remove=True)

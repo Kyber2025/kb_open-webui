@@ -19,7 +19,7 @@ export function ResellerInvites() {
     finally { setBusy(false); }
   }
   return <section className="admin-content">
-    <div className="section-heading"><div><h2>代理邀请</h2><p>通过邀请注册的客户保留套餐、有效期、额度和兑换码，隐藏订阅价格与购买入口。普通用户保持原样。</p></div></div>
+    <div className="section-heading"><div><h2>邀请链接</h2><p>通过邀请注册的客户保留套餐、有效期、额度和兑换码，隐藏订阅价格与购买入口。普通用户保持原样。</p></div></div>
     <form className="panel" onSubmit={e => { e.preventDefault(); void run(async () => {
       await api.createResellerInvite(name.trim()); setName(""); notify("邀请链接已生成");
     }); }}>

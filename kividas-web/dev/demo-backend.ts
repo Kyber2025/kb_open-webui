@@ -1,5 +1,6 @@
 /** In-memory backend for local UI verification. Never included in production builds. */
 import type { Skill } from "../src/lib/skills";
+import { commerceDemo } from './commerce-demo';
 import type { Task } from "../src/lib/automations";
 import type { ManagedUser, UserPlan } from "../src/lib/admin-users";
 import type { Plugin } from "vite";
@@ -417,6 +418,7 @@ export function demoBackend(): Plugin {
         }
         if (req.headers.authorization !== "Bearer local-demo-only")
           return json({ detail: "Sign in to the local demo." }, 401);
+        if (commerceDemo(path,url,json)) return;
         if (
           demoUser.role !== "admin" &&
           (path.startsWith("/api/v1/kyber/admin/") || path.startsWith("/api/v1/subscriptions/admin/") ||

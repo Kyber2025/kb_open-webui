@@ -14,7 +14,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Users } from "./Users";
-import { ResellerInvites } from "./ResellerInvites";
+import { ResellerManagement } from "./ResellerManagement";
+import { Transactions } from "./Transactions";
 import { api } from "../lib/api";
 import { isSuperAdmin } from "../lib/access";
 import {
@@ -75,7 +76,8 @@ export function Admin({ user }: { user: User | null }) {
           <ShieldCheck size={17} />
           Guest Access
         </NavLink>
-        <NavLink to="reseller-invites"><UsersIcon size={17} />代理邀请</NavLink>
+        <NavLink to="resellers"><UsersIcon size={17} />代理管理</NavLink>
+        <NavLink to="transactions"><CreditCard size={17} />交易明细</NavLink>
       </nav>
       <Routes>
         <Route index element={<Navigate replace to="users/overview" />} />
@@ -87,7 +89,9 @@ export function Admin({ user }: { user: User | null }) {
         <Route path="subscriptions" element={<Subscriptions />} />
         <Route path="gift-cards" element={<GiftCards />} />
         <Route path="guest" element={<GuestAccess />} />
-        <Route path="reseller-invites" element={<ResellerInvites />} />
+        <Route path="reseller-invites" element={<Navigate replace to="/admin/resellers" />} />
+        <Route path="resellers" element={<ResellerManagement />} />
+        <Route path="transactions" element={<Transactions />} />
         <Route path="*" element={<Navigate replace to="/admin/users/overview" />} />
       </Routes>
     </div>

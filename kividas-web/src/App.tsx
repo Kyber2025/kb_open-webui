@@ -40,6 +40,8 @@ const Admin = lazy(() =>
 import { RecentChats } from "./components/RecentChats";
 import { SettingsPanel } from "./components/Settings";
 import { Subscription } from "./components/Subscription";
+import { ResellerPurchase } from "./pages/ResellerPurchase";
+import { commerceApi } from "./lib/commerce";
 import { Gateway } from "./components/Gateway";
 import { gatewayApi } from "./lib/gateway";
 import { Scheduled } from "./pages/Scheduled";
@@ -67,6 +69,7 @@ export default function App() {
     [subscription, setSubscription] = useState(false),
     [gateway, setGateway] = useState(false),
     [gatewayAvailable, setGatewayAvailable] = useState(false),
+    [resellerAvailable, setResellerAvailable] = useState(false),
     [usageUrl, setUsageUrl] = useState(''),
     [moreNav, setMoreNav] = useState(false),
     [theme, setTheme] = useState(
@@ -76,6 +79,11 @@ export default function App() {
     navigate = useNavigate(),
     notify = useNotify();
   const guest = user?.email === "guest@guest.local";
+  useEffect(() => {
+    let active = true; setResellerAvailable(false);
+    if (user && !guest) void commerceApi.profile().then(p => { if(active)setResellerAvailable(p.is_reseller); }).catch(()=>{});
+    return () => { active = false; };
+  }, [user?.id, guest]);
   const inviteToken = inviteTokenFromLocation(location);
   const resellerPortal = window.location.hostname === RESELLER_PORTAL_HOST;
   const authEntry = location.pathname === "/auth" || location.pathname.startsWith("/i/");
@@ -343,6 +351,7 @@ export default function App() {
                 {gatewayAvailable && <button onClick={() => { setMenu(false); setGateway(true); }}>
                   <KeyRound size={17} />Gateway
                 </button>}
+                {resellerAvailable && <Link to="/reseller" onClick={()=>setMenu(false)}><CreditCard size={17}/>代理采购</Link>}
                 {isSuperAdmin(user) && (
                   <Link to="/admin/users/overview">
                     <ShieldCheck size={17} />
@@ -432,6 +441,7 @@ export default function App() {
           </div>
         ) : (
           <Routes>
+            <Route path="/reseller" element={user&&!guest?<ResellerPurchase/>:<Navigate to="/auth" replace/>}/>
             <Route
               path="/"
               element={

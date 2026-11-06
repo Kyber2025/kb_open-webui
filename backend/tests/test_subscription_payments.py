@@ -17,6 +17,7 @@ from open_webui.models.users import User
 from open_webui.models.kyber_accounts import UserKyberAccount
 from open_webui.models.subscriptions import SubscriptionTier, SubscriptionOrder, UserSubscription, GiftCards
 from open_webui.models.subscription_changes import SubscriptionChange
+from open_webui.models.commerce import CommerceTransaction, CommerceHold
 from open_webui.utils import subscription_payments as payments, claude_allocation as allocation, subscription
 
 
@@ -51,7 +52,7 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
                 key=payload['orderId']+'_'+payload['chainId']
                 self.orders.setdefault(key,{'orderId':key,'merchantOrderId':payload['orderId'],'chainId':payload['chainId'],
                     'token':'USDT','amount':payload['amount'],'status':'PENDING','finalStatus':False,'address':'0x-test-address',
-                    'expiresAt':datetime.fromtimestamp(self.now+86400,timezone.utc).isoformat()})
+                    'expiresAt':datetime.fromtimestamp(self.now+payload.get('expiresInSeconds',86400),timezone.utc).isoformat()})
             else: key=suffix.split('/')[-1]
             return dict(self.orders[key])
         self.patches=[patch.dict(os.environ,{'SUBSCRIPTION_PAYMENT_APP_ID':'test','SUBSCRIPTION_PAYMENT_SECRET':'test-only'}),
@@ -140,45 +141,40 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(pro['remaining'])
         self.assertFalse(pro['can_purchase'])
 
-    async def test_unpaid_network_choice_reuses_only_current_quote(self):
-        async with get_async_db() as db:
-            tier=await db.get(SubscriptionTier,'pro');tier.price_usd=90;await db.commit()
+    async def test_unpaid_quote_is_immutable_and_switching_network_cannot_release_hold(self):
         old=await payments.create_checkout(self.request,self.user,'pro','56')
         async with get_async_db() as db:
-            tier=await db.get(SubscriptionTier,'pro');tier.price_usd=120;await db.commit()
-        fresh=await payments.create_checkout(self.request,self.user,'pro','56')
-        self.assertNotEqual(old['order_id'],fresh['order_id'])
-        self.assertEqual(fresh['amount'],'120.0')
-        self.assertEqual((await payments.create_checkout(self.request,self.user,'pro','56'))['order_id'],fresh['order_id'])
-        other=await payments.create_checkout(self.request,self.user,'pro','1')
-        self.assertNotEqual(other['order_id'],fresh['order_id'])
-        self.assertEqual((other['chain_id'],other['amount']),('1','120.0'))
-        self.assertEqual(self.reservations,{})
-        self.assertEqual((await payments.sync_checkout(self.request,self.user,old['order_id']))['amount'],'90.0')
+            tier=await db.get(SubscriptionTier,'pro');tier.price_usd=130;await db.commit()
+        for chain in ('56','1'):
+            with self.assertRaises(HTTPException):
+                await payments.create_checkout(self.request,self.user,'pro',chain)
+        self.assertEqual((await payments.sync_checkout(self.request,self.user,old['order_id']))['amount'],'120.0')
         async with get_async_db() as db:
-            self.assertEqual(len((await db.execute(select(SubscriptionOrder))).scalars().all()),3)
+            self.assertIsNotNone(await db.get(CommerceHold,old['order_id']))
+        self.assertEqual(len(self.orders),1)
 
-    async def test_expired_unpaid_intent_does_not_require_extra_failed_checkout(self):
+    async def test_expired_clock_alone_cannot_release_stock(self):
         old=await payments.create_checkout(self.request,self.user,'pro','56')
         async with get_async_db() as db:
             row=await db.get(SubscriptionOrder,old['order_id']);row.expires_at=self.now-1;await db.commit()
+        with self.assertRaises(HTTPException):
+            await payments.create_checkout(self.request,self.user,'pro','56')
+        self.orders[old['order_id']].update(status='EXPIRED',finalStatus=True)
+        await payments.sync_checkout(self.request,self.user,old['order_id'])
         fresh=await payments.create_checkout(self.request,self.user,'pro','56')
         self.assertNotEqual(old['order_id'],fresh['order_id'])
-        self.assertEqual(fresh['status'],'PENDING')
-        self.assertEqual(self.reservations,{})
 
     async def test_payment_in_progress_is_preserved_across_network_changes(self):
         old=await payments.create_checkout(self.request,self.user,'pro','56')
-        newer=await payments.create_checkout(self.request,self.user,'pro','1')
-        async with get_async_db() as db:
-            row=await db.get(SubscriptionOrder,old['order_id']);row.status='PAID_REQUIRES_ADMIN';await db.commit()
+        self.orders[old['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='paid-no-stock')
         self.full=True
+        await payments.sync_checkout(self.request,self.user,old['order_id'])
         pending=await payments.latest_checkout(self.request,self.user,'pro')
         self.assertEqual(pending['order_id'],old['order_id'])
         self.assertEqual(pending['status'],'PAID_REQUIRES_ADMIN')
         retry=await payments.create_checkout(self.request,self.user,'pro','728126428')
         self.assertEqual(retry['order_id'],old['order_id'])
-        self.assertEqual(len(self.orders),2)
+        self.assertEqual(len(self.orders),1)
         self.assertFalse(retry['activated'])
 
     async def test_capacity_retired_and_unauthorized_order_fail_closed(self):
@@ -230,26 +226,21 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(abs(active[0].expires_at-self.now-30*86400),15)
             self.assertEqual(len((await db.execute(select(SubscriptionChange))).scalars().all()),1)
 
-    async def test_unpaid_orders_do_not_hold_capacity_or_lock_other_tiers(self):
+    async def test_one_pending_order_and_late_payment_does_not_take_new_hold(self):
         pro = await payments.create_checkout(self.request,self.user,'pro','56')
+        with self.assertRaises(HTTPException):
+            await payments.create_checkout(self.request,self.user,'ultra','56')
+        self.orders[pro['order_id']].update(status='EXPIRED',finalStatus=True)
+        await payments.sync_checkout(self.request,self.user,pro['order_id'])
         ultra = await payments.create_checkout(self.request,self.user,'ultra','56')
-        self.assertNotEqual(pro['order_id'],ultra['order_id'])
-        self.assertEqual(self.reservations,{})
-        self.assertEqual((await payments.latest_checkout(self.request,self.user,'pro'))['order_id'],pro['order_id'])
-        self.assertEqual((await payments.latest_checkout(self.request,self.user,'ultra'))['order_id'],ultra['order_id'])
-        self.full=True
-        self.orders[ultra['order_id']].update(status='PAID',paidAmount='360',finalStatus=True,txHash='race-paid')
-        pending=await payments.sync_checkout(self.request,self.user,ultra['order_id'])
-        self.assertEqual(pending['status'],'PAID_REQUIRES_ADMIN'); self.assertFalse(pending['activated'])
-        async with get_async_db() as db:
-            self.assertEqual(len((await db.execute(select(UserSubscription))).scalars().all()),0)
-        # Only a user/admin-triggered recheck retries after capacity is resolved.
-        self.full=False
-        self.assertTrue((await payments.sync_checkout(self.request,self.user,ultra['order_id']))['activated'])
-        self.assertEqual(len(self.reservations),1)
-        # Paying an older 5x invoice later must not overwrite the active 20x.
         self.orders[pro['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='late-pro')
-        self.assertFalse((await payments.sync_checkout(self.request,self.user,pro['order_id']))['activated'])
+        late=await payments.sync_checkout(self.request,self.user,pro['order_id'])
+        self.assertEqual(late['status'],'PAID_REQUIRES_ADMIN')
+        self.assertFalse(late['activated'])
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,ultra['order_id']))
+        self.orders[ultra['order_id']].update(status='PAID',paidAmount='360',finalStatus=True,txHash='valid-ultra')
+        self.assertTrue((await payments.sync_checkout(self.request,self.user,ultra['order_id']))['activated'])
         async with get_async_db() as db:
             active=(await db.execute(select(UserSubscription).where(UserSubscription.status=='active'))).scalars().all()
             self.assertEqual([s.tier_id for s in active],['ultra'])
@@ -259,7 +250,11 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
         self.orders[created['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='sync-paid')
         with patch.object(subscription,'sync_user_rate_limits_to_kyber',AsyncMock(return_value=False)):
             self.assertFalse((await payments.sync_checkout(self.request,self.user,created['order_id']))['activated'])
-        self.assertTrue((await payments.sync_checkout(self.request,self.user,created['order_id']))['activated'])
+            pending = await payments.latest_checkout(self.request,self.user,'pro')
+            self.assertEqual(pending['order_id'],created['order_id'])
+            self.assertFalse(pending['activated'])
+        self.assertTrue((await payments.latest_checkout(self.request,self.user,'pro'))['activated'])
+        self.assertIsNone(await payments.latest_checkout(self.request,self.user,'pro'))
 
     def test_signed_response_rejects_tampering_and_stale_timestamp(self):
         timestamp=str(int(time.time()));nonce='test-nonce';body=b'{"status":"PENDING"}'

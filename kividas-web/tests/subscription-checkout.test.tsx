@@ -21,27 +21,32 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 const mount = async (initial: SubscriptionCheckout | null = old, resume = false) => { await act(async () => root.render(<Checkout plan={plan} initial={initial} upgrade={false} resume={resume} onClose={() => {}} onPaid={async () => {}} />)); };
 const click = async (text: string) => { const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text)); expect(button).toBeTruthy(); await act(async () => button!.click()); };
-it('starts at current price and lets an old BSC customer create a TRON order', async () => {
- const fresh = { ...old, order_id: 'kvs-'+'b'.repeat(32)+'_728126428', chain_id: '728126428', amount: '120', address: 'new-tron' };
- vi.mocked(api.buySubscription).mockResolvedValue(fresh); vi.mocked(api.subscriptionOrder).mockResolvedValue(fresh);
- await mount(); expect(host.querySelector('.kvs-price strong')?.textContent).toBe('120'); expect(host.querySelectorAll('select option')).toHaveLength(3);
- expect(api.buySubscription).not.toHaveBeenCalled(); expect(host.textContent).toContain('90 USDT');
- await act(async () => { const select = host.querySelector('select')!; select.value = '728126428'; select.dispatchEvent(new Event('change', { bubbles: true })); });
- await click('生成 USDT'); expect(api.buySubscription).toHaveBeenCalledWith('pro', '728126428'); expect(host.querySelector('input')?.value).toBe('new-tron');
- await click('重新选择'); expect(host.querySelector('select')?.value).toBe('728126428'); expect(host.querySelector('.kvs-price strong')?.textContent).toBe('120');
+it('resumes the reserved quote and prevents creating another network invoice', async () => {
+ await mount();
+ expect(host.querySelector('.kvs-price strong')?.textContent).toBe('90');
+ expect(host.querySelector('input')?.value).toBe('old-bsc');
+ expect(host.querySelector('select')).toBeNull();
+ expect(host.textContent).not.toContain('重新选择');
+ expect(api.buySubscription).not.toHaveBeenCalled();
 });
-it('does not let an old polling response overwrite the network picker', async () => {
- let resolve!: (value: SubscriptionCheckout) => void;
- vi.mocked(api.subscriptionOrder).mockImplementation(() => new Promise(r => { resolve = r; }));
- await mount(old, true); expect(host.querySelector('input')?.value).toBe('old-bsc');
- await click('重新选择'); await act(async () => resolve(old));
- expect(host.querySelector('.kvs-price strong')?.textContent).toBe('120'); expect(host.querySelector('select')).not.toBeNull(); expect(host.querySelector('input')).toBeNull();
+it('allows a new network only after the old order is finally expired', async () => {
+ await mount({...old,status:'EXPIRED'});
+ await click('重新选择');
+ expect(host.querySelector('.kvs-price strong')?.textContent).toBe('120');
+ const fresh={...old,order_id:'fresh',chain_id:'728126428',amount:'120',address:'new-tron'};
+ vi.mocked(api.buySubscription).mockResolvedValue(fresh);vi.mocked(api.subscriptionOrder).mockResolvedValue(fresh);
+ await act(async()=>{const select=host.querySelector('select')!;select.value='728126428';select.dispatchEvent(new Event('change',{bubbles:true}));});
+ await click('生成 USDT');
+ expect(api.buySubscription).toHaveBeenCalledWith('pro','728126428');
+ expect(host.querySelector('input')?.value).toBe('new-tron');
 });
-it('waits for existing order lookup before allowing a new payment', async () => {
+it('waits for existing order lookup then resumes its reserved address', async () => {
  let resolve!: (value: SubscriptionCheckout | null) => void;
  vi.mocked(api.checkout).mockImplementation(() => new Promise(r => { resolve = r; }));
  await mount(null); expect(host.querySelector<HTMLButtonElement>('.kvs-checkout-action')?.disabled).toBe(true);
- await act(async () => resolve(old)); expect(host.querySelector<HTMLButtonElement>('.kvs-checkout-action')?.disabled).toBe(false); expect(host.querySelector('select')).not.toBeNull();
+ await act(async () => resolve(old));
+ expect(host.querySelector('select')).toBeNull();expect(host.querySelector('input')?.value).toBe('old-bsc');
+ expect(api.buySubscription).not.toHaveBeenCalled();
 });
 it('keeps paid administrator handling visible and never offers another payment', async () => {
  await mount({ ...old, status: 'PAID_REQUIRES_ADMIN' });

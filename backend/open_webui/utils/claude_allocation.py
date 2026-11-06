@@ -100,7 +100,7 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
             if revoke_order_id and not any(s.order_id == revoke_order_id for s in active):
                 await db.commit()
                 return None
-            tier = await db.get(SubscriptionTier, tier_id)
+            tier = (await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id).with_for_update())).scalar_one_or_none()
             if tier is None or not tier.enabled or tier_id not in ('free', 'pro', 'ultra'):
                 raise HTTPException(409, '此订阅档位已停用，请选择新的档位')
             card = None
@@ -121,6 +121,10 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
                 if order.activated:
                     await db.commit()
                     return UserSubscriptionModel.model_validate(active[0]) if active else None
+                from open_webui.models.commerce import CommerceTransaction, CommerceHold
+                quote_row = await db.get(CommerceTransaction, order.id)
+                if quote_row and quote_row.stock_backed and await db.get(CommerceHold, order.id) is None:
+                    raise HTTPException(409, '付款已确认，但原预留已结束，订单待管理员处理')
             if tier_id != 'free':
                 if duration_days is not None:
                     base = max([now] + [s.expires_at for s in active if s.tier_id == tier_id])
@@ -128,6 +132,10 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
                 if not expires_at or expires_at <= now:
                     raise HTTPException(400, '订阅到期时间必须晚于当前时间')
                 if enabled:
+                    from open_webui.utils.commerce_inventory import available_stock
+                    if not gift_code and not any(s.tier_id == tier_id for s in active):
+                        if await available_stock(request, db, tier_id, exclude_order=order_id) < 1:
+                            raise HTTPException(409, '当前套餐库存不足，订单待管理员处理')
                     await resource_call(request, 'reserve', dict(userId=link.kyber_user_id, tier=tier_id,
                         operationId=operation_id, expiresAt=now + 86400))
                     reserved_here = not bool(order_id)
@@ -146,6 +154,9 @@ async def change_subscription(request, user_id, tier_id, *, operation_id=None, e
                 card.redeemed_by, card.redeemed_at, card.updated_at = user_id, now, now
             if order:
                 order.activated, order.updated_at = True, now
+            if order_id and tier_id != 'free':
+                from open_webui.utils.commerce_inventory import release_hold
+                await release_hold(db, order_id)
             latest = (await db.execute(select(func.max(SubscriptionChange.version)).where(SubscriptionChange.user_id == user_id))).scalar() or 0
             version = max(time.time_ns() // 1000, latest + 1)
             db.add(SubscriptionChange(id=operation_id, user_id=user_id, version=version, tier_id=tier_id,

@@ -477,10 +477,20 @@ async def generate_gift_cards(
     count: int,
     duration_days: Optional[int] = None,
     note: Optional[str] = None,
+    *, db=None, transaction=None, request=None,
 ) -> list[GiftCardModel]:
     """Generate `count` unique single-use gift cards for `tier_id`. Duration defaults to the
     tier's configured length. Returns the new GiftCardModel list (codes included, for export)."""
-    tier = await SubscriptionTiers.get_tier(tier_id)
+    from open_webui.internal.db import get_async_db
+    from open_webui.models.commerce import CommerceTransaction
+    from open_webui.utils.commerce_inventory import lock_tier, available_stock
+    if db is None:
+        async with get_async_db() as session:
+            result = await generate_gift_cards(admin_user, tier_id, count, duration_days, note,
+                db=session, transaction=transaction, request=request)
+            await session.commit()
+            return result
+    tier = await lock_tier(db, tier_id)
     if tier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription plan not found')
 
@@ -499,6 +509,10 @@ async def generate_gift_cards(
             detail=f'At most {MAX_GIFT_CARDS_PER_BATCH} gift cards can be generated at once',
         )
 
+    if request is not None and count > await available_stock(request, db, tier_id,
+            exclude_order=transaction.id if transaction else None):
+        raise HTTPException(409, '当前套餐库存不足，无法生成此数量的激活码')
+
     duration = int(duration_days) if duration_days else 0
     if duration <= 0:
         duration = tier.duration_days or 30
@@ -516,7 +530,7 @@ async def generate_gift_cards(
         batch = {_generate_gift_code() for _ in range(count - len(codes))}
         batch -= codes
         if batch:
-            batch -= await GiftCards.existing(list(batch))
+            batch -= await GiftCards.existing(list(batch), db=db)
         codes |= batch
 
     if len(codes) < count:
@@ -536,7 +550,15 @@ async def generate_gift_cards(
         }
         for c in list(codes)[:count]
     ]
-    return await GiftCards.insert_many(cards)
+    result = await GiftCards.insert_many(cards, db=db, commit=False)
+    if transaction is None:
+        now = int(time.time())
+        db.add(CommerceTransaction(id='manual:' + batch_id, source='manual', actor_id=created_by,
+            tier_id=tier_id, tier_name=tier.name, quantity=count, duration_days=duration,
+            status='ISSUED', fulfilled=True, batch_id=batch_id, note=note,
+            created_at=now, updated_at=now))
+        await db.flush()
+    return result
 
 
 async def redeem_gift_card(request: Request, user, raw_code: str) -> dict:

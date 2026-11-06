@@ -495,6 +495,7 @@ from open_webui.utils.subscription import (
 )
 from open_webui.utils.guest import enforce_guest_access, is_guest_user
 from open_webui.routers import (
+    commerce,
     analytics,
     audio,
     auths,
@@ -719,8 +720,9 @@ async def lifespan(app: FastAPI):
     from open_webui.utils.subscription import subscription_reconcile_loop
 
     asyncio.create_task(subscription_reconcile_loop(app))
-    from open_webui.utils.subscription_payments import payment_reconcile_loop
-    asyncio.create_task(payment_reconcile_loop(app))
+    from open_webui.utils.commerce_jobs import commerce_reconcile_loop, commerce_reporting_loop
+    asyncio.create_task(commerce_reconcile_loop(app))
+    asyncio.create_task(commerce_reporting_loop(app))
 
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
         try:
@@ -1489,6 +1491,7 @@ app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
 app.include_router(subscriptions.router, prefix='/api/v1/subscriptions', tags=['subscriptions'])
+app.include_router(commerce.router, prefix='/api/v1/commerce', tags=['commerce'])
 app.include_router(guest_router.router, prefix='/api/v1/guest', tags=['guest'])
 app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
 app.include_router(code_router.router, prefix='/api/v1/code', tags=['code'])

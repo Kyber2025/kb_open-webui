@@ -13,11 +13,13 @@ from open_webui.models.users import User
 from open_webui.models.kyber_accounts import UserKyberAccount
 from open_webui.models.subscriptions import SubscriptionTier, UserSubscription, GiftCard, SubscriptionOrder
 from open_webui.models.subscription_changes import SubscriptionChange
+from open_webui.models.commerce import CommerceHold, CommerceTransaction
 from open_webui.utils import claude_allocation as allocation
 
 
 class AllocationTests(unittest.IsolatedAsyncioTestCase):
     async def test_atomic_grants_and_outbox(self):
+        Base.metadata.drop_all(engine)
         # Exercise the actual new Alembic migration before creating the other tables.
         import importlib.util
         from pathlib import Path
@@ -47,6 +49,7 @@ class AllocationTests(unittest.IsolatedAsyncioTestCase):
         reject_capacity = set()
         async def remote(req, method, path, payload=None):
             if path.endswith('/status'): return 200, {'enabled':True}
+            if path.endswith('/capacity'): return 200, {t:{'remaining':20,'can_purchase':True} for t in ('pro','ultra')}
             op, uid = payload['operationId'], payload['userId']
             if path.endswith('/reserve'):
                 if uid in reject_capacity: return 409, {'message':'账号资源不足，请联系管理员处理'}
