@@ -20,6 +20,8 @@ RESOURCE_FILES = {
     'kividas-usage-mcp-guide-r4.pdf': 'application/pdf',
     'kividas-usage-windows-0.4.1.exe': 'application/octet-stream',
     'kividas-usage-macos-0.4.1.dmg': 'application/x-apple-diskimage',
+    'kividas-usage-windows-0.4.4.exe': 'application/octet-stream',
+    'kividas-usage-macos-0.4.4.dmg': 'application/x-apple-diskimage',
 }
 
 
