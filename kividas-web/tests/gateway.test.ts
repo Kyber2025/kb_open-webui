@@ -7,12 +7,15 @@ describe('subscriber Gateway downloads', () => {
     const fetch = vi.fn(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetch); vi.stubGlobal('localStorage', {getItem: () => 'subscriber-session'});
     await gatewayApi.status(); await gatewayApi.create('My Mac'); await gatewayApi.download('key/a'); await gatewayApi.download('key/a');
+    await gatewayApi.revoke('key/a'); await gatewayApi.delete('key/a');
     expect(fetch.mock.calls.map((call:any) => call[0])).toEqual([
       '/api/v1/kyber/gateway', '/api/v1/kyber/gateway/keys', '/api/v1/kyber/gateway/keys/key%2Fa/download', '/api/v1/kyber/gateway/keys/key%2Fa/download',
+      '/api/v1/kyber/gateway/keys/key%2Fa/revoke', '/api/v1/kyber/gateway/keys/key%2Fa/delete',
     ]);
     expect(JSON.parse((fetch.mock.calls[1] as any)[1].body)).toEqual({label:'My Mac'});
     expect(JSON.parse((fetch.mock.calls[2] as any)[1].body)).toEqual({});
-    expect(Object.keys(gatewayApi)).toEqual(['status', 'create', 'download']);
+    expect(JSON.parse((fetch.mock.calls[4] as any)[1].body)).toEqual({});
+    expect(JSON.parse((fetch.mock.calls[5] as any)[1].body)).toEqual({});
   });
   it('puts the one-click setup first with the only recommended badge', () => {
     expect(gatewayResources[0]).toMatchObject({ id: 'setup', title: '网关一键配置', badge: '推荐', format: 'ZIP' });

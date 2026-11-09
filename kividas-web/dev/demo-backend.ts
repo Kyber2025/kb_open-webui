@@ -452,12 +452,20 @@ export function demoBackend(): Plugin {
           return json({key,token:'DEMO-ONLY-NOT-A-VALID-CREDENTIAL',gatewayUrl:'https://ai.kividas.com/api',usageUrl:'https://chat.kividas.com/',policy});
         }
         if (path === '/api/v1/kyber/gateway' && method === 'GET') {
-          return json({subscribed:true,eligible:true,canCreate:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length<1,reason:null,keys:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt),policy:{maxActiveKeys:1}});
+          return json({subscribed:true,eligible:true,canCreate:desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length<1,reason:null,keys:desktopKeys.filter(k=>k.userId===demoUser.id).map(k=>({...k,canReveal:!k.revokedAt})),policy:{maxActiveKeys:1}});
         }
         if (path === '/api/v1/kyber/gateway/keys' && method === 'POST') {
-          if (desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length >= 1) return json({detail:'每个订阅账号最多保留一个有效 Key，请联系管理员。'},409);
+          if (desktopKeys.filter(k=>k.userId===demoUser.id && !k.revokedAt).length >= 1) return json({detail:'每个订阅账号最多保留一个有效 Key，请先停用或删除旧 Key。'},409);
           const key={id:crypto.randomUUID(),installationId:crypto.randomUUID(),userId:demoUser.id,label:data.label||'Claude Desktop',concurrentLimit:0,canReveal:true,lastRevealedAt:null,suffix:crypto.randomUUID().slice(-4),createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+30*86400000).toISOString(),revokedAt:null,revokeReason:null,boundAt:null,lastUsedAt:null};
           desktopKeys.unshift(key); return json({key});
+        }
+        const gatewayManage = /^\/api\/v1\/kyber\/gateway\/keys\/([^/]+)\/(revoke|delete)$/.exec(path);
+        if (gatewayManage && method === 'POST') {
+          const key = desktopKeys.find(k=>k.id===decodeURIComponent(gatewayManage[1]) && k.userId===demoUser.id);
+          if (!key) return json({detail:'Key not found'},404);
+          if (gatewayManage[2]==='delete') desktopKeys.splice(desktopKeys.indexOf(key),1);
+          else { key.revokedAt=new Date().toISOString(); key.revokeReason='user_revoked'; }
+          return json({ok:true});
         }
         const gatewayDownload = /^\/api\/v1\/kyber\/gateway\/keys\/([^/]+)\/download$/.exec(path);
         if (gatewayDownload && method === 'POST') {

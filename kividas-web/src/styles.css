@@ -3387,8 +3387,11 @@ td code {
 .gateway-personal { margin:24px 0 28px; }
 .gateway-account h3 { display:flex; align-items:center; gap:8px; margin:0 0 12px; font-size:16px; font-weight:500; }
 .gateway-personal > p { font-size:13px; line-height:1.7; }
-.gateway-key { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:12px; padding:16px; border:1px solid var(--line); border-radius:12px; }
+.gateway-key { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; margin-top:12px; padding:16px; border:1px solid var(--line); border-radius:12px; }
 .gateway-key > div { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.gateway-key .gateway-key-info { flex:1; }
+.gateway-key .gateway-key-actions { flex-direction:row; flex-wrap:wrap; gap:8px; }
+.gateway-key .gateway-key-confirm { flex-basis:100%; gap:10px; }
 .gateway-key strong { font-size:14px; overflow-wrap:anywhere; }
 .gateway-key span, .gateway-key small { font-size:12px; color:var(--muted); }
 .gateway-key .btn { flex-shrink:0; font-size:12px; }

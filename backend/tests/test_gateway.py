@@ -1,4 +1,4 @@
-"""Gateway downloads: session ownership, subscription checks, creation rights, and administrator-only lifecycle management."""
+"""Gateway self-service: session ownership, subscription checks and key lifecycle."""
 from __future__ import annotations
 import importlib.util
 import sys
@@ -50,12 +50,13 @@ path = '/api/v1/kyber/gateway'
 
 class GatewayTests(unittest.TestCase):
     def setUp(self):
+        links.get_by_user_id.return_value = SimpleNamespace(kyber_user_id='alice-gateway')
         resellers.is_customer.reset_mock(); resellers.is_customer.return_value = False
         transport.reset_mock(); transport.return_value = (200, {'eligible': True, 'keys': [{'id': 'alice-key'}]})
         tier.return_value = (SimpleNamespace(id='max', enabled=True), SimpleNamespace(id='active-subscription'))
 
     def test_authentication_required(self):
-        for method, url in [('GET', path), ('POST', path+'/keys'), ('POST', path+'/keys/alice-key/download')]:
+        for method, url in [('GET', path), ('POST', path+'/keys'), *[('POST', path+'/keys/alice-key/'+action) for action in ['download','revoke','delete']]]:
             self.assertEqual(client.request(method, url, json={}).status_code, 401)
         transport.assert_not_awaited()
 
@@ -77,9 +78,10 @@ class GatewayTests(unittest.TestCase):
 
     def test_foreign_key_stays_under_session_owner(self):
         transport.return_value = (404, {'message': '桌面 Key 不存在'})
-        response = client.post(path+'/keys/bob-key/download', headers=headers, json={})
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(transport.call_args.args[2], '/internal/users/alice-gateway/gateway/bob-key/download')
+        for action in ['download', 'revoke', 'delete']:
+            response = client.post(path+'/keys/bob-key/'+action+'?userId=bob', headers=headers, json={})
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(transport.call_args.args[2], '/internal/users/alice-gateway/gateway/bob-key/'+action)
 
     def test_subscriber_creates_only_for_session_owner(self):
         transport.return_value = (200, {'key': {'id': 'new-key'}})
@@ -93,8 +95,8 @@ class GatewayTests(unittest.TestCase):
             self.assertEqual(client.post(path+'/keys', headers=headers, json=payload).status_code,422)
             transport.assert_not_awaited()
 
-    def test_no_subscriber_credential_management_endpoints(self):
-        for suffix in ['', '/keys/alice-key/revoke', '/keys/alice-key/delete', '/keys/alice-key/policy', '/keys/alice-key/rotate']:
+    def test_no_subscriber_policy_override_or_admin_access(self):
+        for suffix in ['', '/keys/alice-key/policy', '/keys/alice-key/rotate']:
             self.assertIn(client.post(path+suffix, headers=headers, json={}).status_code, [404, 405])
         self.assertEqual(client.post('/api/v1/kyber/admin/users/alice/desktop-keys', headers=headers, json={}).status_code, 403)
         transport.assert_not_awaited()
@@ -103,18 +105,38 @@ class GatewayTests(unittest.TestCase):
         for plan, subscription in [(SimpleNamespace(id='max', enabled=True), None), (SimpleNamespace(id='free', enabled=True), SimpleNamespace()), (SimpleNamespace(id='max', enabled=False), SimpleNamespace())]:
             tier.return_value = (plan, subscription)
             state = client.get(path, headers=headers)
-            self.assertEqual(state.json()['keys'], [])
+            self.assertEqual(state.json()['keys'], [{'id':'alice-key', 'canReveal':False}])
             self.assertFalse(state.json()['subscribed'])
             response = client.post(path+'/keys/alice-key/download', headers=headers, json={})
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.headers['cache-control'], 'no-store')
             self.assertEqual(client.post(path+'/keys', headers=headers, json={}).status_code,403)
+        self.assertTrue(all(call.args[1] == 'GET' for call in transport.call_args_list))
+
+    def test_expired_owner_can_revoke_and_delete_without_subscription(self):
+        tier.return_value = (SimpleNamespace(id='free', enabled=True), None)
+        transport.return_value = (200, {'ok':True})
+        for action in ['revoke', 'delete']:
+            response = client.post(path+'/keys/alice-key/'+action+'?actorId=bob', headers=headers, json={})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {'ok':True})
+            self.assertEqual(response.headers['cache-control'], 'no-store')
+            self.assertEqual(transport.call_args.args[1:], ('POST', '/internal/users/alice-gateway/gateway/alice-key/'+action, {'actorId':'alice'}))
+
+    def test_unlinked_free_user_has_empty_state(self):
+        tier.return_value = (None, None)
+        links.get_by_user_id.return_value = None
+        state = client.get(path, headers=headers)
+        self.assertEqual(state.status_code, 200)
+        self.assertEqual(state.json()['keys'], [])
+        self.assertFalse(state.json()['canCreate'])
         transport.assert_not_awaited()
 
     def test_no_actor_identity_or_policy_override(self):
-        response = client.post(path+'/keys/alice-key/download', headers=headers,
-                               json={'actorId': 'bob', 'userId': 'bob', 'concurrentLimit': 100})
-        self.assertEqual(response.status_code, 422)
+        for action in ['download', 'revoke', 'delete']:
+            response = client.post(path+'/keys/alice-key/'+action, headers=headers,
+                                   json={'actorId': 'bob', 'userId': 'bob', 'concurrentLimit': 100})
+            self.assertEqual(response.status_code, 422)
         transport.assert_not_awaited()
 
     def test_customer_material_uses_account_membership_on_either_host(self):

@@ -66,12 +66,20 @@ async def _subscriber_target(user) -> str:
 async def gateway_status(request: Request, response: Response, user=Depends(get_verified_user)):
     response.headers['Cache-Control'] = 'no-store'
     usage_url = await customer_usage_url(user.id)
-    if not await _subscribed(user):
-        return {'subscribed': False, 'eligible': False, 'canCreate': False, 'keys': [],
-                'usageUrl': usage_url,
-                'reason': 'Gateway 需要有效订阅，请先开通或续费。'}
-    target = await _target(user.id)
+    subscribed = await _subscribed(user)
+    inactive = {'subscribed': False, 'eligible': False, 'canCreate': False, 'keys': [],
+                'usageUrl': usage_url, 'reason': 'Gateway 需要有效订阅，请先开通或续费。'}
+    if user.email == 'guest@guest.local':
+        return inactive
+    try:
+        target = await _target(user.id)
+    except HTTPException as error:
+        if not subscribed and error.status_code == 409:
+            return inactive
+        raise
     state = await _call(request, response, 'GET', f'/internal/users/{target}/gateway')
+    if not subscribed:
+        return {**state, **inactive, 'keys': [{**key, 'canReveal': False} for key in state.get('keys', [])]}
     return {**state, 'subscribed': True, 'usageUrl': usage_url}
 
 
@@ -92,3 +100,23 @@ async def download_gateway(request: Request, response: Response, key_id: str, fo
                        f'/internal/users/{target}/gateway/{quote(key_id, safe="")}/download',
                        {'actorId': user.id})
     return await customer_material(data, user.id)
+
+
+@router.post('/gateway/keys/{key_id}/revoke')
+async def revoke_gateway(request: Request, response: Response, key_id: str, form: GatewayRequest,
+                         user=Depends(get_verified_user)):
+    # Expired subscribers can still revoke their own credentials. Creation and
+    # downloads retain the subscription check; identity never comes from input.
+    target = await _target(user.id)
+    return await _call(request, response, 'POST',
+                       f'/internal/users/{target}/gateway/{quote(key_id, safe="")}/revoke',
+                       {'actorId': user.id})
+
+
+@router.post('/gateway/keys/{key_id}/delete')
+async def delete_gateway(request: Request, response: Response, key_id: str, form: GatewayRequest,
+                         user=Depends(get_verified_user)):
+    target = await _target(user.id)
+    return await _call(request, response, 'POST',
+                       f'/internal/users/{target}/gateway/{quote(key_id, safe="")}/delete',
+                       {'actorId': user.id})

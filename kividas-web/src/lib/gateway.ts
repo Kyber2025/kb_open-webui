@@ -11,6 +11,8 @@ export const gatewayApi = {
   status: () => request<GatewayState>(base),
   create: (label: string) => request<{key: DesktopKey}>(`${base}/keys`, { method: 'POST', body: JSON.stringify({label}) }),
   download: (keyId: string) => request<CreatedDesktopKey>(`${base}/keys/${encodeURIComponent(keyId)}/download`, { method: 'POST', body: '{}' }),
+  revoke: (keyId: string) => request<{ok: boolean}>(`${base}/keys/${encodeURIComponent(keyId)}/revoke`, { method: 'POST', body: '{}' }),
+  delete: (keyId: string) => request<{ok: boolean}>(`${base}/keys/${encodeURIComponent(keyId)}/delete`, { method: 'POST', body: '{}' }),
 };
 
 export async function downloadGatewayResource(resource: GatewayResource) {

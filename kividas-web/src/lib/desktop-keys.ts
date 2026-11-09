@@ -47,7 +47,7 @@ Gateway API key：${created.token}
 Mac：Claude → Quit Claude（或按 ⌘Q）。
 Windows：左上角 ≡ → File → Exit。
 ${desktopDevicePolicyText(created.policy ?? { maxActiveKeys: 1 })}
-此 Key 和安装识别码可重复下载，在同一台电脑沿用；名额已满时，更换设备请联系管理员先停用旧 Key，再生成新资料。
+此 Key 和安装识别码可重复下载，在同一台电脑沿用。更换设备时，可在 Code 页面 → Gateway 自行停用或删除旧 Key，再生成新资料。Key 被自动停用后，也可在该页面自行重新生成；新 Key 和安装识别码需重新配置到客户端。
 
 三、Kividas 网页登录资料与用量
 登录网址：${created.usageUrl}
