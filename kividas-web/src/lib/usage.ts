@@ -65,9 +65,16 @@ export function retainLastUsage<T extends { officialUsage?: OfficialUsageMeta | 
     officialUsage: { ...next.officialUsage, stale: true, observedAt: previous.officialUsage!.observedAt } };
 }
 
+/** Official countdown timestamps can land fractions of a second before the
+ * exact reset. Round forward to a second so 14:59:59.806 displays as 15:00. */
+export function usageResetDate(value: string | number): Date {
+  const stamp = new Date(typeof value === "number" && value < 1e12 ? value * 1000 : value).getTime();
+  return new Date(Math.ceil(stamp / 1000) * 1000);
+}
+
 export function resetLabel(value: string | number | null | undefined, now: number) {
   if (!value) return "Reset time unavailable";
-  const date = new Date(typeof value === "number" && value < 1e12 ? value * 1000 : value);
+  const date = usageResetDate(value);
   if (!Number.isFinite(date.getTime())) return "Reset time unavailable";
   const mins = Math.ceil((date.getTime() - now) / 60000);
   if (mins <= 0) return "Awaiting reset update";

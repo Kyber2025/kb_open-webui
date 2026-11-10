@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { usagePercent, type UserPlan, type UsageWindow } from "../lib/admin-users";
-import { officialCacheNote, usageWindowDetail } from '../lib/usage';
+import { officialCacheNote, usageWindowDetail, usageResetDate } from '../lib/usage';
 
 export function usageResetLabel(value: UsageWindow["resetAt"], short: boolean, now = Date.now()) {
   if (!value) return "Starts with next message";
-  const date = new Date(typeof value === "number" && value < 1e12 ? value * 1000 : value);
+  const date = usageResetDate(value);
   if (!Number.isFinite(date.getTime())) return "Reset time unavailable";
   const minutes = Math.ceil((date.getTime() - now) / 60000);
   if (minutes <= 0) return "Resetting soon";
@@ -44,7 +44,9 @@ export function AdminUsage({ plan, busy, onReset }: {
           ...(usage.tpwFable ? [{ key: "fable", label: "Weekly · Fable", window: usage.tpwFable }] : []),
         ].map(({ key, label, window }) => {
           const percent = usagePercent(window);
-          const reset = !window || window.used === null ? "Usage unavailable"
+          const noSessionLimit = key === "5h" && window?.supported === false;
+          const reset = noSessionLimit ? "No 5-hour limit"
+            : !window || window.used === null ? "Usage unavailable"
             : !window.resetAt && (window.used > 0 || window.unit === 'percent') ? "Reset time unavailable"
             : window.limit <= 0 ? "No reset scheduled"
             : usageResetLabel(window.resetAt, key === "5h", now);
@@ -60,7 +62,7 @@ export function AdminUsage({ plan, busy, onReset }: {
               <span style={{ width: `${percent ?? 0}%`, background: percent !== null && percent >= 90 ? "var(--danger)" : percent !== null && percent >= 70 ? "#c48a25" : undefined }} />
             </div>
             <div className="admin-usage-detail">
-              <span>{usageWindowDetail(window)}</span>
+              <span>{noSessionLimit ? 'Official Claude: this account has no 5-hour limit.' : usageWindowDetail(window)}</span>
               {usage.usageSource !== 'official_cache' && <button type="button" className="admin-usage-reset" aria-label={`Reset ${label}`} disabled={busy || !plan?.kyber_linked || !window}
                 onClick={() => onReset([key], `Reset ${label}`, key === "week" ? "Reset weekly usage for all models? This also resets the weekly Fable limit." : `Reset the ${label.toLowerCase()} usage window?`)}>
                 <RotateCcw size={12} /> Reset

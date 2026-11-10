@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UsageRing } from '../src/components/UsageRing';
 import { UsageSettings } from '../src/components/UsageSettings';
-import { AdminUsage } from '../src/components/AdminUsage';
+import { AdminUsage, usageResetLabel } from '../src/components/AdminUsage';
+import { resetLabel, usageResetDate } from '../src/lib/usage';
 import { api } from '../src/lib/api';
 vi.mock('../src/lib/api', () => ({ api: { usage: vi.fn(), subscription: vi.fn() } }));
 const official = { linked: true, usageSource: 'official_cache' as const,
@@ -67,4 +68,36 @@ it('the weekly ring and popup have no session for verified accounts', async () =
   await act(async () => host.querySelector('button')!.click());
   expect(host.textContent).not.toContain('Current session');
   expect(host.textContent).not.toContain('5 hours');
+});
+
+it('admin distinguishes an explicitly removed session limit from unavailable telemetry', async () => {
+  const usage = { ...official, tp5h: { ...official.tp5h, supported: false, used: null, resetAt: null } };
+  await act(async () => root.render(<AdminUsage plan={{ kyber_linked: true, usage }} busy={false} onReset={vi.fn()} />));
+  expect(host.textContent).toContain('No 5-hour limit');
+  expect(host.textContent).not.toContain('Usage unavailable');
+  expect(host.querySelector('[role="progressbar"][aria-label="5-hour limit"]')).toBeNull();
+  await act(async () => root.render(<AdminUsage plan={{ kyber_linked: true, usage: { ...usage, tp5h: { ...usage.tp5h, supported: true } } }} busy={false} onReset={vi.fn()} />));
+  expect(host.textContent).toContain('Usage unavailable');
+  expect(host.textContent).not.toContain('No 5-hour limit');
+});
+
+it('a missing official Fable observation shows no invented percentage or reset', async () => {
+  const usage = { ...official, tpwFable: { used: null, limit: 100, unit: 'percent' as const, resetAt: null, stale: true } };
+  await act(async () => root.render(<AdminUsage plan={{ kyber_linked: true, usage }} busy={false} onReset={vi.fn()} />));
+  const fable = [...host.querySelectorAll('.admin-usage-window')].find(row => row.textContent?.includes('Weekly · Fable'))!;
+  expect(fable.textContent).toContain('Usage unavailable');
+  expect(fable.textContent).not.toContain('Resets ');
+  expect(fable.textContent).not.toContain('0%');
+  expect(fable.textContent).not.toContain('tokens');
+});
+
+it('official subsecond reset jitter does not display an entire minute early', () => {
+  const exact = Date.parse('2026-11-14T07:00:00Z');
+  const early = '2026-11-14T06:59:59.806201+00:00';
+  const now = Date.parse('2026-11-10T03:00:00Z');
+  expect(usageResetDate(early).getTime()).toBe(exact);
+  expect(usageResetDate(exact / 1000).getTime()).toBe(exact);
+  expect(usageResetLabel(early, false, now)).toBe(usageResetLabel(exact, false, now));
+  expect(resetLabel(early, now)).toBe(resetLabel(exact, now));
+  expect(usageResetLabel(exact - 60_000, false, now)).not.toBe(usageResetLabel(exact, false, now));
 });
