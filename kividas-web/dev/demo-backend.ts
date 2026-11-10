@@ -418,7 +418,7 @@ export function demoBackend(): Plugin {
         }
         if (req.headers.authorization !== "Bearer local-demo-only")
           return json({ detail: "Sign in to the local demo." }, 401);
-        if (commerceDemo(path,url,json)) return;
+        if (commerceDemo(path,url,json,method)) return;
         if (
           demoUser.role !== "admin" &&
           (path.startsWith("/api/v1/kyber/admin/") || path.startsWith("/api/v1/subscriptions/admin/") ||
@@ -594,7 +594,8 @@ export function demoBackend(): Plugin {
         if (path === "/api/models") return json({ data: models });
         if (path === "/api/v1/kyber/usage/limits")
           return json({ linked: true, tp5h: { used: 140000, limit: 7000000, resetAt: Date.now() + 4 * 3600000 }, tpw: { used: 1400000, limit: 35000000, resetAt: Date.now() + 5 * 86400000 }, tpwFable: { used: 875000, limit: 17500000, resetAt: Date.now() + 5 * 86400000 }, sharedAccount: { seats: 2, stale: false, observedAt: new Date().toISOString(), fiveHour: { usedPercent: 17, resetsAt: new Date(Date.now() + 4 * 3600000).toISOString() }, sevenDay: { usedPercent: 25, resetsAt: new Date(Date.now() + 5 * 86400000).toISOString() } } });
-        if (path === "/api/v1/subscriptions/tiers") return json(tiers.filter((t) => t.enabled));
+        // Paid tiers carry stock like the real backend so the purchase buttons can be exercised in preview.
+        if (path === "/api/v1/subscriptions/tiers") return json(tiers.filter((t) => t.enabled).map((t) => t.price_usd > 0 ? { ...t, remaining: 2, can_purchase: true } : t));
         const planModels = path.match(/^\/api\/v1\/subscriptions\/tiers\/([^/]+)\/models$/);
         if (planModels) {
           const plan = tiers.find((t) => t.id === decodeURIComponent(planModels[1]));

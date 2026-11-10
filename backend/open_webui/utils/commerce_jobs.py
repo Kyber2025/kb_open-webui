@@ -118,7 +118,9 @@ async def reconcile_once(request):
             or_(SubscriptionOrder.activated.is_(False), CommerceTransaction.fulfilled.is_(False)),
             or_(SubscriptionOrder.status.in_(('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID')),
                 and_(SubscriptionOrder.status.in_(('EXPIRED', 'FAILED')),
-                    or_(SubscriptionOrder.created_at >= now-7*86400, CommerceTransaction.paid_at.is_not(None)))))
+                    or_(SubscriptionOrder.created_at >= now-7*86400, CommerceTransaction.paid_at.is_not(None))),
+                # Buyer-cancelled invoices are not polled; the signed payment report flags late money.
+                and_(SubscriptionOrder.status == 'CANCELLED', CommerceTransaction.paid_at.is_not(None))))
             .order_by(SubscriptionOrder.updated_at).limit(100))).scalars().all()
         reseller = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.source == 'reseller',
             CommerceTransaction.fulfilled.is_(False), CommerceTransaction.status != 'PAID_REQUIRES_ADMIN',

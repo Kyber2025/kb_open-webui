@@ -203,6 +203,8 @@ export const api = {
   checkout: (tierId?: string) => request<SubscriptionCheckout | null>(`${sub}/checkout${tierId ? `?tier_id=${encodeURIComponent(tierId)}` : ""}`),
   buySubscription: (tier_id: string, chain_id: string) => post<SubscriptionCheckout>(`${sub}/subscribe`, { tier_id, chain_id }),
   subscriptionOrder: (id: string) => request<SubscriptionCheckout>(`${sub}/order/${encodeURIComponent(id)}`),
+  // Releases the stock hold of an unpaid order. `cancelled` is false when a payment won the race.
+  cancelSubscriptionOrder: (id: string) => request<{ cancelled: boolean; order: SubscriptionCheckout }>(`${sub}/order/${encodeURIComponent(id)}`, { method: "DELETE" }),
   planModels: (id: string) => request<{ models: Model[] }>(`${sub}/tiers/${encodeURIComponent(id)}/models`),
   subscription: () => request<any>(`${sub}/me`),
   publicTiers: () => request<Tier[]>(`${sub}/tiers`),

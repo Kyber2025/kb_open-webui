@@ -31,7 +31,7 @@ export const commerceApi = {
   },
 };
 export const sources: Record<string,string> = {subscription:'普通用户购买',reseller:'代理购买',manual:'管理员发码',payment:'支付平台记录'};
-export const statuses: Record<string,string> = {CREATING:'创建中',PENDING:'待支付',PAID:'已到账',PAID_REQUIRES_ADMIN:'已到账 · 待处理',EXPIRED_CHECKING:'过期核对中',EXPIRED:'已过期',FAILED:'失败',ISSUED:'已发码'};
+export const statuses: Record<string,string> = {CREATING:'创建中',PENDING:'待支付',PAID:'已到账',PAID_REQUIRES_ADMIN:'已到账 · 待处理',EXPIRED_CHECKING:'过期核对中',EXPIRED:'已过期',CANCELLED:'已取消',FAILED:'失败',ISSUED:'已发码'};
 export const chains: Record<string,string> = {'56':'BSC','1':'Ethereum','728126428':'TRON','-1':'Solana'};
 export function transactionLink(chain: string | undefined, hash: unknown) {
   const root: Record<string,string> = {'56':'https://bscscan.com/tx/','1':'https://etherscan.io/tx/','728126428':'https://tronscan.org/#/transaction/','-1':'https://solscan.io/tx/'};

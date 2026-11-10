@@ -23,6 +23,27 @@ function SubscriptionFrame({ title, children, onClose, models = false }: { title
     <div className="kvs-body">{children}</div>
   </dialog>;
 }
+type CancelResult = { cancelled: boolean; order: SubscriptionCheckout };
+// Only unpaid orders can be released early. Paid or finished orders keep their own handling.
+const cancellable = (order: SubscriptionCheckout | null | undefined): order is SubscriptionCheckout =>
+  !!order && !order.activated && ["CREATING", "PENDING", "EXPIRED_CHECKING"].includes(order.status);
+// Two steps on purpose: cancelling after the transfer was sent turns an automatic activation into manual handling.
+function CancelOrder({ order, disabled = false, onResult, onError }: { order: SubscriptionCheckout; disabled?: boolean; onResult: (result: CancelResult) => void | Promise<void>; onError: (message: string) => void | Promise<void> }) {
+  const [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  if (!confirming) return <button type="button" className="kvs-button kvs-cancel" disabled={disabled} onClick={() => setConfirming(true)}>取消订单</button>;
+  return <span className="kvs-cancel-confirm" role="group" aria-label="确认取消订单">
+    <span>确认取消这笔订单？如已转账请不要取消。</span>
+    <button type="button" className="kvs-button kvs-cancel-yes" disabled={busy} onClick={async () => {
+      setBusy(true);
+      try { await onResult(await api.cancelSubscriptionOrder(order.order_id)); }
+      catch (e) { await onError(messageOf(e)); }
+      finally { if (mounted.current) { setBusy(false); setConfirming(false); } }
+    }}>{busy ? "正在取消…" : "确认取消"}</button>
+    <button type="button" className="kvs-button" disabled={busy} onClick={() => setConfirming(false)}>返回</button>
+  </span>;
+}
 export function Subscription({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
   const [resumeOrder, setResumeOrder] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Tier | null>(null), [pendingOrder, setPendingOrder] = useState<SubscriptionCheckout | null>(null);
@@ -60,13 +81,17 @@ export function Subscription({ onClose, onChanged }: { onClose: () => void; onCh
       </section>
       {managed && <p className="kvs-muted">使用兑换码开通或续费。如需帮助，请联系服务商。使用额度可在侧栏或设置的 Usage 中查看。</p>}
       {!managed && <><div className="kvs-section-heading"><h2>Available plans</h2><span className="kvs-muted">USDT 支付 · 确认到账后自动开通</span></div>
-      {pendingOrder && <div className="kvs-notice">有一笔待处理的 {pendingOrder.tier_name} 订单。<button className="kvs-button" onClick={() => { setResumeOrder(true); setCheckoutPlan(plans.find(p => p.id === pendingOrder.tier_id) || null); }}>继续付款 / 查看状态</button></div>}
+      {pendingOrder && <div className="kvs-notice kvs-pending"><span>有一笔待处理的 {pendingOrder.tier_name} 订单。</span><span className="kvs-pending-actions"><button className="kvs-button" onClick={() => { setSuccess(""); setResumeOrder(true); setCheckoutPlan(plans.find(p => p.id === pendingOrder.tier_id) || null); }}>继续付款 / 查看状态</button>
+        {cancellable(pendingOrder) && <CancelOrder order={pendingOrder} disabled={loading || busy}
+          onResult={async (result) => { setSuccess(result.cancelled ? "订单已取消，预留已释放，可以重新下单。" : ""); await refresh(); }}
+          // A refused cancel usually means the payment arrived first: show why, then reload the real state.
+          onError={async (message) => { setSuccess(""); try { await Promise.all([load(), onChanged()]); } catch { /* keep the cancel error visible */ } if (active.current) setError(message); }} />}</span></div>}
       <div className="kvs-plans">{plans.map((plan) => <article key={plan.id} className={`kvs-plan ${plan.id === currentId ? "kvs-plan-current" : ""}`}>
         <div className="kvs-plan-heading"><h3>{plan.name}</h3>{plan.id === currentId && <span className="kvs-badge">Current plan</span>}</div>
         <div className="kvs-price"><span className="kvs-currency">US$</span><strong>{new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(plan.price_usd)}</strong><span className="kvs-period">{plan.price_usd === 0 ? "Free" : `/ ${plan.duration_days} days`}</span></div>
         <p className="kvs-plan-description">{plan.description || "Access to Kividas."}</p>
         {plan.price_usd > 0 ? <div className="kvs-purchase"><p className="kvs-stock" data-available={(plan.remaining ?? 0) > 0}>{plan.remaining == null ? "可购买数量暂不可用" : `剩余可购买：${plan.remaining}`}</p>
-          <button type="button" className="kvs-button kvs-redeem-button" disabled={loading || busy || !!pendingOrder || !plan.can_purchase} onClick={() => { setResumeOrder(false); setCheckoutPlan(plan); }}>{!plan.can_purchase ? plan.remaining === 0 ? "已售罄" : "暂不可购买" : currentId === "pro" && plan.id === "ultra" ? "升级到 Ultra" : plan.id === currentId ? "USDT 续订" : "USDT 购买"}</button></div>
+          <button type="button" className="kvs-button kvs-redeem-button" disabled={loading || busy || !!pendingOrder || !plan.can_purchase} onClick={() => { setSuccess(""); setResumeOrder(false); setCheckoutPlan(plan); }}>{!plan.can_purchase ? plan.remaining === 0 ? "已售罄" : "暂不可购买" : currentId === "pro" && plan.id === "ultra" ? "升级到 Ultra" : plan.id === currentId ? "USDT 续订" : "USDT 购买"}</button></div>
           : <p className="kvs-included">Included with your Kividas account</p>}
       </article>)}{!plans.length && <p className="kvs-muted">No plans are currently available.</p>}</div>
       </>}
@@ -141,16 +166,19 @@ export function Checkout({ plan, initial, upgrade, resume = false, onClose, onPa
     <div className="kvs-checkout-summary"><h3>{plan.name}</h3><div className="kvs-price"><strong>{order?.amount || plan.price_usd}</strong><span className="kvs-currency">USDT</span><span className="kvs-period">{plan.duration_days} 天</span></div></div>
     {error && <p className="kvs-notice kvs-error" role="alert">{error}</p>}
     {!order ? <>{upgrade && <p className="kvs-upgrade-note">支付成功后将替换原 5x 订阅，按 20x 全价收费。原 5x 剩余时间不退款、不抵扣。20x 从升级成功起计 30 天，5 小时和每周用量同时重置。</p>}<label className="kvs-checkout-label">支付网络<select className="kvs-input" value={chain} onChange={e => setChain(e.target.value)} disabled={busy}>{chains.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      <p className="kvs-muted">付款窗口为 15 分钟，生成地址后会预留库存。每个账号同时只能有一笔待支付订单，请先确认网络。关闭窗口不会取消订单；到期后核对链上状态再释放预留，确认中请勿重复付款。</p>
+      <p className="kvs-muted">付款窗口为 15 分钟，生成地址后会预留库存。每个账号同时只能有一笔待支付订单，请先确认网络。关闭窗口不会取消订单；未付款时可随时点「取消订单」释放预留，取消后请勿再向原地址转账。到期未付款的订单会在核对链上状态后释放预留，确认中请勿重复付款。</p>
       <button className="kvs-button kvs-redeem-button kvs-checkout-action" disabled={busy || !ready || !chains.length || !chain} onClick={() => void create()}>{!ready ? "正在核对已有订单…" : busy ? "正在生成收银台…" : "生成 USDT 付款订单"}</button>
       </>
       : order.activated ? <div className="kvs-notice" role="status">付款成功，{order.tier_name} 已开通。<button className="kvs-button" onClick={onClose}>完成</button></div>
-      : <div className="kvs-checkout"><p role="status">{order.status === "PAID_REQUIRES_ADMIN" ? "付款已到账，订阅尚未开通，请联系管理员处理。请提供下方订单号，无需再次付款。" : order.status === "PAID" ? "已确认到账，正在同步订阅，请勿重复付款。" : order.status === "EXPIRED_CHECKING" ? "付款窗口已结束，正在核对链上到账，请勿继续转账。" : ["EXPIRED", "FAILED"].includes(order.status) ? "订单已失效，请关闭后重新购买。" : "等待 USDT 到账确认…"}</p>
+      : <div className="kvs-checkout"><p role="status">{order.status === "CANCELLED" ? "订单已取消，库存预留已释放。请勿再向原收款地址转账。" : order.status === "PAID_REQUIRES_ADMIN" ?"付款已到账，订阅尚未开通，请联系管理员处理。请提供下方订单号，无需再次付款。" : order.status === "PAID" ? "已确认到账，正在同步订阅，请勿重复付款。" : order.status === "EXPIRED_CHECKING" ? "付款窗口已结束，正在核对链上到账，请勿继续转账。" : ["EXPIRED", "FAILED"].includes(order.status) ? "订单已失效，请关闭后重新购买。" : "等待 USDT 到账确认…"}</p>
         {order.status === "PENDING" && order.expires_at*1000>Date.now() && <><p><strong>{chains.find(c => c.id === order.chain_id)?.name || order.chain_id}</strong></p>
           {order.qr_code_image && <img className="kvs-payment-qr" src={order.qr_code_image} alt="USDT 收款地址二维码" />}
           <label className="kvs-checkout-label">收款地址<input readOnly className="kvs-input" value={order.address || ""} onFocus={e => e.target.select()} /></label>
           <p>应付 <strong>{order.amount} USDT</strong></p><p className="kvs-muted">请在 {new Date(order.expires_at * 1000).toLocaleString()} 前完成付款。仅发送所选网络的 USDT，手续费另计。</p></>}
         {order.status === "PENDING" && order.expires_at*1000<=Date.now() && <p>付款窗口已结束，请勿继续转账，正在核对到账。</p>}
+        {cancellable(order) && <div className="kvs-checkout-cancel"><CancelOrder order={order} disabled={busy} onError={setError}
+          // Bump the revision so a poll that started before the cancel cannot bring the old state back.
+          onResult={(result) => { revision.current++; setError(""); setOrder(previous => ({ ...result.order, qr_code_image: result.order.qr_code_image || previous?.qr_code_image })); }} /></div>}
         {["EXPIRED", "FAILED", "CANCELLED"].includes(order.status) && <button className="kvs-button" onClick={() => { revision.current++; setChain(order.chain_id); setOrder(null); setError(""); }}>重新选择支付网络</button>}
         {order.status === "PAID_REQUIRES_ADMIN" && <button className="kvs-button" disabled={busy} onClick={async () => { setBusy(true); try { const next = await api.subscriptionOrder(order.order_id); if (alive.current) { setOrder(next); if (next.activated && !notified.current) { notified.current = true; await paid.current(); } } } catch (e) { if (alive.current) setError(messageOf(e)); } finally { if (alive.current) setBusy(false); } }}>管理员处理后，重新检查</button>}
         <p className="kvs-code-note">订单：{order.order_id}</p><p className="kvs-muted">付款和订单记录会保留，可关闭窗口后在订阅页继续查看。</p>

@@ -1,5 +1,27 @@
 /** Local preview fixtures only; never called by a production build. */
-export function commerceDemo(path:string, url:URL, json:(data:unknown,status?:number)=>void) {
+// One in-memory unpaid order so the pending banner and the cancel flow can be clicked through locally.
+const previewOrder=(chain='56')=>({order_id:'kvs-preview-'+Date.now().toString(36)+'_'+chain,tier_id:'pro',tier_name:'Max',merchant_name:'Kividas 订阅',
+  chain_id:chain,amount:'120',address:'0xPreviewOnly00000000000000000000000000000',qr_code_image:null,status:'PENDING',
+  expires_at:Math.floor(Date.now()/1000)+840,activated:false});
+let demoOrder:ReturnType<typeof previewOrder>|null=previewOrder();
+function checkoutDemo(path:string, method:string, json:(data:unknown,status?:number)=>void) {
+  const open=demoOrder&&!['CANCELLED','EXPIRED','FAILED'].includes(demoOrder.status)?demoOrder:null;
+  if(path==='/api/v1/subscriptions/checkout'){json(open);return true;}
+  if(path==='/api/v1/subscriptions/chains'){json([{id:'56',name:'BSC'},{id:'1',name:'Ethereum'},{id:'728126428',name:'TRON'}]);return true;}
+  if(path==='/api/v1/subscriptions/subscribe'){
+    if(open)json({detail:'已有待支付或核对中的订单，请先完成付款或等待订单过期核对'},409);else{demoOrder=previewOrder();json(demoOrder);}
+    return true;
+  }
+  if(path.startsWith('/api/v1/subscriptions/order/')){
+    if(!demoOrder)json({detail:'Order not found'},404);
+    else if(method==='DELETE'){demoOrder={...demoOrder,status:'CANCELLED'};json({cancelled:true,order:demoOrder});}
+    else json(demoOrder);
+    return true;
+  }
+  return false;
+}
+export function commerceDemo(path:string, url:URL, json:(data:unknown,status?:number)=>void, method='GET') {
+  if(checkoutDemo(path,method,json))return true;
   if(path==='/api/v1/subscriptions/admin/reseller-invites'){
     json([{id:'demo-invite',name:'示例代理',enabled:true,short_code:'preview-only',customers:10,
       registration_url:'https://proxy.kividas.com/i/preview-only',created_at:Math.floor(Date.now()/1000)}]);return true;

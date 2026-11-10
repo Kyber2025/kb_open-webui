@@ -256,6 +256,110 @@ class PaymentTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await payments.latest_checkout(self.request,self.user,'pro'))['activated'])
         self.assertIsNone(await payments.latest_checkout(self.request,self.user,'pro'))
 
+    async def test_buyer_can_cancel_unpaid_order_and_buy_again_immediately(self):
+        old=await payments.create_checkout(self.request,self.user,'pro','56')
+        with self.assertRaises(HTTPException):
+            await payments.create_checkout(self.request,self.user,'ultra','1')
+        state=await payments.cancel_checkout(self.request,self.user,old['order_id'])
+        self.assertEqual(state['status'],'CANCELLED');self.assertFalse(state['activated'])
+        async with get_async_db() as db:
+            self.assertIsNone(await db.get(CommerceHold,old['order_id']))
+            row=await db.get(CommerceTransaction,old['order_id'])
+            self.assertEqual(row.status,'CANCELLED');self.assertIn('取消未付款订单',row.note)
+        self.assertIsNone(await payments.latest_checkout(self.request,self.user))
+        fresh=await payments.create_checkout(self.request,self.user,'ultra','1')
+        self.assertNotEqual(fresh['order_id'],old['order_id']);self.assertEqual(fresh['status'],'PENDING')
+        # Cancelling again is harmless, and the platform's PENDING/EXPIRED never reopens the invoice.
+        self.assertEqual((await payments.cancel_checkout(self.request,self.user,old['order_id']))['status'],'CANCELLED')
+        self.orders[old['order_id']].update(status='EXPIRED',finalStatus=True)
+        self.assertEqual((await payments.sync_checkout(self.request,self.user,old['order_id']))['status'],'CANCELLED')
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,fresh['order_id']))
+            self.assertEqual(len((await db.execute(select(CommerceHold))).scalars().all()),1)
+        self.assertEqual(len(self.reservations),0)
+
+    async def test_cancel_never_discards_money_that_already_arrived(self):
+        created=await payments.create_checkout(self.request,self.user,'pro','56')
+        self.orders[created['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='paid-before-cancel')
+        with self.assertRaises(HTTPException) as caught:
+            await payments.cancel_checkout(self.request,self.user,created['order_id'])
+        self.assertEqual(caught.exception.status_code,409)
+        async with get_async_db() as db:
+            order=await db.get(SubscriptionOrder,created['order_id'])
+            self.assertEqual(order.status,'PAID');self.assertTrue(order.activated)
+            active=(await db.execute(select(UserSubscription).where(UserSubscription.status=='active'))).scalars().all()
+            self.assertEqual([s.tier_id for s in active],['pro'])
+        # An underpaid or mismatched PAID report also blocks cancellation instead of releasing stock.
+        async with get_async_db() as db:
+            db.add(User(id='second-buyer',email='second@test.invalid',name='Second',role='user'))
+            db.add(UserKyberAccount(user_id='second-buyer',kyber_user_id='gateway-second',kyber_email='second@test.invalid',created_at=self.now,updated_at=self.now))
+            await db.commit()
+        second=SimpleNamespace(id='second-buyer',role='user')
+        short=await payments.create_checkout(self.request,second,'ultra','56')
+        self.orders[short['order_id']].update(status='PAID',paidAmount='359.99',finalStatus=True,txHash='short')
+        with self.assertRaises(HTTPException):
+            await payments.cancel_checkout(self.request,second,short['order_id'])
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,short['order_id']))
+            self.assertEqual((await db.get(SubscriptionOrder,short['order_id'])).status,'PENDING')
+
+    async def test_payment_after_cancel_is_kept_for_administrator_and_takes_no_new_stock(self):
+        from open_webui.utils import commerce_jobs
+        async with get_async_db() as db:
+            # The reconcile loop loads the full user model, which needs real timestamps.
+            buyer=await db.get(User,self.user.id)
+            buyer.created_at=buyer.updated_at=buyer.last_active_at=self.now;await db.commit()
+        old=await payments.create_checkout(self.request,self.user,'pro','56')
+        await payments.cancel_checkout(self.request,self.user,old['order_id'])
+        fresh=await payments.create_checkout(self.request,self.user,'ultra','56')
+        calls=[]
+        original=payments.merchant_request
+        async def counting(req,method,suffix,payload=None):
+            calls.append(suffix);return await original(req,method,suffix,payload)
+        with patch.object(payments,'merchant_request',counting):
+            # A cancelled invoice without reported money is not polled by the reconcile loop.
+            await commerce_jobs.reconcile_once(self.request)
+            self.assertNotIn('status/'+old['order_id'],calls)
+            # The signed payment report flags late money; the next pass settles it for an administrator.
+            self.orders[old['order_id']].update(status='PAID',paidAmount='120',finalStatus=True,txHash='late-after-cancel')
+            async with get_async_db() as db:
+                row=await db.get(CommerceTransaction,old['order_id']);row.paid_at=self.now;await db.commit()
+            await commerce_jobs.reconcile_once(self.request)
+            self.assertIn('status/'+old['order_id'],calls)
+        async with get_async_db() as db:
+            order=await db.get(SubscriptionOrder,old['order_id'])
+            self.assertEqual(order.status,'PAID_REQUIRES_ADMIN');self.assertFalse(order.activated)
+            self.assertEqual(order.tx_hash,'late-after-cancel')
+            self.assertEqual((await db.execute(select(UserSubscription))).scalars().all(),[])
+            self.assertIsNotNone(await db.get(CommerceHold,fresh['order_id']))
+            self.assertIsNone(await db.get(CommerceHold,old['order_id']))
+        # The buyer sees the paid order again instead of a silent loss.
+        pending=await payments.latest_checkout(self.request,self.user)
+        self.assertEqual((pending['order_id'],pending['status']),(old['order_id'],'PAID_REQUIRES_ADMIN'))
+
+    async def test_cancel_is_limited_to_the_buyers_own_unpaid_invoices(self):
+        created=await payments.create_checkout(self.request,self.user,'pro','56')
+        with self.assertRaises(HTTPException) as caught:
+            await payments.cancel_checkout(self.request,SimpleNamespace(id='another-user',role='user'),created['order_id'])
+        self.assertEqual(caught.exception.status_code,404)
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,created['order_id']))
+        # A window that has ended but is still being verified can be released early by its buyer.
+        self.orders[created['order_id']].update(status='EXPIRED',finalStatus=False)
+        self.assertEqual((await payments.sync_checkout(self.request,self.user,created['order_id']))['status'],'EXPIRED_CHECKING')
+        self.assertEqual((await payments.cancel_checkout(self.request,self.user,created['order_id']))['status'],'CANCELLED')
+        async with get_async_db() as db:
+            self.assertIsNone(await db.get(CommerceHold,created['order_id']))
+        # Finished invoices are not cancellable.
+        done=await payments.create_checkout(self.request,self.user,'pro','56')
+        self.orders[done['order_id']].update(status='EXPIRED',finalStatus=True)
+        await payments.sync_checkout(self.request,self.user,done['order_id'])
+        with self.assertRaises(HTTPException) as caught:
+            await payments.cancel_checkout(self.request,self.user,done['order_id'])
+        self.assertEqual(caught.exception.status_code,409)
+        async with get_async_db() as db:
+            self.assertEqual((await db.get(SubscriptionOrder,done['order_id'])).status,'EXPIRED')
+
     def test_signed_response_rejects_tampering_and_stale_timestamp(self):
         timestamp=str(int(time.time()));nonce='test-nonce';body=b'{"status":"PENDING"}'
         sig=payments.signature('test-only','RESPONSE',timestamp,nonce,hashlib.sha256(body).hexdigest())

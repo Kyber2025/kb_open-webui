@@ -18,6 +18,9 @@ from fastapi.responses import PlainTextResponse
 log = logging.getLogger(__name__)
 OPEN_STATUSES = ('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID', 'PAID_REQUIRES_ADMIN')
 PAYMENT_IN_PROGRESS = ('PAID', 'PAID_REQUIRES_ADMIN', 'EXPIRED_CHECKING')
+# Unpaid states a buyer may release early. CANCELLED frees the stock hold only: the issued
+# address can still receive USDT, so the order stays reconcilable (see cancel_checkout).
+CANCELLABLE = ('CREATING', 'PENDING', 'EXPIRED_CHECKING')
 MAX_ORDER_SECONDS = 48 * 3600
 
 
@@ -206,7 +209,8 @@ async def sync_checkout(request, user, order_id):
         order = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.id == order_id).with_for_update())).scalar_one_or_none()
         if not order or order.user_id != user.id or not order.logical_order_id.startswith('kvs-'):
             raise HTTPException(404, 'Order not found')
-        if not order.activated and order.status in (*OPEN_STATUSES, 'EXPIRED', 'FAILED') and order.status != 'PAID_REQUIRES_ADMIN':
+        cancelled = order.status == 'CANCELLED'
+        if not order.activated and order.status in (*OPEN_STATUSES, 'EXPIRED', 'FAILED', 'CANCELLED') and order.status != 'PAID_REQUIRES_ADMIN':
             stalled = order.status == 'CREATING' and order.expires_at <= int(time.time())
             try:
                 if order.status == 'CREATING' and not stalled:
@@ -216,12 +220,16 @@ async def sync_checkout(request, user, order_id):
                 else:
                     data = await merchant_request(request, 'GET', 'status/' + quote(order.id, safe=''))
             except VerifiedMerchantError:
-                if not stalled: raise
-                order.status = 'FAILED'  # Signed absence proves no address was issued.
+                # Signed absence proves no address was issued. A cancelled intent simply stays cancelled.
+                if not stalled and not cancelled: raise
+                if not cancelled: order.status = 'FAILED'
             if data:
                 expires = validate_order(order, data)
                 order.address, order.expires_at = data['address'], expires
-                order.status = 'EXPIRED_CHECKING' if data['status'] == 'EXPIRED' and not (data.get('finalStatus') is True or data.get('final') is True) else data['status']
+                # The buyer released a cancelled invoice. Only verified money may reopen it;
+                # PENDING or EXPIRED from the payment platform must not undo the cancellation.
+                if not cancelled or data['status'] == 'PAID':
+                    order.status = 'EXPIRED_CHECKING' if data['status'] == 'EXPIRED' and not (data.get('finalStatus') is True or data.get('final') is True) else data['status']
                 order.tx_hash = data.get('txHash')
             order.updated_at = int(time.time())
             await db.commit()
@@ -274,6 +282,63 @@ async def sync_checkout(request, user, order_id):
         'address': order.address, 'qr_code_image': qr, 'status': order.status,
         'expires_at': order.expires_at, 'activated': order.activated and fulfilled, 'tx_hash': order.tx_hash,
         'subscription_state': await get_subscription_state(user.id, is_admin=user.role == 'admin')}
+
+
+async def cancel_checkout(request, user, order_id):
+    """Buyer-requested early release of an unpaid invoice, without waiting for the payment window.
+
+    The issued address cannot be withdrawn and may still receive USDT. Cancelling therefore only
+    frees the stock hold and lets the buyer place another order. The order remains reconcilable:
+    money verified later is recorded and handed to an administrator, exactly like a payment that
+    arrives after expiry. Money that has already arrived is never cancelled.
+    """
+    from sqlalchemy import select, delete
+    from open_webui.internal.db import get_async_db
+    from open_webui.models.users import User
+    from open_webui.models.subscriptions import SubscriptionOrder
+    from open_webui.models.commerce import CommerceHold, CommerceTransaction
+    from open_webui.utils.claude_allocation import cancel_reservation
+    paid = released = False
+    async with get_async_db() as db:
+        # Same lock order as create_checkout: the buyer row, then the order.
+        await db.execute(select(User).where(User.id == user.id).with_for_update())
+        order = (await db.execute(select(SubscriptionOrder).where(SubscriptionOrder.id == order_id).with_for_update())).scalar_one_or_none()
+        if not order or order.user_id != user.id or not order.logical_order_id.startswith('kvs-'):
+            raise HTTPException(404, 'Order not found')
+        logical = order.logical_order_id
+        if order.status != 'CANCELLED':
+            if order.activated or order.status not in CANCELLABLE:
+                raise HTTPException(409, '订单已到账或已结束，不能取消')
+            data = None
+            try:
+                # Fresh signed evidence: a stale local PENDING must not cancel a paid invoice.
+                data = await merchant_request(request, 'GET', 'status/' + quote(order.id, safe=''))
+            except VerifiedMerchantError:
+                if order.status != 'CREATING': raise  # Only an unissued intent may be absent.
+            if data:
+                validate_order(order, data)
+                paid = data['status'] == 'PAID'
+            if not paid:
+                now = int(time.time())
+                order.status, order.updated_at = 'CANCELLED', now
+                await db.execute(delete(CommerceHold).where(CommerceHold.id == order.id))
+                row = await db.get(CommerceTransaction, order.id)
+                if row:
+                    row.status, row.updated_at = 'CANCELLED', now
+                    row.note = ((row.note or '') + f'\n用户于 {now} 取消未付款订单，库存预留已释放').strip()
+                await db.commit()
+                released = True
+    if paid:
+        # The payment won the race. Settle it instead of cancelling.
+        await sync_checkout(request, user, order_id)
+        raise HTTPException(409, '付款已到账，订单不能取消')
+    if released:
+        try:
+            # Unpaid orders hold no gateway seat; this only clears a leftover reservation.
+            await cancel_reservation(request, user.id, logical)
+        except Exception:
+            log.warning('Cancelled checkout reservation cleanup deferred: %s', order_id)
+    return await sync_checkout(request, user, order_id)
 
 
 async def latest_checkout(request, user, tier_id=None):

@@ -179,7 +179,10 @@ async def receive_payment_notification(request: Request):
 async def cancel_order(request: Request, order_id: str, user=Depends(get_verified_user)):
     await require_direct_purchase(user)
     if order_id.startswith('kvs-'):
-        raise HTTPException(409, '已生成的链上收款地址无法撤回，请等待付款或订单最终失效')
+        # The on-chain address cannot be withdrawn; cancelling only releases the stock hold.
+        from open_webui.utils.subscription_payments import cancel_checkout
+        view = await cancel_checkout(request, user, order_id)
+        return {'cancelled': view['status'] == 'CANCELLED', 'order': view}
     order = await SubscriptionOrders.get(order_id)
     if order is None or order.user_id != user.id:
         raise HTTPException(404, 'Order not found')
