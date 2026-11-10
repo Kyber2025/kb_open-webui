@@ -22,6 +22,7 @@ export function GatewayResources({ configurationNote }: { configurationNote?: Re
     </button>; }
   return <div>
     <div className="gateway-resources">{gatewayResources.filter(r => !r.id.startsWith('usage-')).map(tile)}</div>
+    <p className="muted">r5 默认关闭 Desktop / CLI 遥测与错误上报。老用户下载后选择“更新隐私设置（无需 Key）”，完成后重启客户端并新建会话；每台电脑运行一次即可。</p>
     {configurationNote}
     <section className="gateway-usage-downloads" aria-label="远程用量 MCP">
       <h3>直接问 Claude 查用量</h3>

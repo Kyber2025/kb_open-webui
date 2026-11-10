@@ -37,7 +37,7 @@ export interface GatewayResource {
 }
 // Display order: the one-click setup tool first, then the per-client guides.
 export const gatewayResources: readonly GatewayResource[] = [
-  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 含用量 MCP · r4', file: 'kividas-gateway-setup-r4.zip', name: 'Kividas网关一键配置-r4.zip', format: 'ZIP', size: '22 KB', badge: '推荐' },
+  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 默认关闭遥测 · r5', file: 'kividas-gateway-setup-r5.zip', name: 'Kividas网关一键配置-r5.zip', format: 'ZIP', size: '25 KB', badge: '推荐' },
   { id: 'mac', title: 'Claude Desktop · macOS', detail: 'Mac 网关配置教程', file: 'claude-desktop-macos.pdf', name: 'Claude配置网关教程Mac版.pdf', format: 'PDF', size: '794 KB' },
   { id: 'windows', title: 'Claude Desktop · Windows', detail: 'Windows 网关配置教程', file: 'claude-desktop-windows.pdf', name: 'Claude配置网关教程Windows版.pdf', format: 'PDF', size: '1.04 MB' },
   { id: 'cli', title: 'Claude Code CLI', detail: 'Mac / Windows 网关配置教程', file: 'claude-code-cli.pdf', name: 'ClaudeCodeCLI网关配置教程Mac与Windows版.pdf', format: 'PDF', size: '332 KB' },
@@ -46,6 +46,6 @@ export const gatewayResources: readonly GatewayResource[] = [
 ];
 
 export const usageMcpResources: readonly GatewayResource[] = [
-  { ...gatewayResources[0], title: '用量 MCP 一键配置', detail: 'Mac / Windows · 老用户补配置 · r4', name: 'Kividas用量MCP一键配置-r4.zip' },
+  { ...gatewayResources[0], title: '用量 MCP 一键配置', detail: 'Mac / Windows · 老用户补配置 · r5', name: 'Kividas用量MCP一键配置-r5.zip' },
   { id: 'mcp-guide', title: '用量 MCP 接入教程', detail: 'Windows / Mac · 一键及手动配置 · 2 页', file: 'kividas-usage-mcp-guide-r4.pdf', name: 'Kividas用量MCP接入教程Windows与Mac.pdf', format: 'PDF', size: '80 KB' },
 ];
