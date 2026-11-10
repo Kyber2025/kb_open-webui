@@ -99,3 +99,21 @@ describe("Haiku 5.5", () => {
     }
   });
 });
+
+describe("Fable 5.2", () => {
+  const previous = { id: "claude-fable-5-1", name: "Claude Fable 5.1" };
+  const latest = { id: "claude-fable-5-2", name: "Claude Fable 5.2" };
+  it("promotes the authorized new model while preserving older model objects", () => {
+    const models = [previous, opus, latest];
+    expect(primaryModels(models)).toEqual([latest, opus]);
+    expect(models.filter((m) => !primaryModels(models).includes(m))).toEqual([previous]);
+    expect(primaryModels([previous, opus])).toEqual([previous, opus]);
+    const namespaced = { ...latest, id: "anthropic/claude-fable-5-2[1m]" };
+    expect(primaryModels([previous, namespaced])).toEqual([namespaced]);
+  });
+  it("retains every effort level and native tools for the new model", () => {
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const)
+      expect(reasoningParams(latest, effort)).toEqual({ reasoning_effort: effort });
+    expect(toolParams(latest, true)).toEqual({ function_calling: "native" });
+  });
+});

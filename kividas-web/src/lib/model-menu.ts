@@ -23,7 +23,7 @@ function family(model: Model) {
 export function primaryModels(models: Model[]) {
   const headline = models.filter((model) => !/^(?:anthropic\/)?claude-opus-5(?:\[1m\])?$/.test(model.id));
   const primary = ["fable", "opus", "sonnet", "haiku"].flatMap((name) => {
-    const latest = name === "haiku" ? "claude-haiku-5-5" : name === "sonnet" ? "claude-sonnet-5-5" : undefined;
+    const latest = name === "fable" ? "claude-fable-5-2" : name === "haiku" ? "claude-haiku-5-5" : name === "sonnet" ? "claude-sonnet-5-5" : undefined;
     const model = (latest && headline.find((m) => m.id.replace(/^anthropic\//, "").replace(/\[1m\]$/i, "") === latest))
       || headline.find((m) => family(m) === name);
     return model ? [model] : [];
