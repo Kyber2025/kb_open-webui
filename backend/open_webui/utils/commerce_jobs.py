@@ -125,7 +125,9 @@ async def reconcile_once(request):
         reseller = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.source == 'reseller',
             CommerceTransaction.fulfilled.is_(False), CommerceTransaction.status != 'PAID_REQUIRES_ADMIN',
             or_(CommerceTransaction.status.in_(('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID')),
-                CommerceTransaction.created_at >= now-7*86400, CommerceTransaction.paid_at.is_not(None)))
+                # Reseller-cancelled purchases are not polled; the signed payment report flags late money.
+                and_(CommerceTransaction.status != 'CANCELLED', CommerceTransaction.created_at >= now-7*86400),
+                CommerceTransaction.paid_at.is_not(None)))
             .order_by(CommerceTransaction.updated_at).limit(100))).scalars().all()
     semaphore = asyncio.Semaphore(4)
     async def reconcile(row, agent=False):

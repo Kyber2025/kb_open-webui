@@ -36,7 +36,7 @@ async def hold_stock(request, db, order_id, user_id, tier_id, quantity, expires_
     # merely because the user changes networks; it can still receive USDT.
     existing = (await db.execute(select(CommerceHold.id).where(CommerceHold.user_id == user_id))).first()
     if existing:
-        raise HTTPException(409, '已有待支付或核对中的订单，请先完成付款或等待订单过期核对')
+        raise HTTPException(409, '已有待支付或核对中的订单，请先完成付款、取消该订单，或等待订单过期核对')
     now = int(time.time())
     recent = (await db.execute(select(func.count()).select_from(CommerceTransaction).where(
         CommerceTransaction.user_id == user_id, CommerceTransaction.created_at > now-3600))).scalar()

@@ -4,7 +4,7 @@ const base = '/api/v1/commerce';
 const post = <T>(path: string, body?: unknown) => request<T>(base + path, { method: 'POST', body: JSON.stringify(body ?? {}) });
 export type Price = { tier_id: string; name: string; duration_days: number; default_price: string | null; override_price: string | null; price: string | null; retail_price: string; remaining?: number };
 export type Reseller = { user_id: string; invite_id: string; name: string; user_name: string; email: string; enabled: boolean; invite_enabled: boolean; short_code: string; customers: number; created_at: number; prices: Price[] };
-export type Profile = { is_reseller: boolean; enabled?: boolean; name?: string; short_code?: string; prices?: Price[]; chains?: {id:string;name:string}[] };
+export type Profile = { is_reseller: boolean; enabled?: boolean; name?: string; short_code?: string | null; invite_enabled?: boolean; customers?: number; prices?: Price[]; chains?: {id:string;name:string}[] };
 export type Transaction = { id: string; source: string; user_id?: string; actor_id?: string; buyer?: Pick<User,'id'|'name'|'email'>; actor?: Pick<User,'id'|'name'|'email'>;
   tier_id?: string; tier_name?: string; quantity: number; duration_days?: number; unit_price?: string; amount?: string; chain_id?: string;
   status: string; fulfilled: boolean; batch_id?: string; address?: string; tx_hash?: string; payment?: Record<string, unknown>;
@@ -21,6 +21,8 @@ export const commerceApi = {
   users: (search: string) => request<{users: User[]; total: number}>('/api/v1/users/?limit=20&query='+encodeURIComponent(search)),
   purchase: (tier_id: string, quantity: number, chain_id: string, request_id: string) => post<Transaction>('/reseller/purchases', {tier_id,quantity,chain_id,request_id}),
   order: (id: string) => request<Transaction>(base+'/reseller/purchases/'+encodeURIComponent(id)),
+  // Releases the stock hold of the reseller's own unpaid purchase. `cancelled` is false when a payment won the race.
+  cancel: (id: string) => post<{cancelled:boolean; order:Transaction}>(`/reseller/purchases/${encodeURIComponent(id)}/cancel`),
   transactions: (filters: Filters, own=false) => request<TransactionPage>(base+(own ? '/reseller/purchases' : '/admin/transactions')+'?'+query(filters)),
   sync: () => post<{synced_at:number; updated:number}>('/admin/transactions/sync'),
   retry: (id: string) => post<{success:boolean;fulfilled:boolean}>(`/admin/transactions/${encodeURIComponent(id)}/retry`),
@@ -30,6 +32,8 @@ export const commerceApi = {
     a.href=url; a.download=own?'代理购买明细.csv':'交易明细.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   },
 };
+// Unpaid states a buyer may release early; mirrors CANCELLABLE on the server.
+export const cancellableStatuses = ['CREATING','PENDING','EXPIRED_CHECKING'];
 export const sources: Record<string,string> = {subscription:'普通用户购买',reseller:'代理购买',manual:'管理员发码',payment:'支付平台记录'};
 export const statuses: Record<string,string> = {CREATING:'创建中',PENDING:'待支付',PAID:'已到账',PAID_REQUIRES_ADMIN:'已到账 · 待处理',EXPIRED_CHECKING:'过期核对中',EXPIRED:'已过期',CANCELLED:'已取消',FAILED:'失败',ISSUED:'已发码'};
 export const chains: Record<string,string> = {'56':'BSC','1':'Ethereum','728126428':'TRON','-1':'Solana'};

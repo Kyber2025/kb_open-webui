@@ -148,6 +148,13 @@ async def purchase_status(request: Request, response: Response, order_id: str, u
     return await commerce.sync_purchase(request, user.id, order_id)
 
 
+@router.post('/reseller/purchases/{order_id}/cancel', dependencies=[Depends(write_guard)])
+async def cancel_purchase(request: Request, order_id: str, user=Depends(get_verified_user)):
+    # Releases the stock hold of the caller's own unpaid purchase; `cancelled` is false if a payment won the race.
+    view = await commerce.cancel_purchase(request, user, order_id)
+    return {'cancelled': view['status'] == 'CANCELLED', 'order': view}
+
+
 @router.post('/payment/notify')
 async def notify(request: Request):
     app_id, secret = credentials()

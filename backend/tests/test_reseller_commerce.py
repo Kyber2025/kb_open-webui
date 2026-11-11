@@ -22,7 +22,7 @@ test_config.DEFAULT_USER_PERMISSIONS = {}
 sys.modules.setdefault('open_webui.config', test_config)
 from open_webui.models.users import User
 from open_webui.models.commerce import ResellerAccount, ResellerPrice, CommerceTransaction, CommerceHold
-from open_webui.models.reseller_invites import ResellerInvite
+from open_webui.models.reseller_invites import ResellerInvite, ResellerCustomer
 from open_webui.models.subscriptions import GiftCard, GiftCards
 from open_webui.utils import reseller_commerce as commerce, subscription_payments as payments, subscription, commerce_reports as reports
 from open_webui.utils.commerce_inventory import change_card
@@ -222,6 +222,109 @@ class CommerceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(row.amount)
             self.assertFalse(row.stock_backed)
             self.assertTrue(row.fulfilled)
+
+    async def test_reseller_can_cancel_unpaid_purchase_and_buy_again_immediately(self):
+        order=await self.buy(quantity=2)
+        with self.assertRaises(HTTPException):
+            await self.buy(key='second-request-while-held',tier='ultra')
+        cancel='/api/v1/commerce/reseller/purchases/'+order['id']+'/cancel'
+        response=await self.client.post(cancel,headers=self.headers(self.user.id))
+        self.assertEqual(response.status_code,200,response.text)
+        body=response.json();self.assertTrue(body['cancelled']);self.assertEqual(body['order']['status'],'CANCELLED')
+        self.assertEqual(body['order']['cards'],[])
+        async with get_async_db() as db:
+            self.assertIsNone(await db.get(CommerceHold,order['id']))
+            row=await db.get(CommerceTransaction,order['id'])
+            self.assertIn('取消未付款订单',row.note);self.assertFalse(row.fulfilled)
+            self.assertEqual((await db.execute(select(func.count()).select_from(GiftCard))).scalar(),0)
+        fresh=await self.buy(key='request-after-cancel',tier='ultra')
+        self.assertNotEqual(fresh['id'],order['id']);self.assertEqual(fresh['status'],'PENDING')
+        # Cancelling again is harmless, and the platform's PENDING/EXPIRED never reopens the purchase.
+        again=await self.client.post(cancel,headers=self.headers(self.user.id))
+        self.assertEqual((again.status_code,again.json()['cancelled']),(200,True))
+        self.orders[order['id']].update(status='EXPIRED',finalStatus=True)
+        self.assertEqual((await commerce.sync_purchase(self.request,self.user.id,order['id']))['status'],'CANCELLED')
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,fresh['id']))
+            self.assertEqual((await db.execute(select(func.count()).select_from(CommerceHold))).scalar(),1)
+
+    async def test_cancel_refuses_a_paid_purchase_and_delivers_it_instead(self):
+        order=await self.buy(quantity=2);self.paid(order)
+        response=await self.client.post('/api/v1/commerce/reseller/purchases/'+order['id']+'/cancel',headers=self.headers(self.user.id))
+        self.assertEqual(response.status_code,409,response.text)
+        result=await commerce.sync_purchase(self.request,self.user.id,order['id'])
+        self.assertTrue(result['fulfilled']);self.assertEqual(result['status'],'PAID');self.assertEqual(len(result['cards']),2)
+        # A delivered purchase can no longer be cancelled.
+        with self.assertRaises(HTTPException) as caught:
+            await commerce.cancel_purchase(self.request,self.user,order['id'])
+        self.assertEqual(caught.exception.status_code,409)
+        async with get_async_db() as db:
+            self.assertEqual((await db.execute(select(func.count()).select_from(GiftCard))).scalar(),2)
+
+    async def test_payment_after_reseller_cancel_waits_for_administrator_without_codes(self):
+        from open_webui.utils import commerce_jobs
+        order=await self.buy()
+        await commerce.cancel_purchase(self.request,self.user,order['id'])
+        calls=[];original=commerce.merchant_request
+        async def counting(req,method,suffix,payload=None):
+            calls.append(suffix);return await original(req,method,suffix,payload)
+        with patch.object(commerce,'merchant_request',counting):
+            # A cancelled purchase without reported money is not polled by the reconcile loop.
+            await commerce_jobs.reconcile_once(self.request)
+            self.assertNotIn('status/'+order['id'],calls)
+            # The signed payment report flags late money; the next pass keeps it for an administrator.
+            self.paid(order)
+            async with get_async_db() as db:
+                row=await db.get(CommerceTransaction,order['id']);row.paid_at=self.now;await db.commit()
+            await commerce_jobs.reconcile_once(self.request)
+            self.assertIn('status/'+order['id'],calls)
+        async with get_async_db() as db:
+            row=await db.get(CommerceTransaction,order['id'])
+            self.assertEqual((row.status,row.fulfilled,row.tx_hash),('PAID_REQUIRES_ADMIN',False,'verified-chain-hash'))
+            self.assertIsNone(await db.get(CommerceHold,order['id']))
+            self.assertEqual((await db.execute(select(func.count()).select_from(GiftCard))).scalar(),0)
+
+    async def test_cancel_is_limited_to_the_resellers_own_unpaid_purchases(self):
+        order=await self.buy()
+        cancel='/api/v1/commerce/reseller/purchases/'+order['id']+'/cancel'
+        self.assertEqual((await self.client.post(cancel)).status_code,401)
+        self.assertEqual((await self.client.post(cancel,headers=self.headers('agent-two'))).status_code,404)
+        self.assertEqual((await self.client.post(cancel,headers={**self.headers(self.user.id),'Origin':'https://attacker.invalid'})).status_code,403)
+        async with get_async_db() as db:
+            self.assertIsNotNone(await db.get(CommerceHold,order['id']))
+            self.assertEqual((await db.get(CommerceTransaction,order['id'])).status,'PENDING')
+        # A window that ended but is still being verified can be released early; a finished one cannot.
+        self.orders[order['id']].update(status='EXPIRED',finalStatus=False)
+        self.assertEqual((await commerce.sync_purchase(self.request,self.user.id,order['id']))['status'],'EXPIRED_CHECKING')
+        self.assertTrue((await self.client.post(cancel,headers=self.headers(self.user.id))).json()['cancelled'])
+        done=await self.buy(key='request-that-expires')
+        self.orders[done['id']].update(status='EXPIRED',finalStatus=True)
+        await commerce.sync_purchase(self.request,self.user.id,done['id'])
+        response=await self.client.post('/api/v1/commerce/reseller/purchases/'+done['id']+'/cancel',headers=self.headers(self.user.id))
+        self.assertEqual(response.status_code,409)
+
+    async def test_reseller_profile_exposes_only_its_own_invitation_short_link(self):
+        async with get_async_db() as db:
+            account=await db.get(ResellerAccount,self.user.id)
+            invite=await db.get(ResellerInvite,account.invite_id)
+            invite_id,code,token=invite.id,invite.short_code,invite.token
+            db.add(ResellerCustomer(user_id='ordinary',invite_id=invite_id,created_at=self.now));await db.commit()
+        response=await self.client.get('/api/v1/commerce/reseller/me',headers=self.headers(self.user.id))
+        self.assertEqual(response.status_code,200,response.text)
+        profile=response.json()
+        self.assertEqual((profile['short_code'],profile['invite_enabled'],profile['customers']),(code,True,1))
+        self.assertNotIn(token,response.text)
+        other=(await self.client.get('/api/v1/commerce/reseller/me',headers=self.headers('agent-two'))).json()
+        self.assertTrue(other['short_code']);self.assertNotEqual(other['short_code'],code);self.assertEqual(other['customers'],0)
+        self.assertEqual((await self.client.get('/api/v1/commerce/reseller/me',headers=self.headers('ordinary'))).json(),{'is_reseller':False})
+        # A legacy invitation without a short link gets one on first use; a disabled link is reported as such.
+        async with get_async_db() as db:
+            invite=await db.get(ResellerInvite,invite_id);invite.short_code=None;invite.enabled=False;await db.commit()
+        legacy=await commerce.reseller_profile(self.request,self.user)
+        self.assertTrue(legacy['short_code']);self.assertFalse(legacy['invite_enabled'])
+        self.assertEqual((await commerce.reseller_profile(self.request,self.user))['short_code'],legacy['short_code'])
+        async with get_async_db() as db:
+            self.assertEqual((await db.get(ResellerInvite,invite_id)).short_code,legacy['short_code'])
 
 
 if __name__=='__main__':unittest.main()
