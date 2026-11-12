@@ -152,14 +152,14 @@ async def create_purchase(request, user, tier_id, quantity, chain_id, request_id
     return await sync_purchase(request, user.id, order_id)
 
 
-async def sync_purchase(request, user_id, order_id):
+async def sync_purchase(request, user_id, order_id, *, source="reseller"):
     from open_webui.utils.subscription import generate_gift_cards
     from open_webui.utils.commerce_reports import transaction_view, iso_epoch
     from types import SimpleNamespace
     async with get_async_db() as db:
         order = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.id == order_id)
             .with_for_update())).scalar_one_or_none()
-        if not order or order.source != 'reseller' or order.user_id != user_id:
+        if not order or order.source != source or order.user_id != user_id:
             raise HTTPException(404, '订单不存在')
         if not order.fulfilled:
             cancelled = order.status == 'CANCELLED'
@@ -198,6 +198,9 @@ async def sync_purchase(request, user_id, order_id):
             else:
                 cards = await generate_gift_cards(SimpleNamespace(id=user_id), order.tier_id, order.quantity,
                     order.duration_days, '代理购买 ' + order.id, db=db, transaction=order, request=request)
+                if source == 'b2b':
+                    from open_webui.utils.b2b_commerce import attach_cards
+                    await attach_cards(db, order, cards)
                 order.batch_id, order.fulfilled, order.status = cards[0].batch_id, True, 'PAID'
                 await release_hold(db, order.id)
             await db.commit()
@@ -209,7 +212,7 @@ async def sync_purchase(request, user_id, order_id):
         return result
 
 
-async def cancel_purchase(request, user, order_id):
+async def cancel_purchase(request, user, order_id, *, source="reseller"):
     """Reseller-requested early release of an unpaid purchase, without waiting for the payment window.
 
     Same contract as subscription_payments.cancel_checkout: the issued address can still receive USDT,
@@ -219,10 +222,14 @@ async def cancel_purchase(request, user, order_id):
     paid = False
     async with get_async_db() as db:
         # Same lock order as create_purchase: the buyer row, then the order.
-        await db.execute(select(User).where(User.id == user.id).with_for_update())
+        if source == 'b2b':
+            from open_webui.utils.b2b_commerce import lock_buyer
+            await lock_buyer(db, user.id)
+        else:
+            await db.execute(select(User).where(User.id == user.id).with_for_update())
         order = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.id == order_id)
             .with_for_update())).scalar_one_or_none()
-        if not order or order.source != 'reseller' or order.user_id != user.id:
+        if not order or order.source != source or order.user_id != user.id:
             raise HTTPException(404, '订单不存在')
         if order.status != 'CANCELLED':
             if order.fulfilled or order.status not in CANCELLABLE:
@@ -244,6 +251,6 @@ async def cancel_purchase(request, user, order_id):
                 await db.commit()
     if paid:
         # The payment won the race. Settle it (the hold is still in place) instead of cancelling.
-        await sync_purchase(request, user.id, order_id)
+        await sync_purchase(request, user.id, order_id, source=source)
         raise HTTPException(409, '付款已到账，订单不能取消')
-    return await sync_purchase(request, user.id, order_id)
+    return await sync_purchase(request, user.id, order_id, source=source)

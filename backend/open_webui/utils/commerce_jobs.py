@@ -122,7 +122,7 @@ async def reconcile_once(request):
                 # Buyer-cancelled invoices are not polled; the signed payment report flags late money.
                 and_(SubscriptionOrder.status == 'CANCELLED', CommerceTransaction.paid_at.is_not(None))))
             .order_by(SubscriptionOrder.updated_at).limit(100))).scalars().all()
-        reseller = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.source == 'reseller',
+        reseller = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.source.in_(('reseller', 'b2b')),
             CommerceTransaction.fulfilled.is_(False), CommerceTransaction.status != 'PAID_REQUIRES_ADMIN',
             or_(CommerceTransaction.status.in_(('CREATING', 'PENDING', 'EXPIRED_CHECKING', 'PAID')),
                 # Reseller-cancelled purchases are not polled; the signed payment report flags late money.
@@ -134,7 +134,7 @@ async def reconcile_once(request):
         async with semaphore:
             try:
                 if agent:
-                    await sync_purchase(request, row.user_id, row.id)
+                    await sync_purchase(request, row.user_id, row.id, source=row.source)
                 else:
                     user = await Users.get_user_by_id(row.user_id)
                     if user:

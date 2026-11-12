@@ -14,10 +14,14 @@ from open_webui.utils.reseller_commerce import sync_purchase
 async def retry_fulfillment(request, admin, order_id):
     async with get_async_db() as db:
         snapshot = await db.get(CommerceTransaction, order_id)
-        if not snapshot or snapshot.source not in ('subscription', 'reseller') or not snapshot.user_id:
+        if not snapshot or snapshot.source not in ('subscription', 'reseller', 'b2b') or not snapshot.user_id:
             raise HTTPException(404, '购买记录不存在')
         user_id, source = snapshot.user_id, snapshot.source
-        await db.execute(select(User).where(User.id == user_id).with_for_update())
+        if source == 'b2b':
+            from open_webui.utils.b2b_commerce import lock_buyer
+            await lock_buyer(db, user_id)
+        else:
+            await db.execute(select(User).where(User.id == user_id).with_for_update())
         row = (await db.execute(select(CommerceTransaction).where(CommerceTransaction.id == order_id)
             .with_for_update().execution_options(populate_existing=True))).scalar_one()
         if row.fulfilled:
@@ -40,6 +44,9 @@ async def retry_fulfillment(request, admin, order_id):
         row.payment = data
         row.note = (row.note or '') + f'\n管理员 {admin.id} 于 {int(time.time())} 核验到账并重试交付'
         await db.commit()
+    if source == 'b2b':
+        result = await sync_purchase(request, user_id, order_id, source=source)
+        return {'success': True, 'fulfilled': result['fulfilled']}
     user = await Users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(409, '购买用户已不存在，请人工处理')

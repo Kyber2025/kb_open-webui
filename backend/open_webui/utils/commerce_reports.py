@@ -16,7 +16,7 @@ def transaction_view(row):
     return {key: (str(value) if isinstance(value, Decimal) else value) for key in (
         'id', 'source', 'user_id', 'actor_id', 'tier_id', 'tier_name', 'quantity', 'duration_days',
         'unit_price', 'amount', 'chain_id', 'status', 'fulfilled', 'batch_id', 'address', 'tx_hash',
-        'payment', 'collections', 'note', 'expires_at', 'created_at', 'updated_at', 'synced_at')
+        'payment', 'collections', 'note', 'paid_at', 'expires_at', 'created_at', 'updated_at', 'synced_at')
         for value in [getattr(row, key)]}
 
 

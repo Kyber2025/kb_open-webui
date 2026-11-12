@@ -172,9 +172,13 @@ async def notify(request: Request):
         raise HTTPException(401, 'Invalid payment notification')
     async with get_async_db() as db:
         order = await db.get(CommerceTransaction, order_id)
-        if not order or order.source != 'reseller':
+        if not order or order.source not in ('reseller', 'b2b'):
             raise HTTPException(404, 'Order not found')
-        user_id = order.user_id
+        user_id, source = order.user_id, order.source
     # Never trust callback amounts or PAID flags; query fresh signed evidence.
-    await commerce.sync_purchase(request, user_id, order_id)
+    await commerce.sync_purchase(request, user_id, order_id, source=source)
     return PlainTextResponse('success')
+
+# Internal ToB callers authenticate independently of customer sessions.
+from open_webui.routers.b2b_commerce import router as b2b_router
+router.include_router(b2b_router, prefix="/b2b")

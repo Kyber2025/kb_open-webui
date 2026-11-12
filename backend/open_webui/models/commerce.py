@@ -78,3 +78,32 @@ class CommerceNotice(Base):
     next_attempt_at = Column(BigInteger, nullable=False)
     created_at = Column(BigInteger, nullable=False)
     sent_at = Column(BigInteger, nullable=True)
+
+
+class B2BCheckout(Base):
+    __tablename__ = 'b2b_checkout'
+    order_id = Column(String, primary_key=True)
+    external_id = Column(String, nullable=False, unique=True)
+    company_id = Column(String, nullable=False, index=True)
+    buyer_id = Column(String, nullable=False)
+
+
+class B2BCard(Base):
+    __tablename__ = 'b2b_card'
+    code = Column(String, primary_key=True)
+    order_id = Column(String, nullable=False, index=True)
+    company_id = Column(String, nullable=False, index=True)
+    owner_id = Column(String, nullable=False, index=True)
+    updated_at = Column(BigInteger, nullable=False)
+
+
+class B2BTransfer(Base):
+    __tablename__ = 'b2b_transfer'
+    id = Column(String, primary_key=True)
+    company_id = Column(String, nullable=False, index=True)
+    from_id = Column(String, nullable=False)
+    to_id = Column(String, nullable=False)
+    actor_id = Column(String, nullable=False)
+    codes = Column(JSONField, nullable=False)
+    note = Column(String, nullable=False)
+    created_at = Column(BigInteger, nullable=False, index=True)
