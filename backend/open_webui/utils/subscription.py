@@ -9,7 +9,7 @@ import uuid
 from typing import Optional
 from open_webui.utils.subscription_model_ids import canonical_model_id, normalize_model_ids, individual_grant_only
 
-from open_webui.utils.claude_allocation import change_subscription, reserve_order, cancel_reservation, reconcile_allocations, latest_change, propagate
+from open_webui.utils.claude_allocation import change_subscription, reserve_order, cancel_reservation, reconcile_allocations, latest_change, propagate, routing_enabled
 
 import aiohttp
 from fastapi import HTTPException, Request, status
@@ -109,15 +109,12 @@ async def sync_user_rate_limits_to_kyber(request: Request, user_id: str) -> bool
         extra_enabled = bool(getattr(link, 'extra_usage_enabled', False)) if link else False
         multiplier = float(getattr(tier, 'extra_usage_multiplier', 1.0) or 1.0)
 
-        # Did the user's caps actually change? Read what KyberRouter holds BEFORE
-        # overwriting it. This runs on every sync (login included), so comparing is
-        # the only way to tell a real tier change from a routine re-push — resetting
-        # unconditionally would clear the window on every login.
-        #
-        # Comparing stored-vs-new caps rather than tracking the last synced tier
-        # keeps this self-correcting: a cap changed out of band (SQL, a missed sync,
-        # an edited tier) still counts as a change and still gets a clean window.
-        caps_changed = await _caps_differ(request, link, override)
+        # Allocation-managed subscriptions own their caps and reset only on an
+        # actual tier transition in the gateway's versioned commit. A shared or
+        # dedicated seat can legitimately differ from the storefront tier card;
+        # comparing those values would clear usage on every login/reconcile pass.
+        # Keep the historical cap-change reset only for legacy routing.
+        caps_changed = not await routing_enabled(request) and await _caps_differ(request, link, override)
 
         ok = await kyber_set_user_rate_limits(
             request, user_id, override, subscription_managed=True,
