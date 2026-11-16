@@ -22,11 +22,11 @@ export function GatewayResources({ configurationNote }: { configurationNote?: Re
     </button>; }
   return <div>
     <div className="gateway-resources">{gatewayResources.filter(r => !r.id.startsWith('usage-')).map(tile)}</div>
-    <p className="muted">r5 默认关闭 Desktop / CLI 遥测与错误上报。老用户下载后选择“更新隐私设置（无需 Key）”，完成后重启客户端并新建会话；每台电脑运行一次即可。</p>
+    <p className="muted">r6 一次完成接入初始化、用量 MCP 和关闭遥测。先保存任务并退出 Claude，选择桌面端、CLI 或两者，再导入原接入资料 TXT。工具先备份，仅重建接入配置，保留项目文件、CLAUDE.md、历史记录和其他 MCP；完成后重启客户端并新建会话。</p>
     {configurationNote}
     <section className="gateway-usage-downloads" aria-label="远程用量 MCP">
       <h3>直接问 Claude 查用量</h3>
-      <p className="muted">与上方“网关一键配置”使用同一工具。新用户随网关一起配置；老用户选择“只补用量 MCP”，优先读取已有身份，无需安装悬浮球。</p>
+      <p className="muted">与上方“网关一键配置”使用同一工具。用量 MCP 已默认加入配置流程，无需单独选择或安装悬浮球；新老用户均可导入原接入资料完成配置。</p>
       <div className="gateway-resources">{usageMcpResources.map(tile)}</div>
     </section>
     <section className="gateway-usage-downloads" aria-label="用量悬浮球下载">
