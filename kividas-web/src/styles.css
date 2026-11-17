@@ -3379,6 +3379,7 @@ td code {
 .gateway-resource-copy strong { font-size:13px; font-weight:500; line-height:1.4; }
 .gateway-resource-copy > span, .gateway-resource-copy small { color:var(--muted); font-size:11px; line-height:1.4; }
 .gateway-mac-help, .gateway-private-note { font-size:12px; color:var(--muted); line-height:1.7; margin:18px 0 0; }
+.gateway-setup-note { font-size:12px; line-height:1.7; }
 .gateway-mac-help code { font-size:12px; white-space:pre; }
 .gateway-account { padding-top:10px; }
 .gateway-account > p { margin-top:0; line-height:1.7; }
