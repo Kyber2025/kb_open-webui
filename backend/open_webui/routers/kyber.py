@@ -22,10 +22,12 @@ log = logging.getLogger(__name__)
 
 from open_webui.routers.desktop_keys import router as desktop_keys_router
 from open_webui.routers.gateway import router as gateway_router
+from open_webui.routers.request_risk import router as request_risk_router
 
 router = APIRouter()
 router.include_router(desktop_keys_router)
 router.include_router(gateway_router)
+router.include_router(request_risk_router)
 
 
 def _topup_url(request: Request) -> str | None:

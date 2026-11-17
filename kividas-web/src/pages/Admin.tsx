@@ -16,6 +16,7 @@ import {
 import { Users } from "./Users";
 import { ResellerManagement } from "./ResellerManagement";
 import { Transactions } from "./Transactions";
+import { RiskManagement } from "./RiskManagement";
 import { api } from "../lib/api";
 import { isSuperAdmin } from "../lib/access";
 import {
@@ -78,6 +79,7 @@ export function Admin({ user }: { user: User | null }) {
         </NavLink>
         <NavLink to="resellers"><UsersIcon size={17} />代理管理</NavLink>
         <NavLink to="transactions"><CreditCard size={17} />交易明细</NavLink>
+        <NavLink to="risk"><ShieldCheck size={17} />风控管理</NavLink>
       </nav>
       <Routes>
         <Route index element={<Navigate replace to="users/overview" />} />
@@ -92,6 +94,7 @@ export function Admin({ user }: { user: User | null }) {
         <Route path="reseller-invites" element={<Navigate replace to="/admin/resellers" />} />
         <Route path="resellers" element={<ResellerManagement />} />
         <Route path="transactions" element={<Transactions />} />
+        <Route path="risk" element={<RiskManagement />} />
         <Route path="*" element={<Navigate replace to="/admin/users/overview" />} />
       </Routes>
     </div>
