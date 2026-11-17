@@ -106,6 +106,19 @@ function Write-KiviChange($Change,$Value) {
 }
 
 function Test-KiviGatewayUrl($Value) { return $Value -ceq $script:GatewayUrl -or $Value -ceq ($script:GatewayUrl+'/') }
+function Set-KiviMainCacheSettings($Settings) {
+    $settingsEnv=$Settings.env
+    if (!$Settings.Contains('env')) { $settingsEnv=[ordered]@{} }
+    if ($settingsEnv -isnot [System.Collections.IDictionary]) { throw 'Code env 格式不正确，未修改配置。' }
+    $Settings.promptCacheTtl='1h'
+    # Override inherited preferences in the backed-up settings file, before
+    # the client generates its body and checksum. No OS-wide environment edits.
+    $settingsEnv.CLAUDE_CODE_PROMPT_CACHE_TTL='1h'
+    $settingsEnv.FORCE_PROMPT_CACHING_5M='0'
+    # The message-only override accepts 5m, not 1h. Empty disables the override.
+    $settingsEnv.CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL=''
+    $Settings.env=$settingsEnv
+}
 function Set-KiviDesktopPrivacy($Profile) {
     $Profile.disableNonessentialTelemetry=$true
     $Profile.disableEssentialTelemetry=$true
@@ -263,15 +276,16 @@ function New-KiviPlan($Paths,$Target,$Credentials) {
         $settingsEnv._CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL='1'
         $settingsEnv.ANTHROPIC_CUSTOM_HEADERS='X-Kividas-Device-ID: '+$creds.id+"`nX-Kividas-Config-Version: v1"; $settingsEnv.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY='1'
         Set-KiviCliPrivacy $settingsEnv
+        $cli.env=$settingsEnv; Set-KiviMainCacheSettings $cli
         $orderedEnv=[ordered]@{}
         foreach ($name in @($settingsEnv.Keys | Sort-Object)) { $orderedEnv[$name]=$settingsEnv[$name] }
-        $cli.env=$orderedEnv; $cli.promptCacheTtl='1h'
+        $cli.env=$orderedEnv
         $changes.Add(@{path=$Paths.cli;before=$raw;after=(ConvertTo-KiviJson $cli)})
     }
     # Desktop Code shares this cache setting; preserve CLI access credentials.
     if ($Target -eq 'desktop') {
         $raw=Read-KiviFile $Paths.cli; $shared=Read-KiviJson $raw 'Code settings.json'
-        $shared.promptCacheTtl='1h'
+        Set-KiviMainCacheSettings $shared
         $changes.Add(@{path=$Paths.cli;before=$raw;after=(ConvertTo-KiviJson $shared)})
     }
     if ($Paths.mcp) { foreach ($mcpChange in @(New-KiviMcpPlan $Paths $creds.key)) { $changes.Add($mcpChange) } }

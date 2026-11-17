@@ -22,7 +22,7 @@ export function GatewayResources({ configurationNote }: { configurationNote?: Re
     </button>; }
   return <div>
     <div className="gateway-resources">{gatewayResources.filter(r => !r.id.startsWith('usage-')).map(tile)}</div>
-    <p className="muted gateway-setup-note">v1 一次完成接入初始化、用量 MCP 和关闭遥测。先保存任务并退出 Claude，选择桌面端、CLI 或两者，再导入原接入资料 TXT。工具先备份，仅重建接入配置，保留项目文件、CLAUDE.md、历史记录和其他 MCP；完成后重启客户端并新建会话。</p>
+    <p className="muted gateway-setup-note">v1 一次完成接入初始化、用量 MCP、关闭遥测，以及 Code 主对话的 1 小时缓存配置；子代理缓存沿用客户端默认或已有设置。先保存任务并退出 Claude，选择桌面端、CLI 或两者，再导入原接入资料 TXT。工具先备份，保留项目文件、CLAUDE.md、历史记录和其他 MCP；已配置用户也需重新下载运行，完成后重启客户端并新建会话。</p>
     {configurationNote}
     <section className="gateway-usage-downloads" aria-label="用量悬浮球下载">
       <h3>用量悬浮球</h3>

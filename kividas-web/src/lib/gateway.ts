@@ -37,7 +37,7 @@ export interface GatewayResource {
 }
 // One configuration package includes initialization, usage MCP and telemetry settings.
 export const gatewayResources: readonly GatewayResource[] = [
-  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 初始化接入配置 · v1', file: 'kividas-gateway-setup-v1.zip', name: 'Kividas网关一键配置-v1.zip', format: 'ZIP', size: '27 KB', badge: '推荐' },
+  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 主对话 1 小时缓存 · v1', file: 'kividas-gateway-setup-v1.zip', name: 'Kividas网关一键配置-v1.zip', format: 'ZIP', size: '28 KB', badge: '推荐' },
   { id: 'usage-windows', title: '用量悬浮球 · Windows', detail: 'Windows 10 / 11 · v0.4.4', file: 'kividas-usage-windows-0.4.4.exe', name: 'Kividas-Usage-Setup-0.4.4.exe', format: 'EXE', size: '116 KB' },
   { id: 'usage-mac', title: '用量悬浮球 · macOS', detail: 'Apple Silicon / Intel · macOS 13+ · v0.4.4', file: 'kividas-usage-macos-0.4.4.dmg', name: 'Kividas-Usage-0.4.4.dmg', format: 'DMG', size: '0.96 MB' },
 ];

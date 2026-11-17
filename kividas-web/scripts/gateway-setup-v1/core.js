@@ -54,6 +54,17 @@ var Kivi = (function () {
         env.CLAUDE_CODE_ENABLE_TELEMETRY='0';
         env.OTEL_SDK_DISABLED='true';
     }
+    function mainCacheSettings(cli) {
+        var env=cli.env===undefined?{}:object(cli.env,'Code env');
+        cli.promptCacheTtl='1h';
+        // Settings.env overrides inherited cache preferences before the client
+        // generates the body. Keep all changes in the existing file backup.
+        env.CLAUDE_CODE_PROMPT_CACHE_TTL='1h';
+        env.FORCE_PROMPT_CACHING_5M='0';
+        // This override accepts only "5m"; empty clears it, not a fictitious 1h value.
+        env.CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL='';
+        cli.env=env;
+    }
     // Reset only connection/model selection. Do not touch user instructions,
     // permissions, hooks, plugins, history, proxy trust, or unrelated MCPs.
     function initializeConnection(cli) {
@@ -220,9 +231,10 @@ var Kivi = (function () {
             env._CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL='1';
             env.ANTHROPIC_CUSTOM_HEADERS='X-Kividas-Device-ID: '+creds.id+'\nX-Kividas-Config-Version: v1'; env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY='1';
             cliPrivacy(env);
+            mainCacheSettings(cli);
             var orderedEnv=Object.create(null);
             Object.keys(env).sort().forEach(function(k){orderedEnv[k]=env[k];});
-            cli.env=orderedEnv; cli.promptCacheTtl='1h'; add(paths.cli,cli);
+            cli.env=orderedEnv; add(paths.cli,cli);
             (paths.shellFiles||[]).forEach(function(path) {
                 var before=fs.read(path), after=repairLegacyAlias(before,paths.officialCli);
                 if(before!==after)changes.push({path:path,before:before,after:after});
@@ -231,7 +243,7 @@ var Kivi = (function () {
         // Desktop Code shares this cache setting; preserve CLI access credentials.
         if(target==='desktop'){
             var shared=parse(fs.read(paths.cli),'Code settings.json');
-            shared.promptCacheTtl='1h'; add(paths.cli,shared);
+            mainCacheSettings(shared); add(paths.cli,shared);
         }
         if(paths.mcp)changes=changes.concat(mcpPlan(fs,paths,creds.key));
         return changes.filter(function(x){return x.before!==x.after;});
