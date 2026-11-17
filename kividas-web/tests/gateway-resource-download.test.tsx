@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GatewayResources } from '../src/components/GatewayResources';
-import { gatewayResources, usageMcpResources } from '../src/lib/gateway';
+import { gatewayResources } from '../src/lib/gateway';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it('downloads through the authenticated account endpoint without a public original-file link', async () => {
@@ -19,12 +19,10 @@ it('downloads through the authenticated account endpoint without a public origin
   try {
     await act(async () => root.render(<GatewayResources />));
     expect(host.querySelector('a[href^="/gateway/"]')).toBeNull();
-    const mcpSection = host.querySelector('section[aria-label="远程用量 MCP"]')!;
-    expect(mcpSection.querySelectorAll('button')).toHaveLength(2);
-    expect(mcpSection.querySelector('button')?.textContent).toContain('推荐');
-    expect(mcpSection.querySelector('button:last-child')?.textContent).toContain('PDF');
+    expect(host.textContent).toContain('v1');
+    expect(host.textContent).not.toContain('PDF');
     const buttons = [...host.querySelectorAll('button')];
-    const displayed = [...gatewayResources.filter(r => !r.id.startsWith('usage-')), ...usageMcpResources, ...gatewayResources.filter(r => r.id.startsWith('usage-'))];
+    const displayed = [...gatewayResources.filter(r => !r.id.startsWith('usage-')), ...gatewayResources.filter(r => r.id.startsWith('usage-'))];
     for (const [i, resource] of displayed.entries()) {
       await act(async () => buttons[i].click());
       expect(fetch.mock.calls.at(-1)?.[0]).toBe(`/api/v1/kyber/gateway/resources/${resource.file}`);

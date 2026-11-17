@@ -310,3 +310,6 @@ dist
 cypress/videos
 cypress/screenshots
 .vscode/settings.json
+
+# Reproducible one-click package staging
+kividas-web/dist-setup/

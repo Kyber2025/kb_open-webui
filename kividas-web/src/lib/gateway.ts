@@ -35,17 +35,9 @@ export interface GatewayResource {
   /** Small tag in the tile's top-right corner, e.g. "推荐". */
   badge?: string;
 }
-// Display order: the one-click setup tool first, then the per-client guides.
+// One configuration package includes initialization, usage MCP and telemetry settings.
 export const gatewayResources: readonly GatewayResource[] = [
-  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 初始化接入配置 · r6', file: 'kividas-gateway-setup-r6.zip', name: 'Kividas网关一键配置-r6.zip', format: 'ZIP', size: '25 KB', badge: '推荐' },
-  { id: 'mac', title: 'Claude Desktop · macOS', detail: 'Mac 网关配置教程', file: 'claude-desktop-macos.pdf', name: 'Claude配置网关教程Mac版.pdf', format: 'PDF', size: '1.01 MB' },
-  { id: 'windows', title: 'Claude Desktop · Windows', detail: 'Windows 网关配置教程', file: 'claude-desktop-windows.pdf', name: 'Claude配置网关教程Windows版.pdf', format: 'PDF', size: '1.28 MB' },
-  { id: 'cli', title: 'Claude Code CLI', detail: 'Mac / Windows 网关配置教程', file: 'claude-code-cli.pdf', name: 'ClaudeCodeCLI网关配置教程Mac与Windows版.pdf', format: 'PDF', size: '667 KB' },
+  { id: 'setup', title: '网关一键配置', detail: 'Mac / Windows · 初始化接入配置 · v1', file: 'kividas-gateway-setup-v1.zip', name: 'Kividas网关一键配置-v1.zip', format: 'ZIP', size: '27 KB', badge: '推荐' },
   { id: 'usage-windows', title: '用量悬浮球 · Windows', detail: 'Windows 10 / 11 · v0.4.4', file: 'kividas-usage-windows-0.4.4.exe', name: 'Kividas-Usage-Setup-0.4.4.exe', format: 'EXE', size: '116 KB' },
   { id: 'usage-mac', title: '用量悬浮球 · macOS', detail: 'Apple Silicon / Intel · macOS 13+ · v0.4.4', file: 'kividas-usage-macos-0.4.4.dmg', name: 'Kividas-Usage-0.4.4.dmg', format: 'DMG', size: '0.96 MB' },
-];
-
-export const usageMcpResources: readonly GatewayResource[] = [
-  { ...gatewayResources[0], title: '一键配置 · 含用量 MCP', detail: 'Mac / Windows · 随网关一起配置 · r6' },
-  { id: 'mcp-guide', title: '用量 MCP 接入教程', detail: 'Windows / Mac · 一键及手动配置 · 2 页', file: 'kividas-usage-mcp-guide-r6.pdf', name: 'Kividas用量MCP接入教程Windows与Mac.pdf', format: 'PDF', size: '80 KB' },
 ];

@@ -12,15 +12,11 @@ from open_webui.utils.subscription import get_user_tier
 router = APIRouter()
 
 RESOURCE_FILES = {
-    'claude-desktop-macos.pdf': 'application/pdf',
-    'claude-desktop-windows.pdf': 'application/pdf',
-    'claude-code-cli.pdf': 'application/pdf',
     'kividas-gateway-setup-r3.zip': 'application/zip',
     'kividas-gateway-setup-r4.zip': 'application/zip',
     'kividas-gateway-setup-r5.zip': 'application/zip',
     'kividas-gateway-setup-r6.zip': 'application/zip',
-    'kividas-usage-mcp-guide-r6.pdf': 'application/pdf',
-    'kividas-usage-mcp-guide-r4.pdf': 'application/pdf',
+    'kividas-gateway-setup-v1.zip': 'application/zip',
     'kividas-usage-windows-0.4.1.exe': 'application/octet-stream',
     'kividas-usage-macos-0.4.1.dmg': 'application/x-apple-diskimage',
     'kividas-usage-windows-0.4.4.exe': 'application/octet-stream',
