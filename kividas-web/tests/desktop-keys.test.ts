@@ -19,14 +19,14 @@ describe('desktop key administration', () => {
     expect(desktopClientText(created,'customer@example.invalid','customer-password')).toContain('Kividas 登录密码：customer-password');
     expect(() => desktopClientText({...created,key:{...key,installationId:null}},'customer@example.invalid')).toThrow('安装识别码');
   });
-  it('exports the current tier limits and a distinct key requirement for each computer', () => {
+  it('exports the limits for the bound account and a distinct key requirement for each computer', () => {
     for (const maxActiveKeys of [1,2]) {
       const txt=desktopClientText({key,token:'test-token',gatewayUrl:'https://gateway.example/api',usageUrl:'https://chat.example/',policy:{maxActiveKeys,maxDevices:maxActiveKeys}},'customer@example.invalid');
-      expect(txt).toContain(`最多保留 ${maxActiveKeys} 个有效 Key`);
+      expect(txt).toContain(`按当前绑定的 Claude 账号，每人最多保留 ${maxActiveKeys} 个有效 Key`);
       expect(txt).toContain(`可用于 ${maxActiveKeys} 台电脑`);
       expect(txt).toContain('不同电脑请使用各自的 Key 和安装识别码');
     }
-    expect(desktopKeyStatus({...key,planLimitExceeded:true},0)).toBe('超出当前档位上限');
+    expect(desktopKeyStatus({...key,planLimitExceeded:true},0)).toBe('超出当前账号的 Key 上限');
   });
   it('gives revocation precedence over expiry and device binding', () => {
     expect(desktopKeyStatus(key,0)).toBe('等待首次使用');

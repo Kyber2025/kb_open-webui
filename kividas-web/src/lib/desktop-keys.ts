@@ -21,10 +21,10 @@ export const desktopKeysApi = {
   delete: (id: string, keyId: string) => request<{ok: boolean}>(`${path(id)}/${encodeURIComponent(keyId)}/delete`, { method: 'POST' }),
 };
 export function desktopKeyStatus(key: DesktopKey, now = Date.now()) {
-  return key.revokedAt ? '已停用' : (!key.expiresAt || new Date(key.expiresAt).getTime() <= now) ? '订阅已到期' : key.planLimitExceeded ? '超出当前档位上限' : key.boundAt ? '已绑定电脑' : '等待首次使用';
+  return key.revokedAt ? '已停用' : (!key.expiresAt || new Date(key.expiresAt).getTime() <= now) ? '订阅已到期' : key.planLimitExceeded ? '超出当前账号的 Key 上限' : key.boundAt ? '已绑定电脑' : '等待首次使用';
 }
 export function desktopDevicePolicyText(policy: Pick<DesktopKeys['policy'], 'maxActiveKeys' | 'maxDevices'>) {
-  return `当前订阅最多保留 ${policy.maxActiveKeys} 个有效 Key，可用于 ${policy.maxDevices ?? policy.maxActiveKeys} 台电脑。每个 Key 仅绑定一台电脑，不同电脑请使用各自的 Key 和安装识别码。`;
+  return `按当前绑定的 Claude 账号，每人最多保留 ${policy.maxActiveKeys} 个有效 Key，可用于 ${policy.maxDevices ?? policy.maxActiveKeys} 台电脑。每个 Key 仅绑定一台电脑，不同电脑请使用各自的 Key 和安装识别码。`;
 }
 export const DESKTOP_INSTALLATION_HEADER = 'X-Kividas-Device-ID';
 export function desktopClientText(created: CreatedDesktopKey, email: string, password = '') {
