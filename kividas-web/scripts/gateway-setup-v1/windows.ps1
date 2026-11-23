@@ -3,6 +3,42 @@ $ErrorActionPreference = 'Stop'
 $script:GatewayUrl = 'https://ai.kividas.com/api'
 $script:IdPattern = '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
 
+# A dialog event runs synchronously. Track only the operation and its location.
+function Set-KiviStage($Step,$Location='') {
+    $script:KiviStep=$Step; $script:KiviLocation=$Location; $script:KiviAction=''
+}
+function Stop-KiviError([string]$Reason,[switch]$Diagnostic) {
+    $errorObject=[Exception]::new($Reason)
+    $errorObject.Data['KiviSafeReason']=$true
+    if ($Diagnostic) { $errorObject.Data['KiviDiagnostic']=$true }
+    throw $errorObject
+}
+function Format-KiviProblem($Failure) {
+    $cause=$Failure.Exception.GetBaseException()
+    if ($cause.Data.Contains('KiviDiagnostic')) { return $cause.Message }
+    $code=$cause.HResult
+    if ($cause.Data.Contains('KiviSafeReason')) { $reason=$cause.Message }
+    elseif ($cause -is [UnauthorizedAccessException] -or $cause -is [Security.SecurityException]) { $reason='Windows 拒绝访问，当前用户权限不足。' }
+    elseif ($cause -is [Text.DecoderFallbackException]) { $reason='配置文件含无效的 UTF-8 字节。' }
+    elseif ($cause -is [IO.FileNotFoundException]) { $reason='找不到指定的文件。' }
+    elseif ($cause -is [IO.DirectoryNotFoundException]) { $reason='找不到指定的目录。' }
+    elseif ($cause -is [IO.PathTooLongException]) { $reason='文件路径超出系统允许的长度。' }
+    elseif ($cause -is [Net.WebException]) { $reason='网络请求失败（'+$cause.Status+'）。' }
+    elseif (($code -band 0x7fff0000) -eq 0x00070000) {
+        $nativeCode=$code -band 0xffff
+        $reason=([ComponentModel.Win32Exception]::new($nativeCode)).Message+'（Windows '+$nativeCode+'）'
+    } else {
+        # Binding, parser and provider exceptions can quote the entire configuration.
+        $reason='{0}（HRESULT 0x{1:X8}）' -f $cause.GetType().Name,$code
+    }
+    $lines=@('步骤：'+$script:KiviStep)
+    if ($script:KiviAction) { $lines+=('操作：'+$script:KiviAction) }
+    if ($script:KiviLocation) { $lines+=('位置：'+$script:KiviLocation) }
+    $lines+=('原因：'+$reason)
+    return (($lines -join "`r`n") -replace '(?i)sk-[a-z0-9_-]+','[已隐藏]')
+}
+Set-KiviStage '初始化工具'
+
 function ConvertTo-KiviMap($Value) {
     if ($null -eq $Value) { return $null }
     if ($Value -is [System.Collections.IDictionary]) {
@@ -15,17 +51,18 @@ function ConvertTo-KiviMap($Value) {
     return $Value
 }
 function Read-KiviJson($Raw, $Label) {
+    $script:KiviAction='解析'+$Label+' JSON'
     if ($null -eq $Raw) { return ,([ordered]@{}) }
     try {
         $value = ConvertTo-KiviMap (ConvertFrom-Json -InputObject $Raw.TrimStart([char]0xfeff))
-        if ($value -isnot [System.Collections.IDictionary]) { throw 'not object' }; return ,$value
-    } catch { throw "$Label 不是有效 JSON，请先修复；原文件未覆盖。" }
+        if ($value -isnot [System.Collections.IDictionary]) { Stop-KiviError 'not object' }; return ,$value
+    } catch { Stop-KiviError "$Label 不是有效 JSON，请先修复；原文件未覆盖。" }
 }
 function ConvertTo-KiviJson($Value) { return (($Value | ConvertTo-Json -Depth 100) + "`n") }
 function Test-KiviCredentials($Key, $InstallationId) {
     $Key = ([string]$Key).Trim(); $InstallationId = ([string]$InstallationId).Trim()
-    if ($Key -cnotmatch '^sk-kiv-desktop-[A-Za-z0-9_-]{40,128}$') { throw '请填写完整的 Kividas Gateway API key。' }
-    if ($InstallationId -notmatch $script:IdPattern) { throw '安装识别码应为管理员配发的 UUID；不要自行生成或更换。' }
+    if ($Key -cnotmatch '^sk-kiv-desktop-[A-Za-z0-9_-]{40,128}$') { Stop-KiviError '请填写完整的 Kividas Gateway API key。' }
+    if ($InstallationId -notmatch $script:IdPattern) { Stop-KiviError '安装识别码应为管理员配发的 UUID；不要自行生成或更换。' }
     return @{ key=$Key; id=$InstallationId }
 }
 function Read-KiviCredentialsText($Text) {
@@ -34,7 +71,7 @@ function Read-KiviCredentialsText($Text) {
         if ($line -match '^\s*Gateway API key\s*[:：]\s*(\S+)\s*$') { $keys += $Matches[1] }
         if ($line -match '^\s*(?:安装识别码|Installation ID|值[（(]Value[）)])\s*[:：]\s*(\S+)\s*$') { $ids += $Matches[1] }
     }
-    if ($keys.Count -ne 1 -or $ids.Count -ne 1) { throw 'TXT 必须包含一套明确的 Gateway API key 和安装识别码（或“值（Value）”）。请使用后台下载的客户接入资料。' }
+    if ($keys.Count -ne 1 -or $ids.Count -ne 1) { Stop-KiviError 'TXT 必须包含一套明确的 Gateway API key 和安装识别码（或“值（Value）”）。请使用后台下载的客户接入资料。' }
     return Test-KiviCredentials $keys[0] $ids[0]
 }
 function Assert-KiviPath($Path) {
@@ -42,16 +79,17 @@ function Assert-KiviPath($Path) {
     while ($current) {
         if (Test-Path -LiteralPath $current) {
             $item=Get-Item -LiteralPath $current -Force
-            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw '配置路径含符号链接或重解析点，请联系服务方确认位置。' }
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Stop-KiviError '配置路径含符号链接或重解析点，请联系服务方确认位置。' }
         }
         $parent=[IO.Path]::GetDirectoryName($current); if ($parent -eq $current) { break }; $current=$parent
     }
 }
 function Read-KiviFile($Path) {
+    $script:KiviLocation=$Path; $script:KiviAction='读取文件'
     Assert-KiviPath $Path
     if (!(Test-Path -LiteralPath $Path)) { return $null }
     $utf8=New-Object Text.UTF8Encoding($false,$true)
-    try { return [IO.File]::ReadAllText($Path,$utf8) } catch { throw '无法读取配置文件，请检查权限和 UTF-8 编码。' }
+    return [IO.File]::ReadAllText($Path,$utf8)
 }
 function Protect-KiviFile($Path) {
     if ($env:OS -ne 'Windows_NT') { return } # Isolated portability tests on macOS.
@@ -68,27 +106,45 @@ function Protect-KiviFile($Path) {
     }
 }
 function Write-KiviFile($Path,$Text) {
+    $script:KiviLocation=$Path; $script:KiviAction='准备目标目录'
     Assert-KiviPath $Path
     $parent=[IO.Path]::GetDirectoryName($Path)
     [void][IO.Directory]::CreateDirectory($parent)
     $temporary=Join-Path $parent ('.kividas-'+[guid]::NewGuid().ToString()+'.tmp')
     try {
+        $script:KiviLocation=$Path+"`r`n临时文件："+$temporary
+        $script:KiviAction='创建同目录临时文件'
         [IO.File]::WriteAllText($temporary,'',(New-Object Text.UTF8Encoding($false)))
+        $script:KiviAction='设置临时文件访问权限'
         Protect-KiviFile $temporary
+        $script:KiviAction='写入临时文件'
         [IO.File]::WriteAllText($temporary,$Text,(New-Object Text.UTF8Encoding($false)))
+        $script:KiviAction='替换或创建目标文件'
         if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary,$Path,[NullString]::Value) } else { [IO.File]::Move($temporary,$Path) }
+        $script:KiviLocation=$Path; $script:KiviAction='设置目标文件访问权限'
         Protect-KiviFile $Path
-    } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+    } catch {
+        $problem=Format-KiviProblem $_
+        try { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+        catch {
+            $script:KiviAction='清理临时文件'; $script:KiviLocation=$temporary
+            $problem+="`r`n`r`n"+(Format-KiviProblem $_)
+        }
+        Stop-KiviError $problem -Diagnostic
+    }
 }
-function Remove-KiviFile($Path) { Assert-KiviPath $Path; if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) } }
+function Remove-KiviFile($Path) { $script:KiviLocation=$Path; $script:KiviAction='删除本次新建的文件'; Assert-KiviPath $Path; if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) } }
 function Read-KiviStartupEnv($Name) {
-    if ($Name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL') { throw '未知桌面启动设置。' }
+    $script:KiviLocation='HKCU\Environment\_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL'; $script:KiviAction='读取用户环境变量'
+    if ($Name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL') { Stop-KiviError '未知桌面启动设置。' }
     return [Environment]::GetEnvironmentVariable($Name,'User')
 }
 function Write-KiviStartupEnv($Name,$Value) {
-    if ($Name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL') { throw '未知桌面启动设置。' }
-    if ($env:OS -ne 'Windows_NT') { throw '桌面启动环境必须在 Windows 上配置。' }
+    $script:KiviLocation='HKCU\Environment\_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL'; $script:KiviAction='设置用户环境变量'
+    if ($Name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL') { Stop-KiviError '未知桌面启动设置。' }
+    if ($env:OS -ne 'Windows_NT') { Stop-KiviError '桌面启动环境必须在 Windows 上配置。' }
     [Environment]::SetEnvironmentVariable($Name,$Value,'User')
+    $script:KiviAction='通知桌面环境变量已更改'
     if (!("KiviStartupNotify" -as [type])) {
         Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class KiviStartupNotify{[DllImport("user32.dll",CharSet=CharSet.Auto,SetLastError=true)]public static extern IntPtr SendMessageTimeout(IntPtr h,uint m,UIntPtr w,string l,uint f,uint t,out UIntPtr r);}'
     }
@@ -109,7 +165,7 @@ function Test-KiviGatewayUrl($Value) { return $Value -ceq $script:GatewayUrl -or
 function Set-KiviMainCacheSettings($Settings) {
     $settingsEnv=$Settings.env
     if (!$Settings.Contains('env')) { $settingsEnv=[ordered]@{} }
-    if ($settingsEnv -isnot [System.Collections.IDictionary]) { throw 'Code env 格式不正确，未修改配置。' }
+    if ($settingsEnv -isnot [System.Collections.IDictionary]) { Stop-KiviError 'Code env 格式不正确，未修改配置。' }
     $Settings.promptCacheTtl='1h'
     # Override inherited preferences in the backed-up settings file, before
     # the client generates its body and checksum. No OS-wide environment edits.
@@ -123,7 +179,7 @@ function Set-KiviDesktopPrivacy($Profile) {
     $Profile.disableNonessentialTelemetry=$true
     $Profile.disableEssentialTelemetry=$true
     if ($Profile.Contains('telemetry')) {
-        if ($Profile.telemetry -isnot [System.Collections.IDictionary]) { throw '桌面隐私设置格式不正确，未修改配置。' }
+        if ($Profile.telemetry -isnot [System.Collections.IDictionary]) { Stop-KiviError '桌面隐私设置格式不正确，未修改配置。' }
         $Profile.telemetry.disableNonessential=$true
         $Profile.telemetry.disableEssential=$true
     }
@@ -140,24 +196,24 @@ function New-KiviPrivacyPlan($Paths) {
     $skipped=New-Object 'System.Collections.Generic.List[string]'
     $raw=Read-KiviFile (Join-Path $Paths.desktop '_meta.json')
     if ($null -eq $raw) {
-        if ((Test-Path -LiteralPath $Paths.desktop) -and @(Get-ChildItem -LiteralPath $Paths.desktop -Filter '*.json').Count) { throw '桌面配置索引缺失，请先修复；本次未更新。' }
+        if ((Test-Path -LiteralPath $Paths.desktop) -and @(Get-ChildItem -LiteralPath $Paths.desktop -Filter '*.json').Count) { Stop-KiviError '桌面配置索引缺失，请先修复；本次未更新。' }
         $skipped.Add('Desktop：未找到现有配置')
     } else {
         $meta=Read-KiviJson $raw '桌面配置索引'
-        if ($meta.hybridPointer) { throw '桌面端由企业登录管理，请联系管理员更新隐私设置。' }
-        if ($meta.entries -isnot [array] -or $meta.appliedId -isnot [string]) { throw '桌面配置索引格式未知，本次未更新。' }
+        if ($meta.hybridPointer) { Stop-KiviError '桌面端由企业登录管理，请联系管理员更新隐私设置。' }
+        if ($meta.entries -isnot [array] -or $meta.appliedId -isnot [string]) { Stop-KiviError '桌面配置索引格式未知，本次未更新。' }
         $seen=@{}
         foreach ($entry in $meta.entries) {
-            if (!$entry -or $entry.id -notmatch $script:IdPattern -or $seen.ContainsKey($entry.id) -or $entry.name -isnot [string]) { throw '桌面配置索引含无效或重复记录。' }
+            if (!$entry -or $entry.id -notmatch $script:IdPattern -or $seen.ContainsKey($entry.id) -or $entry.name -isnot [string]) { Stop-KiviError '桌面配置索引含无效或重复记录。' }
             $seen[$entry.id]=$true
         }
-        if ($meta.appliedId -and !$seen.ContainsKey($meta.appliedId)) { throw '当前桌面配置不在索引中，请先修复。' }
+        if ($meta.appliedId -and !$seen.ContainsKey($meta.appliedId)) { Stop-KiviError '当前桌面配置不在索引中，请先修复。' }
         if ($meta.appliedId) {
             $path=Join-Path $Paths.desktop ($meta.appliedId+'.json');$before=Read-KiviFile $path
-            if ($null -eq $before) { throw '当前桌面配置文件缺失，请先修复。' }
+            if ($null -eq $before) { Stop-KiviError '当前桌面配置文件缺失，请先修复。' }
             $profile=Read-KiviJson $before '当前桌面配置'
             if ($profile.inferenceProvider -ceq 'gateway' -and (Test-KiviGatewayUrl $profile.inferenceGatewayBaseUrl)) {
-                if ($profile.bootstrapUrl -or $profile.selfHosted -or $profile.sessionHost) { throw '当前桌面配置由服务器管理，请联系管理员更新。' }
+                if ($profile.bootstrapUrl -or $profile.selfHosted -or $profile.sessionHost) { Stop-KiviError '当前桌面配置由服务器管理，请联系管理员更新。' }
                 Set-KiviDesktopPrivacy $profile
                 $clients.Add('Desktop');$after=ConvertTo-KiviJson $profile
                 if ($before -cne $after) { $changes.Add(@{path=$path;before=$before;after=$after}) }
@@ -169,41 +225,48 @@ function New-KiviPrivacyPlan($Paths) {
     else {
         $cli=Read-KiviJson $raw 'CLI settings.json';$settingsEnv=$cli.env
         if ($null -eq $settingsEnv -and !$cli.Contains('env')) { $settingsEnv=[ordered]@{} }
-        if ($settingsEnv -isnot [System.Collections.IDictionary]) { throw 'CLI env 格式不正确，未修改配置。' }
+        if ($settingsEnv -isnot [System.Collections.IDictionary]) { Stop-KiviError 'CLI env 格式不正确，未修改配置。' }
         if (Test-KiviGatewayUrl $settingsEnv.ANTHROPIC_BASE_URL) {
             Set-KiviCliPrivacy $settingsEnv;$cli.env=$settingsEnv;$clients.Add('CLI')
             $after=ConvertTo-KiviJson $cli
             if ($raw -cne $after) { $changes.Add(@{path=$Paths.cli;before=$raw;after=$after}) }
         } else { $skipped.Add('CLI：当前配置未使用 Kividas 网关') }
     }
-    if (!$clients.Count) { throw '没有找到当前启用的 Kividas 配置。请确认此电脑已接入 Kividas；无需重新生成 Key 或识别码。' }
+    if (!$clients.Count) { Stop-KiviError '没有找到当前启用的 Kividas 配置。请确认此电脑已接入 Kividas；无需重新生成 Key 或识别码。' }
     return @{changes=@($changes.ToArray());clients=@($clients.ToArray());skipped=@($skipped.ToArray())}
 }
 function Get-KiviPrivacyPaths {
-    if ($env:CLAUDE_CONFIG_DIR -or $env:CLAUDE_USER_DATA_DIR) { throw '检测到自定义配置目录，请联系服务方适配该位置。' }
-    if (@(Get-Process -Name Claude -ErrorAction SilentlyContinue).Count) { throw '请先保存任务，从 Claude 菜单选择 File → Exit，并结束 CLI 会话，再运行更新。' }
+    if ($env:CLAUDE_CONFIG_DIR -or $env:CLAUDE_USER_DATA_DIR) { Stop-KiviError '检测到自定义配置目录，请联系服务方适配该位置。' }
+    if (@(Get-Process -Name Claude -ErrorAction SilentlyContinue).Count) { Stop-KiviError '请先保存任务，从 Claude 菜单选择 File → Exit，并结束 CLI 会话，再运行更新。' }
     foreach ($hive in @('HKLM:\SOFTWARE\Policies\Claude','HKCU:\SOFTWARE\Policies\Claude','HKLM:\SOFTWARE\Policies\ClaudeCode','HKCU:\SOFTWARE\Policies\ClaudeCode')) {
-        if ((Test-Path $hive) -and (Get-Item $hive).GetValueNames().Count) { throw '此电脑有 Claude 管理策略，请联系管理员更新隐私设置。' }
+        $script:KiviLocation=$hive
+        if ((Test-Path $hive) -and (Get-Item $hive).GetValueNames().Count) { Stop-KiviError '此电脑有 Claude 管理策略，请联系管理员更新隐私设置。' }
     }
-    if (Test-Path (Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.json')) { throw 'CLI 已有管理策略，请联系管理员更新隐私设置。' }
-    if (!(Test-Path (Join-Path $env:LOCALAPPDATA 'Claude-3p')) -and (Test-Path (Join-Path $env:APPDATA 'Claude-3p'))) { throw '检测到旧版桌面数据目录，请先完成官方 Claude 数据迁移，退出后再更新。' }
+    $script:KiviLocation=Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.json'
+    if (Test-Path -LiteralPath $script:KiviLocation) { Stop-KiviError 'CLI 已有管理策略，请联系管理员更新隐私设置。' }
+    $script:KiviLocation=Join-Path $env:APPDATA 'Claude-3p'
+    if (!(Test-Path (Join-Path $env:LOCALAPPDATA 'Claude-3p')) -and (Test-Path (Join-Path $env:APPDATA 'Claude-3p'))) { Stop-KiviError '检测到旧版桌面数据目录，请先完成官方 Claude 数据迁移，退出后再更新。' }
     return @{desktop=(Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary');cli=(Join-Path $env:USERPROFILE '.claude\settings.json');mcp=(Join-Path $env:USERPROFILE '.claude.json')}
 }
 function Invoke-KiviPrivacyUpdate([switch]$Restore) {
+    Set-KiviStage '检查客户端和管理策略'
     $paths=Get-KiviPrivacyPaths
     $backups=Join-Path $env:LOCALAPPDATA 'KividasSetup\backups'
     if ($Restore) {
+        Set-KiviStage '查找可恢复的备份' $backups
         $pending=@(Get-ChildItem -LiteralPath $backups -Filter '*.json' -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '-privacy-'} | Sort-Object Name -Descending | Where-Object {$m=Read-KiviJson (Read-KiviFile $_.FullName) '备份';$m.status -eq 'applied' -and !$m.restored})
-        if (!$pending.Count) { throw '没有可以恢复的隐私更新备份。' }
+        if (!$pending.Count) { Stop-KiviError '没有可以恢复的隐私更新备份。' }
         Restore-KiviBackup $pending[0].FullName $paths
         return '已恢复上一次隐私设置。请重新打开 Claude 和 CLI。'
     }
+    Set-KiviStage '读取并检查隐私配置'
     $plan=New-KiviPrivacyPlan $paths
     $backup=Join-Path $backups ((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fff')+'-privacy-'+[guid]::NewGuid().ToString()+'.json')
     $changed=Save-KiviPlan $plan.changes $backup
     # Read back the effective files. Success requires all planned settings to remain closed.
+    Set-KiviStage '回读校验隐私配置'
     $verify=New-KiviPrivacyPlan $paths
-    if ($verify.changes.Count -or (($verify.clients -join ',') -cne ($plan.clients -join ','))) { throw '更新后配置又发生变化，请保留备份并联系服务方。' }
+    if ($verify.changes.Count -or (($verify.clients -join ',') -cne ($plan.clients -join ','))) { Stop-KiviError '更新后配置又发生变化，请保留备份并联系服务方。' }
     $message='隐私设置已更新并备份。';if(!$changed){$message='隐私设置已经关闭，无需重复更新。'}
     $message+="`n已核对："+($plan.clients -join '、')
     if ($plan.skipped.Count) { $message+="`n"+($plan.skipped -join "`n") }
@@ -215,32 +278,35 @@ function New-KiviPlan($Paths,$Target,$Credentials) {
     if ($Target -eq 'privacy') { return ,@((New-KiviPrivacyPlan $Paths).changes) }
     if ($Target -eq 'mcp') { return ,@(New-KiviMcpPlan $Paths $Credentials.key) }
     $creds=Test-KiviCredentials $Credentials.key $Credentials.id
-    if ($Target -notin @('both','desktop','cli')) { throw '请选择桌面端、CLI 或两者。' }
+    if ($Target -notin @('both','desktop','cli')) { Stop-KiviError '请选择桌面端、CLI 或两者。' }
     $changes=New-Object 'System.Collections.Generic.List[object]'
     if ($Target -ne 'cli') {
         $metaPath=Join-Path $Paths.desktop '_meta.json'; $raw=Read-KiviFile $metaPath
         if ($null -eq $raw) {
-            if ((Test-Path -LiteralPath $Paths.desktop) -and @(Get-ChildItem -LiteralPath $Paths.desktop -Filter '*.json').Count) { throw '桌面配置目录已有文件，但缺少 _meta.json，请先检查原配置。' }
+            if ((Test-Path -LiteralPath $Paths.desktop) -and @(Get-ChildItem -LiteralPath $Paths.desktop -Filter '*.json').Count) { Stop-KiviError '桌面配置目录已有文件，但缺少 _meta.json，请先检查原配置。' }
             $meta=[ordered]@{appliedId='';entries=@()}
         } else { $meta=Read-KiviJson $raw '桌面配置索引' }
-        if ($meta.hybridPointer) { throw '桌面端正在使用企业托管登录，请先通过原配置方式退出该部署。' }
-        if ($meta.entries -isnot [array] -or $meta.appliedId -isnot [string]) { throw '桌面配置索引格式未知，请联系服务方。' }
+        if ($meta.hybridPointer) { Stop-KiviError '桌面端正在使用企业托管登录，请先通过原配置方式退出该部署。' }
+        if ($meta.entries -isnot [array] -or $meta.appliedId -isnot [string]) { Stop-KiviError '桌面配置索引格式未知，请联系服务方。' }
         $seen=@{}; $candidates=@()
         foreach ($entry in $meta.entries) {
-            if ($entry.id -notmatch $script:IdPattern -or $seen.ContainsKey($entry.id) -or $entry.name -isnot [string]) { throw '桌面配置索引含无效或重复记录。' }
+            $script:KiviLocation=$metaPath; $script:KiviAction='检查桌面配置索引'
+            if ($entry.id -notmatch $script:IdPattern -or $seen.ContainsKey($entry.id) -or $entry.name -isnot [string]) { Stop-KiviError '桌面配置索引含无效或重复记录。' }
             $seen[$entry.id]=$true
             $profileRaw=Read-KiviFile (Join-Path $Paths.desktop ($entry.id+'.json'))
-            if ($null -eq $profileRaw) { throw '桌面索引引用了缺失的配置文件，请先修复。' }
+            if ($null -eq $profileRaw) { Stop-KiviError '桌面索引引用了缺失的配置文件，请先修复。' }
             $desktopCfg=Read-KiviJson $profileRaw '桌面已存配置'
             if ($desktopCfg.inferenceGatewayBaseUrl -eq $script:GatewayUrl -and !$desktopCfg.bootstrapUrl -and ($entry.id -eq $meta.appliedId -or $entry.name -eq 'Kividas')) { $candidates += @{entry=$entry;config=$desktopCfg} }
         }
-        if ($meta.appliedId -and !$seen.ContainsKey($meta.appliedId)) { throw '桌面当前配置不在索引中，请先修复。' }
+        $script:KiviLocation=$metaPath; $script:KiviAction='检查桌面配置索引'
+        if ($meta.appliedId -and !$seen.ContainsKey($meta.appliedId)) { Stop-KiviError '桌面当前配置不在索引中，请先修复。' }
         $active=@($candidates | Where-Object { $_.entry.id -eq $meta.appliedId }) | Select-Object -First 1
-        if (!$active -and $candidates.Count -gt 1) { throw '找到多份 Kividas 配置，无法确定应更新哪一份。' }
+        if (!$active -and $candidates.Count -gt 1) { Stop-KiviError '找到多份 Kividas 配置，无法确定应更新哪一份。' }
         if (!$active -and $candidates.Count) { $active=$candidates[0] }
         if ($active) { $entry=$active.entry; $desktopCfg=$active.config } else { $entry=[ordered]@{id=[guid]::NewGuid().ToString();name='Kividas'}; $desktopCfg=[ordered]@{} }
         $profilePath=Join-Path $Paths.desktop ($entry.id+'.json')
-        if (!$active -and (Test-Path -LiteralPath $profilePath)) { throw '新配置 ID 发生冲突，请重试。' }
+        $script:KiviLocation=$profilePath; $script:KiviAction='准备桌面配置'
+        if (!$active -and (Test-Path -LiteralPath $profilePath)) { Stop-KiviError '新配置 ID 发生冲突，请重试。' }
         $headers=[ordered]@{'X-Kividas-Device-ID'=$creds.id;'X-Kividas-Config-Version'='v1'}
         $desktopCfg.inferenceProvider='gateway'; $desktopCfg.inferenceCredentialKind='static'
         $desktopCfg.inferenceGatewayBaseUrl=$script:GatewayUrl; $desktopCfg.inferenceGatewayApiKey=$creds.key
@@ -267,7 +333,7 @@ function New-KiviPlan($Paths,$Target,$Credentials) {
     if ($Target -ne 'desktop') {
         $raw=Read-KiviFile $Paths.cli; $cli=Read-KiviJson $raw 'CLI settings.json'
         $settingsEnv=$cli.env; if ($null -eq $settingsEnv) { $settingsEnv=[ordered]@{} }
-        if ($settingsEnv -isnot [System.Collections.IDictionary]) { throw 'CLI env 格式不正确。' }
+        if ($settingsEnv -isnot [System.Collections.IDictionary]) { Stop-KiviError 'CLI env 格式不正确。' }
         foreach ($name in @($settingsEnv.Keys)) {
             if ($name -cmatch '^(ANTHROPIC_(BASE_URL|AUTH_TOKEN|API_KEY|CUSTOM_HEADERS|MODEL|SMALL_FAST_MODEL|DEFAULT_.*_MODEL|.*_BASE_URL)|CLAUDE_CODE_(OAUTH_TOKEN|USE_BEDROCK|USE_VERTEX|USE_FOUNDRY))$') { $settingsEnv.Remove($name) }
         }
@@ -293,67 +359,90 @@ function New-KiviPlan($Paths,$Target,$Credentials) {
 }
 function Save-KiviPlan($Changes,$Backup) {
     if (!$Changes.Count) { return $false }
-    foreach ($change in $Changes) { if ((Read-KiviChange $change) -cne $change.before) { throw '配置被其他程序更改，请退出客户端后重试。' } }
+    Set-KiviStage '写入前检查'
+    foreach ($change in $Changes) { if ((Read-KiviChange $change) -cne $change.before) { Stop-KiviError '配置被其他程序更改，请退出客户端后重试。' } }
     $manifest=[ordered]@{version=1;status='pending';restored=$false;entries=@($Changes)}
+    Set-KiviStage '创建配置备份' $Backup
     Write-KiviFile $Backup (ConvertTo-KiviJson $manifest)
     $written=New-Object 'System.Collections.Generic.List[object]'
     try {
         foreach ($change in $Changes) {
-            if ((Read-KiviChange $change) -cne $change.before) { throw 'Concurrent write' }
+            Set-KiviStage '核对写入前的原配置'
+            if ((Read-KiviChange $change) -cne $change.before) { Stop-KiviError '配置在操作期间被其他程序更改。' }
+            Set-KiviStage '写入配置'
             $written.Add($change); Write-KiviChange $change $change.after
-            if ((Read-KiviChange $change) -cne $change.after) { throw 'Verify failed' }
+            Set-KiviStage '回读校验配置'
+            if ((Read-KiviChange $change) -cne $change.after) { Stop-KiviError '读回的配置与计划写入的内容不一致。' }
         }
+        Set-KiviStage '更新备份状态' $Backup
         $manifest.status='applied'; Write-KiviFile $Backup (ConvertTo-KiviJson $manifest)
     } catch {
-        $errors=0
+        $problem=Format-KiviProblem $_
+        $failures=@()
         for ($i=$written.Count-1;$i -ge 0;$i--) {
             $change=$written[$i]
-            try { Write-KiviChange $change $change.before } catch { $errors++ }
+            Set-KiviStage '自动恢复原配置'
+            try {
+                Write-KiviChange $change $change.before
+                if ((Read-KiviChange $change) -cne $change.before) { Stop-KiviError '恢复后读回的内容与备份不一致。' }
+            } catch { $failures+=(Format-KiviProblem $_) }
         }
-        $manifest.status='rolled_back';if($errors){$manifest.status='partial'}
-        try { Write-KiviFile $Backup (ConvertTo-KiviJson $manifest) } catch {}
-        if ($errors) { throw '写入失败，部分恢复未完成。请保留备份并联系服务方。' }
-        throw '写入失败，本次更改已恢复。请检查文件权限后重试。'
+        $manifest.status='rolled_back'
+        $summary='本次更改已恢复。'
+        if ($failures.Count) { $manifest.status='partial'; $summary='部分恢复未完成。' }
+        Set-KiviStage '记录备份恢复状态' $Backup
+        try { Write-KiviFile $Backup (ConvertTo-KiviJson $manifest) } catch { $failures+=(Format-KiviProblem $_) }
+        $safeBackup=$Backup -replace '(?i)sk-[a-z0-9_-]+','[已隐藏]'
+        Stop-KiviError ((@($problem,$summary)+$failures+@("备份：$safeBackup")) -join "`r`n`r`n") -Diagnostic
     }
     return $true
 }
 function Restore-KiviBackup($Backup,$Paths) {
+    Set-KiviStage '读取恢复备份' $Backup
     $manifest=Read-KiviJson (Read-KiviFile $Backup) '备份'
-    if ($manifest.version -ne 1 -or $manifest.status -ne 'applied' -or $manifest.restored -or $manifest.entries -isnot [array]) { throw '该备份不可恢复或已经恢复过。' }
+    if ($manifest.version -ne 1 -or $manifest.status -ne 'applied' -or $manifest.restored -or $manifest.entries -isnot [array]) { Stop-KiviError '该备份不可恢复或已经恢复过。' }
     foreach ($entry in $manifest.entries) {
+        Set-KiviStage '校验恢复备份' $Backup
         if ($entry.kind -eq 'environment') {
-            if (!$Paths.desktopStartup -or $entry.name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL' -or $entry.after -cne '1') { throw '备份包含意外环境设置，已停止。' }
+            if (!$Paths.desktopStartup -or $entry.name -cne '_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL' -or $entry.after -cne '1') { Stop-KiviError '备份包含意外环境设置，已停止。' }
         } else {
-            if ($entry.kind -or $entry.path -isnot [string]) { throw '备份内容格式不正确。' }
+            if ($entry.kind -or $entry.path -isnot [string]) { Stop-KiviError '备份内容格式不正确。' }
             $parent=[IO.Path]::GetDirectoryName($entry.path); $name=[IO.Path]::GetFileName($entry.path)
-            if ($entry.path -ne $Paths.cli -and $entry.path -ne $Paths.mcp -and $entry.path -ne $Paths.desktopMode -and !($parent -eq $Paths.desktop -and ($name -eq '_meta.json' -or ($name -match '\.json$' -and [IO.Path]::GetFileNameWithoutExtension($name) -match $script:IdPattern)))) { throw '备份包含意外路径，已停止。' }
+            if ($entry.path -ne $Paths.cli -and $entry.path -ne $Paths.mcp -and $entry.path -ne $Paths.desktopMode -and !($parent -eq $Paths.desktop -and ($name -eq '_meta.json' -or ($name -match '\.json$' -and [IO.Path]::GetFileNameWithoutExtension($name) -match $script:IdPattern)))) { Stop-KiviError '备份包含意外路径，已停止。' }
         }
-        if ($entry.after -isnot [string] -or !($null -eq $entry.before -or $entry.before -is [string])) { throw '备份内容格式不正确。' }
-        if ((Read-KiviChange $entry) -cne $entry.after) { throw '配置在运行工具后又被修改。为保留后续更改，本次不自动恢复，请联系服务方使用备份。' }
+        if ($entry.after -isnot [string] -or !($null -eq $entry.before -or $entry.before -is [string])) { Stop-KiviError '备份内容格式不正确。' }
+        Set-KiviStage '核对待恢复配置'
+        if ((Read-KiviChange $entry) -cne $entry.after) { Stop-KiviError '配置在运行工具后又被修改。为保留后续更改，本次不自动恢复，请联系服务方使用备份。' }
     }
     $done=New-Object 'System.Collections.Generic.List[object]'
     try {
         for($i=$manifest.entries.Count-1;$i -ge 0;$i--) {
             $entry=$manifest.entries[$i]; $done.Add($entry)
+            Set-KiviStage '恢复备份配置'
             Write-KiviChange $entry $entry.before
         }
     } catch {
-        for($i=$done.Count-1;$i -ge 0;$i--) { try { Write-KiviChange $done[$i] $done[$i].after } catch {} }
-        throw '恢复未完成，请保留备份并检查文件权限。'
+        $problems=@(Format-KiviProblem $_)
+        Set-KiviStage '撤销未完成的恢复'
+        for($i=$done.Count-1;$i -ge 0;$i--) {
+            try { Write-KiviChange $done[$i] $done[$i].after } catch { $problems+=(Format-KiviProblem $_) }
+        }
+        Stop-KiviError ($problems -join "`r`n`r`n") -Diagnostic
     }
+    Set-KiviStage '记录恢复完成状态' $Backup
     $manifest.restored=$true; Write-KiviFile $Backup (ConvertTo-KiviJson $manifest)
 }
 function Test-KiviMcpKey($Key) {
     $Key=([string]$Key).Trim()
-    if ($Key -cnotmatch '^sk-kiv-desktop-[A-Za-z0-9_-]{40,128}$') { throw '未找到完整的 Kividas 网关 Key。' }
+    if ($Key -cnotmatch '^sk-kiv-desktop-[A-Za-z0-9_-]{40,128}$') { Stop-KiviError '未找到完整的 Kividas 网关 Key。' }
     return $Key
 }
 function New-KiviMcpPlan($Paths,$Key) {
     $Key=Test-KiviMcpKey $Key
-    if (!$Paths.mcp) { throw '缺少 MCP 配置位置。' }
+    if (!$Paths.mcp) { Stop-KiviError '缺少 MCP 配置位置。' }
     $raw=Read-KiviFile $Paths.mcp;$config=Read-KiviJson $raw 'MCP .claude.json'
     $servers=$config.mcpServers;if ($null -eq $servers) { $servers=[ordered]@{} }
-    if ($servers -isnot [System.Collections.IDictionary]) { throw 'MCP 列表格式不正确，未修改配置。' }
+    if ($servers -isnot [System.Collections.IDictionary]) { Stop-KiviError 'MCP 列表格式不正确，未修改配置。' }
     $servers['kividas-usage']=[ordered]@{type='http';url=($script:GatewayUrl+'/mcp/usage');headers=[ordered]@{Authorization=('Bearer '+$Key)}}
     $legacy=$servers['kividas-usage-remote']
     if ($legacy -and $legacy.type -eq 'http' -and $legacy.url -ceq ($script:GatewayUrl+'/mcp/usage')) { $servers.Remove('kividas-usage-remote') }
@@ -367,9 +456,9 @@ function Open-KiviDesktopKey($Value) {
     $plain=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Value.Substring('__sealed__:v1:'.Length)),[Text.Encoding]::UTF8.GetBytes($protection),[Security.Cryptography.DataProtectionScope]::CurrentUser)
     try {
         $text=[Text.Encoding]::UTF8.GetString($plain)
-        if (!$text.StartsWith($protection+':')) { throw 'Invalid sealed key' }
+        if (!$text.StartsWith($protection+':')) { Stop-KiviError 'Invalid sealed key' }
         $record=Read-KiviJson $text.Substring($protection.Length+1) '桌面加密配置'
-        if ($record.configLibrary.key -ne 'inferenceGatewayApiKey') { throw 'Invalid sealed field' }
+        if ($record.configLibrary.key -ne 'inferenceGatewayApiKey') { Stop-KiviError 'Invalid sealed field' }
         return $record.configLibrary.value
     } finally { [Array]::Clear($plain,0,$plain.Length) }
 }
@@ -401,14 +490,17 @@ function Get-KiviExistingKeys($Paths) {
 function Test-KiviRemoteMcp($Key) {
     $Key=Test-KiviMcpKey $Key
     [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-    $body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"kividas-setup","version":"v1"}}}'
+    $body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"kividas-setup","version":"1.1"}}}'
     try {
         $reply=Invoke-RestMethod -Uri ($script:GatewayUrl+'/mcp/usage') -Method Post -Headers @{Authorization=('Bearer '+$Key);Accept='application/json, text/event-stream'} -ContentType 'application/json' -Body $body -TimeoutSec 15 -MaximumRedirection 0
-        if ($reply.result.serverInfo.name -ne 'kividas-usage') { throw 'Unexpected MCP server' }
+        if ($reply.result.serverInfo.name -ne 'kividas-usage') { Stop-KiviError 'Unexpected MCP server' }
         return $true
     } catch {
-        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -in @(401,403)) { return $false }
-        throw '暂时无法验证用量服务，请联网后重试。本次未修改配置。'
+        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -in @(401,403)) {
+            Stop-KiviError ('用量服务拒绝接入（HTTP '+[int]$_.Exception.Response.StatusCode+'），请核对接入资料和订阅状态。')
+        }
+        if ($_.Exception.Response) { Stop-KiviError ('用量服务返回 HTTP '+[int]$_.Exception.Response.StatusCode+'。') }
+        throw
     }
 }
 
@@ -417,7 +509,7 @@ function Start-KiviSetup {
     Add-Type -AssemblyName System.Drawing
     [Windows.Forms.Application]::EnableVisualStyles()
     $form=New-Object Windows.Forms.Form
-    $form.Text='Kividas 一键配置 · v1';$form.ClientSize=New-Object Drawing.Size(680,580)
+    $form.Text='Kividas 一键配置 · V1.1';$form.ClientSize=New-Object Drawing.Size(680,580)
     $form.StartPosition='CenterScreen';$form.FormBorderStyle='FixedDialog';$form.MaximizeBox=$false
     $form.AutoScaleDimensions=New-Object Drawing.SizeF(96,96);$form.AutoScaleMode='Dpi';$form.BackColor=[Drawing.ColorTranslator]::FromHtml('#F5F7FB')
     $form.Font=New-Object Drawing.Font('Microsoft YaHei UI',10)
@@ -426,7 +518,7 @@ function Start-KiviSetup {
         $label=New-Object Windows.Forms.Label;$label.Text=$Text;$label.Location=New-Object Drawing.Point($X,$Y);$label.Size=New-Object Drawing.Size($W,$H)
         $label.Font=New-Object Drawing.Font('Microsoft YaHei UI',$Size);$label.ForeColor=$Color;$form.Controls.Add($label);return $label
     }
-    [void](TextLabel 'K I V I D A S   /   R6' 28 23 600 25 10 $accent)
+    [void](TextLabel 'K I V I D A S   /   V1.1' 28 23 600 25 10 $accent)
     [void](TextLabel '配置 Claude' 25 58 600 44 25 $ink)
     [void](TextLabel '连接就绪，从这里开始。' 29 109 600 28 11 $muted)
     $included=TextLabel '接入初始化     ·     用量 MCP     ·     关闭遥测' 29 154 622 41 11 $accent
@@ -444,8 +536,18 @@ function Start-KiviSetup {
     [void](TextLabel '开始前，请保存任务并完全退出 Claude。' 29 510 405 38 9 $muted)
     $apply=New-Object Windows.Forms.Button;$apply.Text='开始配置  →';$apply.Location=New-Object Drawing.Point(481,500);$apply.Size=New-Object Drawing.Size(170,46);$apply.FlatStyle='Flat';$apply.FlatAppearance.BorderSize=0;$apply.BackColor=$accent;$apply.ForeColor=[Drawing.Color]::White;$form.Controls.Add($apply);$form.AcceptButton=$apply
     $import.Add_Click({
-        try { $pick=New-Object Windows.Forms.OpenFileDialog;$pick.Filter='客户接入资料 (*.txt)|*.txt';if($pick.ShowDialog() -eq 'OK'){$creds=Read-KiviCredentialsText (Read-KiviFile $pick.FileName);$key.Text=$creds.key;$device.Text=$creds.id;$status.Text='接入资料已读取。点击开始，完成全部配置。'} }
-        catch { [void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'无法读取资料') }
+        try {
+            Set-KiviStage '导入接入资料'
+            $pick=New-Object Windows.Forms.OpenFileDialog; $pick.Filter='客户接入资料 (*.txt)|*.txt'
+            if ($pick.ShowDialog() -eq 'OK') {
+                $raw=Read-KiviFile $pick.FileName
+                $script:KiviAction='校验接入资料格式'
+                $creds=Read-KiviCredentialsText $raw
+                $key.Text=$creds.key; $device.Text=$creds.id
+                $status.Text='接入资料已读取。点击开始，完成全部配置。'
+            }
+        }
+        catch { [void][Windows.Forms.MessageBox]::Show((Format-KiviProblem $_),'无法读取资料') }
     })
     $target.Add_SelectedIndexChanged({
         $restoring=$target.SelectedIndex -eq 3;$key.Enabled=!$restoring;$device.Enabled=!$restoring;$import.Enabled=!$restoring
@@ -455,28 +557,35 @@ function Start-KiviSetup {
     $apply.Add_Click({
         $apply.Enabled=$false;$import.Enabled=$false;$target.Enabled=$false
         try {
+            Set-KiviStage '检查客户端和管理策略'
             $selected=@('both','desktop','cli','both')[$target.SelectedIndex]
-            if ($env:CLAUDE_CONFIG_DIR -or $env:CLAUDE_USER_DATA_DIR) { throw '检测到自定义配置目录，请联系服务方适配该位置。' }
-            if (@(Get-Process -Name Claude -ErrorAction SilentlyContinue).Count) { throw '桌面与 CLI 共用部分配置。请先保存任务，退出 Claude 并结束 CLI 会话，再运行工具。' }
-            if ($selected -ne 'cli') { foreach($hive in @('HKLM:\SOFTWARE\Policies\Claude','HKCU:\SOFTWARE\Policies\Claude')) { if((Test-Path $hive) -and (Get-Item $hive).GetValueNames().Count){throw '此电脑有 Claude 管理配置，请联系管理员；工具不会覆盖它。'} } }
+            if ($env:CLAUDE_CONFIG_DIR -or $env:CLAUDE_USER_DATA_DIR) { Stop-KiviError '检测到自定义配置目录，请联系服务方适配该位置。' }
+            if (@(Get-Process -Name Claude -ErrorAction SilentlyContinue).Count) { Stop-KiviError '桌面与 CLI 共用部分配置。请先保存任务，退出 Claude 并结束 CLI 会话，再运行工具。' }
+            if ($selected -ne 'cli') { foreach($hive in @('HKLM:\SOFTWARE\Policies\Claude','HKCU:\SOFTWARE\Policies\Claude')) { $script:KiviLocation=$hive; if((Test-Path $hive) -and (Get-Item $hive).GetValueNames().Count){Stop-KiviError '此电脑有 Claude 管理配置，请联系管理员；工具不会覆盖它。'} } }
             if ($selected -ne 'desktop') {
-                if (Test-Path (Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.json')) { throw 'CLI 已有管理策略，请联系管理员确认接入方式。' }
-                foreach($hive in @('HKLM:\SOFTWARE\Policies\ClaudeCode','HKCU:\SOFTWARE\Policies\ClaudeCode')) { if(Test-Path $hive){throw 'CLI 已有管理策略，请联系管理员确认接入方式。'} }
+                $script:KiviLocation=Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.json'
+                if (Test-Path -LiteralPath $script:KiviLocation) { Stop-KiviError 'CLI 已有管理策略，请联系管理员确认接入方式。' }
+                foreach($hive in @('HKLM:\SOFTWARE\Policies\ClaudeCode','HKCU:\SOFTWARE\Policies\ClaudeCode')) { $script:KiviLocation=$hive; if(Test-Path $hive){Stop-KiviError 'CLI 已有管理策略，请联系管理员确认接入方式。'} }
             }
             $paths=@{desktop=(Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary');cli=(Join-Path $env:USERPROFILE '.claude\settings.json');mcp=(Join-Path $env:USERPROFILE '.claude.json')}
             $paths.desktopMode=Join-Path $env:LOCALAPPDATA 'Claude-3p\claude_desktop_config.json'
             $paths.desktopStartup=$true
-            if ($selected -ne 'cli' -and !(Test-Path (Join-Path $env:LOCALAPPDATA 'Claude-3p')) -and (Test-Path (Join-Path $env:APPDATA 'Claude-3p'))) { throw '检测到旧版桌面数据目录。请先启动更新后的官方 Claude 完成原数据迁移，退出后再配置。' }
+            $script:KiviLocation=Join-Path $env:APPDATA 'Claude-3p'
+            if ($selected -ne 'cli' -and !(Test-Path (Join-Path $env:LOCALAPPDATA 'Claude-3p')) -and (Test-Path (Join-Path $env:APPDATA 'Claude-3p'))) { Stop-KiviError '检测到旧版桌面数据目录。请先启动更新后的官方 Claude 完成原数据迁移，退出后再配置。' }
             $backups=Join-Path $env:LOCALAPPDATA 'KividasSetup\backups'
             if ($target.SelectedIndex -eq 3) {
+                Set-KiviStage '查找可恢复的备份' $backups
                 $pending=@(Get-ChildItem -LiteralPath $backups -Filter '*.json' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Where-Object { $m=Read-KiviJson (Read-KiviFile $_.FullName) '备份'; $m.status -eq 'applied' -and !$m.restored })
-                if (!$pending.Count) { throw '没有可以恢复的备份。' }
+                if (!$pending.Count) { Stop-KiviError '没有可以恢复的备份。' }
                 Restore-KiviBackup $pending[0].FullName $paths
                 [void][Windows.Forms.MessageBox]::Show('已恢复上一次配置，请重新打开对应客户端。','配置已恢复');$form.Close();return
             }
+            Set-KiviStage '校验接入资料'
             $creds=Test-KiviCredentials $key.Text $device.Text
             $status.Text='正在验证连接，请稍候…';$form.Refresh()
-            if (!(Test-KiviRemoteMcp $creds.key)) { throw 'Key 无效或订阅暂不可用。原配置未修改。' }
+            Set-KiviStage '验证用量服务连接' ($script:GatewayUrl+'/mcp/usage')
+            [void](Test-KiviRemoteMcp $creds.key)
+            Set-KiviStage '读取配置并生成写入计划'
             $changes=New-KiviPlan $paths $selected $creds
             $backup=Join-Path $backups ((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fff')+'-'+[guid]::NewGuid().ToString()+'.json')
             $status.Text='正在备份并写入配置…';$form.Refresh()
@@ -484,7 +593,7 @@ function Start-KiviSetup {
             $message='已完成接入初始化、用量 MCP 配置，并关闭遥测与错误上报。原配置已自动备份。';if(!$changed){$message='配置已经一致，无需重复写入。'}
             $message+="`n`n重新打开 Claude，并新建会话。桌面首次可能需要 Continue；仍在个人账号模式时，请切换到网关。`nCLI 可用 /status 检查连接，再发送一条消息。`n`n项目文件、记忆、历史记录和原权限规则均保留。需要撤销时，运行本工具并选择「恢复上一次配置」。"
             [void][Windows.Forms.MessageBox]::Show($message,'配置已完成');$form.Close()
-        } catch { $status.Text='配置未完成，详细原因见提示。';[void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'未完成配置') }
+        } catch { $status.Text='配置未完成，详细原因见提示。';[void][Windows.Forms.MessageBox]::Show((Format-KiviProblem $_),'未完成配置') }
         finally { $apply.Enabled=$true;$target.Enabled=$true;$import.Enabled=$target.SelectedIndex -ne 3 }
     })
     [void]$form.ShowDialog()
@@ -492,7 +601,7 @@ function Start-KiviSetup {
 if (!$LibraryOnly) {
     if ($PrivacyOnly -or $RestorePrivacy) {
         try { Write-Host (Invoke-KiviPrivacyUpdate -Restore:$RestorePrivacy);exit 0 }
-        catch { Write-Host ('未完成：'+$_.Exception.Message);exit 1 }
+        catch { Write-Host ('未完成：'+(Format-KiviProblem $_));exit 1 }
     }
     Start-KiviSetup
 }

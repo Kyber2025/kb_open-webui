@@ -56,7 +56,7 @@ function officialCli(home){
 }
 function checkMcpKey(key){
     if(!/^sk-kiv-desktop-[A-Za-z0-9_-]{40,128}$/.test(key))throw Error('网关 Key 格式不正确。');
-    var payload=JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'kividas-setup',version:'v1'}}});
+    var payload=JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'kividas-setup',version:'1.1'}}});
     var task=$.NSTask.alloc.init, input=$.NSPipe.pipe, output=$.NSPipe.pipe;
     task.launchPath='/usr/bin/curl';
     task.arguments=['--silent','--show-error','--proto','=https','--tlsv1.2','--max-time','15','--request','POST','--header','Content-Type: application/json','--header','Accept: application/json, text/event-stream','--data-binary',payload,'--config','-','--write-out','\\n%{http_code}','https://ai.kividas.com/api/mcp/usage'];
@@ -77,7 +77,7 @@ function checkMcpKey(key){
 function setupMenu(){
     var alert=$.NSAlert.alloc.init;
     alert.messageText='配置 Claude';
-    alert.informativeText='KIVIDAS  ·  v1\n\n一次完成接入初始化、用量 MCP 和遥测设置。';
+    alert.informativeText='KIVIDAS  ·  V1.1\n\n一次完成接入初始化、用量 MCP 和遥测设置。';
     alert.addButtonWithTitle('继续');alert.addButtonWithTitle('取消');
     var view=$.NSView.alloc.initWithFrame($.NSMakeRect(0,0,440,126));
     function label(text,y,size,color){
@@ -118,7 +118,7 @@ function run(args){
     paths.shellFiles=shellFiles(home);
     paths.officialCli=officialCli(home);
     var backups=home+'/Library/Application Support/KividasSetup/backups';
-    function dialog(s){return app.displayDialog(s,{withTitle:'Kividas 一键配置 · v1',buttons:['好'],defaultButton:'好'});}
+    function dialog(s){return app.displayDialog(s,{withTitle:'Kividas 一键配置 · V1.1',buttons:['好'],defaultButton:'好'});}
     function choose(items,prompt){var result=app.chooseFromList(items,{withTitle:'Kividas 一键配置',withPrompt:prompt,defaultItems:[items[0]],multipleSelectionsAllowed:false});if(result===false)throw Error('cancelled');return result[0];}
     function privacyUpdate(restore){
         if(ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('CLAUDE_CONFIG_DIR')) || ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('CLAUDE_USER_DATA_DIR')))throw Error('检测到自定义配置目录，请联系服务方适配该位置。');

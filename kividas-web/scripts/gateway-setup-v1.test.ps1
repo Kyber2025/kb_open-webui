@@ -58,7 +58,47 @@ try {
   Assert-Native (!$shared.env.Contains('CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL')) 'Subagent env unexpectedly added'
   Assert-Native ($shared.env.CLAUDE_CODE_PROMPT_CACHE_TTL -ceq '1h') 'New CLI env missing main TTL'
  }
- @{passed=6;actualWindows=($env:OS -eq 'Windows_NT');startupEnvironmentTested=($env:OS -eq 'Windows_NT');scope='PowerShell configuration and desktop mode/environment write, idempotence, exact restore; not Desktop app execution'} | ConvertTo-Json -Compress
+ foreach ($partial in @($false,$true)) {
+  & {
+   $case=Join-Path $root ('fault-'+$partial)
+   $first=Join-Path $case 'settings.json'; $second=Join-Path $case '.claude.json'
+   $backup=Join-Path $case 'backup.json'
+   Write-KiviFile $first 'original-1'; Write-KiviFile $second 'original-2'
+   # Exercise the real writer and rollback. Fail ACL application after the file has changed.
+   function Protect-KiviFile($Path) {
+    if ($Path -ceq $second -and [IO.File]::ReadAllText($Path) -ceq $creds.key) {
+     throw [UnauthorizedAccessException]::new('sensitive-native-details '+$creds.key)
+    }
+    if ($partial -and $Path -ceq $first -and [IO.File]::ReadAllText($Path) -ceq 'original-1') {
+     throw [IO.IOException]::new('sensitive-native-details '+$creds.key,-2147024864)
+    }
+   }
+   $changes=@(@{path=$first;before='original-1';after='changed'},@{path=$second;before='original-2';after=$creds.key})
+   $display=''
+   try { [void](Save-KiviPlan $changes $backup) } catch { $display=Format-KiviProblem $_ }
+   foreach ($detail in @('步骤：写入配置','设置目标文件访问权限',$second,'拒绝访问',$backup)) {
+    Assert-Native ($display.Contains($detail)) 'Primary failure missing a diagnostic field'
+   }
+   Assert-Native (!$display.Contains($creds.key) -and !$display.Contains('sensitive-native-details')) 'Native exception content disclosed'
+   $manifest=Read-KiviJson (Read-KiviFile $backup) 'test'
+   if ($partial) {
+    foreach ($detail in @('部分恢复未完成','步骤：自动恢复原配置',$first,'Windows 32')) {
+     Assert-Native ($display.Contains($detail)) 'Rollback failure missing a diagnostic field'
+    }
+    Assert-Native ($manifest.status -eq 'partial') 'Partial recovery status missing'
+   } else {
+    Assert-Native ($manifest.status -eq 'rolled_back' -and $display.Contains('本次更改已恢复')) 'Successful rollback not reported'
+   }
+   Assert-Native ((Read-KiviFile $second) -ceq 'original-2') 'Failed write did not restore contents'
+  }
+ }
+ $badPath=Join-Path $root ($creds.key+'.json')
+ Write-KiviFile $badPath ('{"oops":'+$creds.key)
+ Set-KiviStage '读取配置并生成写入计划'
+ $display=''
+ try { [void](Read-KiviJson (Read-KiviFile $badPath) 'CLI settings.json') } catch { $display=Format-KiviProblem $_ }
+ Assert-Native ($display.Contains('不是有效 JSON') -and $display.Contains('[已隐藏].json') -and !$display.Contains($creds.key)) 'JSON error with a sensitive path was not sanitized'
+ @{passed=9;actualWindows=($env:OS -eq 'Windows_NT');startupEnvironmentTested=($env:OS -eq 'Windows_NT');scope='PowerShell configuration and desktop mode/environment write, idempotence, exact restore, failure diagnostics and credential redaction'} | ConvertTo-Json -Compress
 } finally {
  if ($env:OS -eq 'Windows_NT' -and (Read-KiviStartupEnv $flag) -cne $originalEnv) { Write-KiviStartupEnv $flag $originalEnv }
  if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }

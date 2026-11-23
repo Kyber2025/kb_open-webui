@@ -16,6 +16,7 @@ RESOURCE_FILES = {
     'kividas-gateway-setup-r4.zip': 'application/zip',
     'kividas-gateway-setup-r5.zip': 'application/zip',
     'kividas-gateway-setup-r6.zip': 'application/zip',
+    'kividas-gateway-setup-v1.1.zip': 'application/zip',
     'kividas-gateway-setup-v1.zip': 'application/zip',
     'kividas-usage-windows-0.4.1.exe': 'application/octet-stream',
     'kividas-usage-macos-0.4.1.dmg': 'application/x-apple-diskimage',

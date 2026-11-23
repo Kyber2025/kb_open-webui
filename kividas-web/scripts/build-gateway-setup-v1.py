@@ -3,7 +3,7 @@ import hashlib,re,shutil,zipfile,json
 
 root=Path(__file__).resolve().parent
 workspace=root.parent
-readme='''Kividas 一键配置 · v1（2026-11-17）
+readme='''Kividas 一键配置 · V1.1（2026-11-23）
 初始化接入配置 · 用量 MCP · 关闭遥测 · 主对话 1 小时缓存
 
 开始使用
@@ -51,7 +51,7 @@ CLI 使用 ~/.claude/settings.json；官方 Desktop 的 Code 会话也可能读�
 桌面端启用 ToolSearch。共享 Code 配置写入 promptCacheTtl=1h 和 CLAUDE_CODE_PROMPT_CACHE_TTL=1h，并清除强制 5 分钟的覆盖效果；主对话由客户端生成 1 小时缓存请求，网关保持请求正文不变。子代理及后台任务不强制改为 1 小时。
 这些设置适用于支持上述选项的 Claude Code / Desktop Code；纯桌面聊天或其他 API 客户端不在此范围。项目或企业管理策略、自定义启动程序仍可能覆盖设置；若仍出现 5 分钟缓存，请保留脱敏用量记录联系服务方。
 1 小时缓存写入成本高于 5 分钟，但可减少长间隔后的重复写入；不保证每次都命中或总用量一定减少。
-下载包继续使用 v1 名称。已配置用户也需重新下载运行，再完全重启客户端并新建会话，旧会话不会因服务器发布自动更新。
+Windows 配置失败时会显示失败步骤、目标位置和原因；自动恢复失败时会列出对应项目。已配置用户也需重新下载运行，再完全重启客户端并新建会话，旧会话不会因服务器发布自动更新。
 CLI 和桌面加入第一方地址兼容设置，这不会建立官方订阅登录，也不保证具备全部订阅功能。
 Mac 使用系统登录任务设置桌面启动环境，Windows 使用用户环境变量；恢复功能同时恢复此前启动环境和桌面模式。无需安装常驻辅助软件。
 关闭遥测不等于停止所有网络请求，也不移除正常推理正文中的工具说明、路径或已加载的指令文件。
@@ -62,7 +62,7 @@ Mac 使用系统登录任务设置桌面启动环境，Windows 使用用户环�
 教程：https://ai.kividas.com/api/mcp/usage/guide
 下载页面：https://chat.kividas.com/code
 '''
-mac='''Mac 启动说明 · v1
+mac='''Mac 启动说明 · V1.1
 
 1. 完整解压工具，打开“终端”。
 2. 输入 /bin/bash 和一个空格。
@@ -87,13 +87,13 @@ for reseller in (False,True):
         (dest/name).write_bytes(('\ufeff'+body.replace('\n','\r\n')).encode())
     sums=''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(dest.iterdir()) if p.name!='SHA256SUMS.txt')
     (dest/'SHA256SUMS.txt').write_text(sums)
-    out=workspace/'public/gateway'/('reseller' if reseller else '')/'kividas-gateway-setup-v1.zip'
+    out=workspace/'public/gateway'/('reseller' if reseller else '')/'kividas-gateway-setup-v1.1.zip'
     out.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for p in sorted(dest.iterdir()):
             data=p.read_bytes()
             assert not re.search(rb'sk-kiv-desktop-[A-Za-z0-9_-]{40,128}',data),'Credential-like literal in package'
-            entry=zipfile.ZipInfo('Kividas一键配置/'+p.name,(2026,11,17,12,0,0));entry.create_system=3
+            entry=zipfile.ZipInfo('Kividas一键配置/'+p.name,(2026,11,23,12,0,0));entry.create_system=3
             entry.external_attr=((0o100755 if p.suffix=='.sh' else 0o100644)<<16);entry.compress_type=zipfile.ZIP_DEFLATED
             archive.writestr(entry,data)
     with zipfile.ZipFile(out) as archive:
