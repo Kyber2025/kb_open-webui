@@ -1,4 +1,4 @@
-param([switch]$RequireWindows)
+﻿param([switch]$RequireWindows)
 $ErrorActionPreference = 'Stop'
 if ($RequireWindows -and $env:OS -ne 'Windows_NT') { throw 'Actual Windows host required' }
 function Assert-Workspace($Condition, $Message) { if (-not $Condition) { throw $Message } }
@@ -44,18 +44,28 @@ try {
         # replacing the SSH transport with a deterministic, credential-free fixture.
         $SavedHome = $env:KIVIDAS_CLIENT_HOME
         $SavedPath = [Environment]::GetEnvironmentVariable('Path','User')
-        $env:KIVIDAS_CLIENT_HOME = Join-Path $Root 'client space'
+        $env:KIVIDAS_CLIENT_HOME = Join-Path $Root ('client space '+[char]0x4E2D+[char]0x6587)
         $HostKey = Join-Path $Root 'server-key'
         $Empty = if ($PSVersionTable.PSVersion.Major -lt 7) { '""' } else { '' }
         & ssh-keygen.exe -q -t ed25519 -N $Empty -f $HostKey
         Assert-Workspace ($LASTEXITCODE -eq 0) 'Fixture key generation failed'
         $HostFingerprint = ((& ssh-keygen.exe -lf ($HostKey+'.pub') -E sha256) -split '\s+')[1]
         $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0}
-        function ssh-keyscan.exe { '[192.0.2.12]:2222 ' + [IO.File]::ReadAllText($HostKey+'.pub').Trim(); $global:LASTEXITCODE=0 }
+        function ssh-keyscan.exe { throw 'Do not use Windows ssh-keyscan: unsupported hybrid KEX' }
         function sftp.exe { $global:LASTEXITCODE=0 }
         function ssh.exe {
             if ($args -contains '-V') { 'OpenSSH_for_Windows_9.5p1'; $global:LASTEXITCODE=0; return }
+            if ($args -contains 'workspace-probe') {
+                $ProbeText=[IO.File]::ReadAllText($args[[Array]::IndexOf($args,'-F')+1])
+                foreach ($Required in @('PreferredAuthentications none','PubkeyAuthentication no','PasswordAuthentication no','KbdInteractiveAuthentication no','GSSAPIAuthentication no','HostbasedAuthentication no','IdentityAgent none','ForwardAgent no','ClearAllForwardings yes')) {
+                    Assert-Workspace ($ProbeText.Contains($Required)) 'Host-key probe could send credentials before verification'
+                }
+                Assert-Workspace ($ProbeText -match 'UserKnownHostsFile "([^"]+)"') 'Missing isolated host-key file'
+                [IO.File]::WriteAllText($Matches[1],('[192.0.2.12]:2222 '+[IO.File]::ReadAllText($HostKey+'.pub')))
+                $global:LASTEXITCODE=255; return
+            }
             if ($args -contains 'PubkeyAuthentication=no') {
+                Assert-Workspace ($env:SSH_ASKPASS -ceq '.\AskPass.exe') 'AskPass environment path must stay ASCII for Windows OpenSSH'
                 $Answer = & $env:SSH_ASKPASS
                 Assert-Workspace ($Answer -ceq $Password) 'Native AskPass did not read the local bootstrap password'
                 Assert-Workspace (($args -join ' ') -notlike ('*'+$Password+'*')) 'Password appeared in arguments'
@@ -65,7 +75,9 @@ try {
         }
         try {
             [IO.File]::WriteAllText($Connection,(Material $HostFingerprint),$Utf8)
+            $InitialLocation=(Get-Location).Path
             & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
+            Assert-Workspace ((Get-Location).Path -ceq $InitialLocation) 'Setup changed the caller working directory'
             $Base=Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/ssh/ssh02-'+$User)
             $Before=[IO.File]::ReadAllText((Join-Path $Base 'id_ed25519'))
             & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
@@ -73,10 +85,17 @@ try {
             Assert-Workspace ([IO.File]::ReadAllText((Join-Path $Base 'id_ed25519')) -ceq $Before) 'Device key changed'
             Assert-Workspace ((Get-Acl -LiteralPath (Join-Path $Base 'id_ed25519')).AreAccessRulesProtected) 'Private key ACL still inherits'
             Assert-Workspace (@(Get-ChildItem -LiteralPath $Base -Force -Filter '.enroll-*').Count -eq 0) 'AskPass password/helper not cleaned up'
+            Assert-Workspace (@(Get-ChildItem -LiteralPath $Base -Force -Filter '.host-key-*').Count -eq 0) 'Temporary host-key probe files not cleaned up'
             foreach ($Name in @('claude','claude-ssh','claude-sftp')) {
                 Assert-Workspace (Test-Path -LiteralPath (Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/bin/'+$Name+'.cmd'))) 'Shortcut missing'
             }
             Write-Host 'PASS: native Windows key generation, ACL, AskPass compilation/password cleanup and repeat enrollment'
+            [IO.File]::WriteAllText($Connection,$Valid,$Utf8)
+            $Rejected=$false
+            try { & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection } catch { $Rejected=$_.Exception.Message.Contains('fingerprint mismatch') }
+            Assert-Workspace $Rejected 'Wrong server fingerprint was accepted'
+            Assert-Workspace ($global:WorkspaceFixtureState.Enrollments -eq 1) 'Authentication attempted before server fingerprint verification'
+            Write-Host 'PASS: fingerprint mismatch stops before credential use'
         } finally {
             [Environment]::SetEnvironmentVariable('Path',$SavedPath,'User')
             $env:KIVIDAS_CLIENT_HOME=$SavedHome

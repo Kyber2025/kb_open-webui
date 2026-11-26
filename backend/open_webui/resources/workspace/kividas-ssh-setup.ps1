@@ -48,7 +48,7 @@ $Root = Join-Path $ClientHome '.kividas'
 $Base = Join-Path $Root "ssh\$WorkspaceName-$WorkspaceUser"
 $Bin = Join-Path $Root 'bin'
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
-foreach ($Command in @('ssh.exe', 'sftp.exe', 'ssh-keygen.exe', 'ssh-keyscan.exe')) {
+foreach ($Command in @('ssh.exe', 'sftp.exe', 'ssh-keygen.exe')) {
     if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
         throw "Missing $Command. Install the Windows OpenSSH Client optional feature first."
     }
@@ -82,21 +82,62 @@ foreach ($File in @($Key, "$Key.pub", $Known, $Config, (Join-Path $Base 'launch.
     }
 }
 $Scan = Join-Path $Base ('.host-key-' + [Guid]::NewGuid().ToString('N'))
+$ProbeConfig = $Scan + '.config'
+$ProbeError = $Scan + '.error'
 try {
-    # Native stderr contains OpenSSH version banners, even when scanning succeeds.
+    # Windows OpenSSH 9.2/9.5 ssh-keyscan advertises unsupported hybrid KEX.
+    # Use the normal SSH client for an authentication-disabled handshake instead.
+    # The temporary key is untrusted until its out-of-band TXT fingerprint matches;
+    # no password, agent or device key is offered by this probe.
+    $ProbeKnownPath = $Scan.Replace('\', '/').Replace('%', '%%').Replace('"', '\"')
+    [IO.File]::WriteAllText($ProbeConfig, @"
+Host workspace-probe
+  HostName $WorkspaceHost
+  Port $WorkspacePort
+  User $WorkspaceUser
+  UserKnownHostsFile "$ProbeKnownPath"
+  GlobalKnownHostsFile NUL
+  StrictHostKeyChecking accept-new
+  HostKeyAlgorithms ssh-ed25519
+  UpdateHostKeys no
+  BatchMode yes
+  PreferredAuthentications none
+  PubkeyAuthentication no
+  PasswordAuthentication no
+  KbdInteractiveAuthentication no
+  GSSAPIAuthentication no
+  HostbasedAuthentication no
+  IdentityAgent none
+  ForwardAgent no
+  ClearAllForwardings yes
+  ConnectTimeout 15
+  ConnectionAttempts 1
+"@ + "`n", $Utf8)
     $ErrorActionPreference = 'Continue'
-    $Scanned = & ssh-keyscan.exe -T 10 -p $WorkspacePort -t ed25519 $WorkspaceHost 2>$null
-    $ScanExit = $LASTEXITCODE
+    & ssh.exe -F $ProbeConfig -T workspace-probe true 2>$ProbeError | Out-Null
     $ErrorActionPreference = 'Stop'
-    if ($ScanExit -ne 0 -or -not $Scanned) { throw 'Cannot read the workspace host key.' }
-    [IO.File]::WriteAllLines($Scan, [string[]]$Scanned, $Utf8)
+    # Authentication failure is expected; the host key was exchanged before it.
+    if (-not (Test-Path -LiteralPath $Scan) -or (Get-Item -LiteralPath $Scan).Length -eq 0) {
+        $Diagnostic = if (Test-Path -LiteralPath $ProbeError) { [IO.File]::ReadAllText($ProbeError) } else { '' }
+        $Reason = switch -Regex ($Diagnostic) {
+            'timed out' { '连接超时'; break }
+            'Connection refused' { '服务器拒绝连接'; break }
+            'Connection reset|Connection closed' { '连接被中断'; break }
+            'Network is unreachable|No route to host' { '网络不可达'; break }
+            'no matching|unsupported|Bad configuration|Bad owner|Bad permissions' { 'SSH 客户端或本机配置不兼容'; break }
+            default { '未收到服务器主机密钥' }
+        }
+        throw "无法连接 ${WorkspaceHost}:$WorkspacePort（$Reason）。请检查当前网络是否能访问此 SSH 地址和端口，然后重试。"
+    }
     $Fingerprint = & ssh-keygen.exe -lf $Scan -E sha256
     if ($LASTEXITCODE -ne 0 -or @($Fingerprint).Count -ne 1 -or (($Fingerprint -split '\s+')[1] -cne $ExpectedFingerprint)) {
         throw 'Server fingerprint mismatch. Setup stopped.'
     }
     Move-Item -LiteralPath $Scan -Destination $Known -Force
 } finally {
-    if (Test-Path -LiteralPath $Scan) { Remove-Item -LiteralPath $Scan -Force }
+    foreach ($Temporary in @($Scan, $ProbeConfig, $ProbeError)) {
+        if (Test-Path -LiteralPath $Temporary) { Remove-Item -LiteralPath $Temporary -Force }
+    }
 }
 if (-not (Test-Path -LiteralPath $Key)) {
     # Windows PowerShell 5.1 needs an explicitly quoted empty native argument.
@@ -156,11 +197,17 @@ if (-not $Enrolled) {
         if (-not (Test-Path -LiteralPath $Compiler)) { throw '缺少 Windows .NET Framework，请安装后重试。' }
         & $Compiler /nologo /target:exe "/out:$Exe" $Cs
         if ($LASTEXITCODE -ne 0) { throw '无法创建本机登录助手。' }
-        $env:SSH_ASKPASS = $Exe; $env:SSH_ASKPASS_REQUIRE = 'force'; $env:DISPLAY = 'kividas-setup:0'
+        # Windows OpenSSH reads SSH_ASKPASS through a narrow-character environment API.
+        # A relative ASCII path avoids corrupting Unicode profile names, without
+        # relying on optional NTFS short names or exposing the helper via PATH.
+        $env:SSH_ASKPASS = '.\AskPass.exe'; $env:SSH_ASKPASS_REQUIRE = 'force'; $env:DISPLAY = 'kividas-setup:0'
     # The validated public key is not a credential secret. No shell metacharacters are allowed.
     $Enroll = 'set -eu; cd /workspace/claude; umask 077; test ! -L .ssh; mkdir -p .ssh; test ! -L .ssh/authorized_keys; touch .ssh/authorized_keys; chmod 700 .ssh; chmod 600 .ssh/authorized_keys; grep -qxF -- ''restrict,pty ' + $PublicKey + ''' .ssh/authorized_keys || echo ''restrict,pty ' + $PublicKey + ''' >> .ssh/authorized_keys'
-    & ssh.exe -F $Config -o PubkeyAuthentication=no -o PreferredAuthentications=password -o NumberOfPasswordPrompts=1 workspace $Enroll
-    if ($LASTEXITCODE -ne 0) { throw '登录失败。订阅到期或绑定变更后请重新下载 TXT。' }
+    Push-Location -LiteralPath $SecretDir
+    try {
+        & ssh.exe -F $Config -o PubkeyAuthentication=no -o PreferredAuthentications=password -o NumberOfPasswordPrompts=1 workspace $Enroll
+        if ($LASTEXITCODE -ne 0) { throw '登录失败。订阅到期或绑定变更后请重新下载 TXT。' }
+    } finally { Pop-Location }
     } finally {
         foreach ($Name in $PreviousEnv.Keys) { [Environment]::SetEnvironmentVariable($Name, $PreviousEnv[$Name], 'Process') }
         Remove-Item -LiteralPath $SecretDir -Recurse -Force
