@@ -26,7 +26,9 @@ it('shows SSH recommended first, Gateway second, and disables downloads without 
 it('offers only the selected owner binding and explains expiry cleanup',async()=>{
  vi.mocked(api.request).mockResolvedValue({workspaces:[workspace],expiresAt:'2099-01-01'});await render();
  expect(button('下载个人连接 TXT').disabled).toBe(false);expect(host.textContent).toContain('ssh01 · 已绑定');expect(host.textContent).toContain('订阅到期会自动解绑');
- await act(async()=>host.querySelector<HTMLButtonElement>('.ssh-platforms button:last-child')!.click());expect(button('下载 PowerShell 脚本').disabled).toBe(false);expect(host.textContent).toContain('kividas-ssh-setup.ps1');
+ expect(host.textContent).toContain('末尾留一个空格');expect(host.textContent).toContain('kividas-ssh-setup.sh');
+ await act(async()=>host.querySelector<HTMLButtonElement>('.ssh-platforms button:last-child')!.click());expect(button('下载 Windows 双击配置文件').disabled).toBe(false);expect(host.textContent).toContain('kividas-ssh-setup.cmd');
+ expect(host.textContent).toContain('在弹出的窗口选择个人连接 TXT');expect(host.querySelector('.ssh-command')).toBeNull();
 });
 it('fails closed on load failure and supports retry',async()=>{
  vi.mocked(api.request).mockRejectedValueOnce(new Error('暂不可用'));await render();expect(host.textContent).toContain('暂不可用');expect(button('下载个人连接 TXT').disabled).toBe(true);

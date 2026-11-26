@@ -1,4 +1,4 @@
-﻿param([string]$ConnectionFile)
+﻿param([string]$ConnectionFile, [switch]$PickConnectionFile)
 $ErrorActionPreference = 'Stop'
 Write-Host ''
 Write-Host '  KIVIDAS  /  SSH WORKSPACE' -ForegroundColor Magenta
@@ -6,6 +6,21 @@ Write-Host '  配置一次，以后输入 claude 即可连接'
 Write-Host '  ────────────────────────────────────────────' -ForegroundColor DarkGray
 function Step($Number, $Text) { Write-Host "`n  [$Number/4]  $Text" -ForegroundColor Cyan }
 Step 1 '导入个人连接 TXT'
+if (-not $ConnectionFile -and $PickConnectionFile) {
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+    $Dialog = New-Object System.Windows.Forms.OpenFileDialog
+    try {
+        $Dialog.Title = '选择从 Kividas 下载的个人连接 TXT'
+        $Dialog.Filter = 'Kividas 连接资料 (*.txt)|*.txt'
+        $Dialog.CheckFileExists = $true
+        $Dialog.Multiselect = $false
+        $Downloads = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+        if (Test-Path -LiteralPath $Downloads) { $Dialog.InitialDirectory = $Downloads }
+        if ($Dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { Write-Host '  已取消，未更改本机配置。'; return }
+        $ConnectionFile = $Dialog.FileName
+    } finally { $Dialog.Dispose() }
+}
 if (-not $ConnectionFile) { $ConnectionFile = (Read-Host '  拖入个人连接 TXT，按回车').Trim().Trim('"').Trim("'") }
 if (-not (Test-Path -LiteralPath $ConnectionFile -PathType Leaf)) { throw '找不到个人连接 TXT。' }
 $Item = Get-Item -LiteralPath $ConnectionFile -Force
@@ -13,7 +28,9 @@ if ($Item.Length -gt 8192 -or ($Item.Attributes -band [IO.FileAttributes]::Repar
 $Fields = @{}
 foreach ($Line in [IO.File]::ReadAllLines($Item.FullName)) {
     if (-not $Line -or $Line.StartsWith('#')) { continue }
-    $Pair = $Line.Split(@('='), 2)
+    # Use the PowerShell operator: .NET Framework on Windows 5.1 resolves
+    # String.Split(..., 2) as StringSplitOptions rather than a substring count.
+    $Pair = $Line -split '=', 2
     if ($Pair.Count -ne 2 -or $Fields.ContainsKey($Pair[0]) -or $Pair[0] -cnotmatch '^(KIVIDAS_SSH_CONFIG|SSH_NAME|SSH_URL|SSH_FINGERPRINT|SSH_PASSWORD|SSH_DIRECTORY)$') { throw 'TXT 格式错误，请重新下载。' }
     $Fields[$Pair[0]] = $Pair[1]
 }

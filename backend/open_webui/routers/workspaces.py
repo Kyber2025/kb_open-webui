@@ -1,4 +1,5 @@
 """Personal SSH downloads. Ownership is derived exclusively from the signed-in user."""
+import base64
 from pathlib import Path
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -45,7 +46,7 @@ async def download(request: Request, response: Response, instance_id: str, form:
 
 @router.get('/resources/{filename}')
 async def resource(request: Request, response: Response, filename: str, user=Depends(get_verified_user)):
-    if filename not in ('kividas-ssh-setup.sh', 'kividas-ssh-setup.ps1', 'kividas-ssh-guide.html'):
+    if filename not in ('kividas-ssh-setup.sh', 'kividas-ssh-setup.ps1', 'kividas-ssh-setup.cmd', 'kividas-ssh-guide.html'):
         raise HTTPException(404, '文件不存在', headers=HEADERS)
     # The tutorial is readable before binding; both executable downloads require
     # a current, confirmed binding and an active subscription on every request.
@@ -53,4 +54,12 @@ async def resource(request: Request, response: Response, filename: str, user=Dep
         data = await call(request, response, user)
         if not data.get('workspaces'):
             raise HTTPException(403, '请先开通有效订阅并绑定 SSH 账号', headers=HEADERS)
+    if filename == 'kividas-ssh-setup.cmd':
+        # One portable download, generated from the same PS1 that we test and
+        # serve. The payload has no customer credentials or per-instance data.
+        payload = base64.b64encode((RESOURCES / 'kividas-ssh-setup.ps1').read_bytes()).decode('ascii')
+        launcher = (RESOURCES / filename).read_text(encoding='ascii').replace('__KIVIDAS_POWERSHELL_BASE64__', payload)
+        return Response(launcher.replace('\r\n', '\n').replace('\n', '\r\n').encode('ascii'),
+                        media_type='application/octet-stream',
+                        headers={**HEADERS, 'Content-Disposition': f'attachment; filename="{filename}"'})
     return FileResponse(RESOURCES / filename, filename=filename, media_type='application/octet-stream', headers=HEADERS)

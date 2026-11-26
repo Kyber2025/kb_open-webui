@@ -1,0 +1,22 @@
+name: SSH workspace Windows setup
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'backend/open_webui/resources/workspace/kividas-ssh-setup.*'
+      - 'kividas-web/scripts/test-workspace-windows.ps1'
+      - '.github/workflows/workspace-windows.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test TXT import and native setup
+        shell: ${{ matrix.shell }}
+        run: ./kividas-web/scripts/test-workspace-windows.ps1 -RequireWindows
