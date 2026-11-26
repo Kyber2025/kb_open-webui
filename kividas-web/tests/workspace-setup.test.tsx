@@ -17,7 +17,7 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();});
 async function render(){await act(async()=>root.render(<MemoryRouter><CodeDownloads onGateway={()=>{}} /></MemoryRouter>));}
 it('shows SSH recommended first, Gateway second, and disables downloads without a binding',async()=>{
- await render();const tabs=[...host.querySelectorAll('[role=tab]')];expect(tabs).toHaveLength(2);
+ await render();const tabs=[...host.querySelectorAll<HTMLButtonElement>('[role=tab]')];expect(tabs).toHaveLength(2);
  expect(tabs[0].textContent).toContain('SSH 工作区');expect(tabs[0].textContent).toContain('推荐');expect(tabs[0].getAttribute('aria-selected')).toBe('true');
  expect(tabs[1].textContent).toContain('Claude Code Gateway');expect(host.textContent).not.toContain('Kividas CLI');expect(host.textContent).not.toContain('Kividas Code');
  expect(button('下载个人连接 TXT').disabled).toBe(true);expect(button('下载 .sh 脚本').disabled).toBe(true);expect(button('使用教程').disabled).toBe(false);
