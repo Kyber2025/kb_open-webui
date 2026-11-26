@@ -53,6 +53,52 @@ foreach ($Command in @('ssh.exe', 'sftp.exe', 'ssh-keygen.exe')) {
         throw "Missing $Command. Install the Windows OpenSSH Client optional feature first."
     }
 }
+$SshExecutable = (Get-Command ssh.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+function ConvertTo-WorkspaceProcessArgument([string]$Value) {
+    # ProcessStartInfo.Arguments uses Windows CRT quoting on both PS 5.1 and 7.
+    # Quote every argument, doubling backslashes before quotes and the closing quote.
+    return '"' + [regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
+}
+function Invoke-WorkspaceSetupProcess {
+    param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 30)
+    $Info = New-Object Diagnostics.ProcessStartInfo
+    $Info.FileName = $FilePath
+    $Info.Arguments = (@($Arguments | ForEach-Object { ConvertTo-WorkspaceProcessArgument $_ }) -join ' ')
+    $Info.WorkingDirectory = (Get-Location).ProviderPath
+    $Info.UseShellExecute = $false
+    $Info.CreateNoWindow = $true
+    $Info.RedirectStandardInput = $true
+    $Info.RedirectStandardOutput = $true
+    $Info.RedirectStandardError = $true
+    $Process = New-Object Diagnostics.Process
+    $Process.StartInfo = $Info
+    $Started = $false
+    try {
+        $Started = $Process.Start()
+        if (-not $Started) { throw '无法启动本机配置程序。' }
+        # Do not inherit console handles: a short, silent Win32 OpenSSH command
+        # can otherwise finish on the server but remain blocked on console input.
+        $Process.StandardInput.Close()
+        $OutputTask = $Process.StandardOutput.ReadToEndAsync()
+        $ErrorTask = $Process.StandardError.ReadToEndAsync()
+        $Watch = [Diagnostics.Stopwatch]::StartNew()
+        $NextProgress = 5
+        while (-not $Process.WaitForExit(250)) {
+            if ($Watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                throw "当前步骤超过 $TimeoutSeconds 秒，已停止等待。可以关闭窗口后重试，已有密钥会保留。"
+            }
+            if ($Watch.Elapsed.TotalSeconds -ge $NextProgress) {
+                Write-Host ("  正在等待响应… {0}s / {1}s" -f [int]$Watch.Elapsed.TotalSeconds, $TimeoutSeconds) -ForegroundColor DarkGray
+                $NextProgress += 5
+            }
+        }
+        if (-not $OutputTask.Wait(1000) -or -not $ErrorTask.Wait(1000)) { throw '本机 SSH 进程输出未正常关闭，已停止配置。请关闭窗口后重试。' }
+        return [pscustomobject]@{ ExitCode = $Process.ExitCode; Output = $OutputTask.Result; Error = $ErrorTask.Result }
+    } finally {
+        if ($Started -and -not $Process.HasExited) { $Process.Kill(); $null = $Process.WaitForExit(2000) }
+        $Process.Dispose()
+    }
+}
 $ErrorActionPreference = 'Continue'
 $SshVersion = (& ssh.exe -V 2>&1 | Out-String)
 $ErrorActionPreference = 'Stop'
@@ -126,12 +172,10 @@ Host workspace-probe
   ConnectTimeout 15
   ConnectionAttempts 1
 "@ + "`n", $Utf8)
-    $ErrorActionPreference = 'Continue'
-    & ssh.exe -F $ProbeConfig -T workspace-probe true 2>$ProbeError | Out-Null
-    $ErrorActionPreference = 'Stop'
+    $Probe = Invoke-WorkspaceSetupProcess $SshExecutable @('-n','-T','-F',$ProbeConfig,'workspace-probe','true')
     # Authentication failure is expected; the host key was exchanged before it.
     if (-not (Test-Path -LiteralPath $Scan) -or (Get-Item -LiteralPath $Scan).Length -eq 0) {
-        $Diagnostic = if (Test-Path -LiteralPath $ProbeError) { [IO.File]::ReadAllText($ProbeError) } else { '' }
+        $Diagnostic = $Probe.Error
         $Reason = switch -Regex ($Diagnostic) {
             'timed out' { '连接超时'; break }
             'Connection refused' { '服务器拒绝连接'; break }
@@ -193,13 +237,21 @@ Host workspace
   ClearAllForwardings yes
 "@ + "`n", $Utf8)
 Step 3 '配置本机免密密钥'
-$ErrorActionPreference = 'Continue'
-& ssh.exe -F $Config -o BatchMode=yes workspace true 2>$null
-$Enrolled = $LASTEXITCODE -eq 0
-$ErrorActionPreference = 'Stop'
+# Setup connections are finite operations, separate from the interactive launcher.
+# The fixed response verifies remote execution, rather than only authentication.
+$SetupSshOptions = @('-n','-T','-F',$Config,'-o','IdentityAgent=none','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=3','-o','ConnectionAttempts=1')
+$CheckOptions = @('-o','BatchMode=yes','-o','PreferredAuthentications=publickey','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
+$CheckCommand = "printf 'KIVIDAS_KEY_OK\n'"
+Write-Host '  3.1 检查已有免密连接（最多 30 秒）' -ForegroundColor DarkGray
+$Check = Invoke-WorkspaceSetupProcess $SshExecutable ($SetupSshOptions + $CheckOptions + @('workspace',$CheckCommand))
+$Enrolled = $Check.ExitCode -eq 0 -and $Check.Output.Trim() -ceq 'KIVIDAS_KEY_OK'
 if (-not $Enrolled) {
+    if ($Check.ExitCode -ne 255 -or $Check.Error -notmatch 'Permission denied') {
+        throw '免密连接检查未完成。实例已通过指纹验证，但没有正常返回验证结果。请检查连接后重试。'
+    }
     # A local .NET helper supplies the TXT password only to OpenSSH. It is never
     # passed on the command line. Its directory inherits the current-user-only ACL.
+    Write-Host '  3.2 注册本机密钥' -ForegroundColor DarkGray
     $SecretDir = Join-Path $Base ('.enroll-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($SecretDir) | Out-Null
     $PreviousEnv = @{}
@@ -212,27 +264,28 @@ if (-not $Enrolled) {
         $Compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
         if (-not (Test-Path -LiteralPath $Compiler)) { $Compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
         if (-not (Test-Path -LiteralPath $Compiler)) { throw '缺少 Windows .NET Framework，请安装后重试。' }
-        & $Compiler /nologo /target:exe "/out:$Exe" $Cs
-        if ($LASTEXITCODE -ne 0) { throw '无法创建本机登录助手。' }
+        $Compiled = Invoke-WorkspaceSetupProcess $Compiler @('/nologo','/target:exe',"/out:$Exe",$Cs)
+        if ($Compiled.ExitCode -ne 0) { throw '无法创建本机登录助手。' }
         # Windows OpenSSH reads SSH_ASKPASS through a narrow-character environment API.
-        # A relative ASCII path avoids corrupting Unicode profile names, without
-        # relying on optional NTFS short names or exposing the helper via PATH.
+        # A relative ASCII path avoids corrupting Unicode profile names.
         $env:SSH_ASKPASS = '.\AskPass.exe'; $env:SSH_ASKPASS_REQUIRE = 'force'; $env:DISPLAY = 'kividas-setup:0'
-    # The validated public key is not a credential secret. No shell metacharacters are allowed.
-    $Enroll = 'set -eu; cd /workspace/claude; umask 077; test ! -L .ssh; mkdir -p .ssh; test ! -L .ssh/authorized_keys; touch .ssh/authorized_keys; chmod 700 .ssh; chmod 600 .ssh/authorized_keys; grep -qxF -- ''restrict,pty ' + $PublicKey + ''' .ssh/authorized_keys || echo ''restrict,pty ' + $PublicKey + ''' >> .ssh/authorized_keys'
-    Push-Location -LiteralPath $SecretDir
-    try {
-        & ssh.exe -F $Config -o PubkeyAuthentication=no -o PreferredAuthentications=password -o NumberOfPasswordPrompts=1 workspace $Enroll
-        if ($LASTEXITCODE -ne 0) { throw '登录失败。订阅到期或绑定变更后请重新下载 TXT。' }
-    } finally { Pop-Location }
+        # The validated public key is not a credential secret. No shell metacharacters are allowed.
+        $Enroll = 'set -eu; cd /workspace/claude; umask 077; test ! -L .ssh; mkdir -p .ssh; test ! -L .ssh/authorized_keys; touch .ssh/authorized_keys; chmod 700 .ssh; chmod 600 .ssh/authorized_keys; grep -qxF -- ''restrict,pty ' + $PublicKey + ''' .ssh/authorized_keys || echo ''restrict,pty ' + $PublicKey + ''' >> .ssh/authorized_keys; printf ''KIVIDAS_ENROLLED\n'''
+        Push-Location -LiteralPath $SecretDir
+        try {
+            $Registered = Invoke-WorkspaceSetupProcess $SshExecutable ($SetupSshOptions + @('-o','PubkeyAuthentication=no','-o','PreferredAuthentications=password','-o','NumberOfPasswordPrompts=1','workspace',$Enroll))
+            if ($Registered.ExitCode -ne 0 -or $Registered.Output.Trim() -cne 'KIVIDAS_ENROLLED') { throw '密钥注册失败。订阅到期或绑定变更后请重新下载 TXT。' }
+        } finally { Pop-Location }
     } finally {
         foreach ($Name in $PreviousEnv.Keys) { [Environment]::SetEnvironmentVariable($Name, $PreviousEnv[$Name], 'Process') }
         Remove-Item -LiteralPath $SecretDir -Recurse -Force
     }
+    Write-Host '  3.3 验证新密钥（最多 30 秒）' -ForegroundColor DarkGray
+    $Check = Invoke-WorkspaceSetupProcess $SshExecutable ($SetupSshOptions + $CheckOptions + @('workspace',$CheckCommand))
+    if ($Check.ExitCode -ne 0 -or $Check.Output.Trim() -cne 'KIVIDAS_KEY_OK') { throw '新密钥验证未完成。请重试配置，已有密钥会保留。' }
 }
 $Fields.Remove('SSH_PASSWORD')
-& ssh.exe -F $Config -o BatchMode=yes workspace true
-if ($LASTEXITCODE -ne 0) { throw 'Key sign-in failed. Shortcuts were not installed.' }
+Write-Host '  ✓ 免密连接已验证' -ForegroundColor Green
 Step 4 '安装 claude / SSH / SFTP 快捷命令'
 $Launcher = @'
 $ErrorActionPreference = 'Stop'

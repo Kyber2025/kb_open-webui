@@ -61,12 +61,67 @@ try {
             [IO.Directory]::CreateDirectory($Folder) | Out-Null
             [IO.File]::WriteAllText((Join-Path $Folder 'Microsoft.PowerShell_profile.ps1'), $ProfileOriginal, $Utf8)
         }
+        # Exercise the real native-process boundary, including a child that never
+        # exits and one that waits for stdin. Neither can hold setup indefinitely.
+        $ParseErrors=$null; $ParseTokens=$null
+        $SetupAst=[Management.Automation.Language.Parser]::ParseInput($Source,[ref]$ParseTokens,[ref]$ParseErrors)
+        foreach($FunctionName in @('ConvertTo-WorkspaceProcessArgument','Invoke-WorkspaceSetupProcess')) {
+            $FunctionAst=$SetupAst.Find({param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq $FunctionName},$true)
+            . ([ScriptBlock]::Create($FunctionAst.Extent.Text))
+        }
+        $NativeRunner=${function:Invoke-WorkspaceSetupProcess}
+        $RunnerSource=Join-Path $Root 'runner.cs';$RunnerExe=Join-Path $Root 'runner.exe'
+        [IO.File]::WriteAllText($RunnerSource,@'
+using System;
+using System.IO;
+using System.Text;
+using System.Threading;
+class Runner {
+    static void Main(string[] args) {
+        if (args[0] == "hang") { File.WriteAllText(args[1], System.Diagnostics.Process.GetCurrentProcess().Id.ToString()); Thread.Sleep(30000); }
+        else if (args[0] == "stdin") { Console.Write(Console.In.ReadToEnd().Length == 0 ? "EOF" : "UNEXPECTED_INPUT"); }
+        else if (args[0] == "flood") { Console.Write(new string('o',200000)); Console.Error.Write(new string('e',200000)); }
+        else { Console.Write(Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("\0",args)))); }
+    }
+}
+'@)
+        $NativeCompiler=Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        & $NativeCompiler /nologo /target:exe (('/out:')+$RunnerExe) $RunnerSource
+        Assert-Workspace ($LASTEXITCODE -eq 0) 'Process boundary fixture did not compile'
+        $NativeArguments=@('echo','space value','','quote"value','backslash\"quote','trailing\',('code '+[char]0x4E2D+[char]0x6587))
+        $Native=Invoke-WorkspaceSetupProcess $RunnerExe $NativeArguments
+        Assert-Workspace ($Native.ExitCode -eq 0 -and [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Native.Output)) -ceq ($NativeArguments -join ([char]0))) 'Process arguments were changed'
+        $Native=Invoke-WorkspaceSetupProcess $RunnerExe @('stdin')
+        Assert-Workspace ($Native.Output -ceq 'EOF') 'Setup inherited an open stdin handle'
+        $Native=Invoke-WorkspaceSetupProcess $RunnerExe @('flood')
+        Assert-Workspace ($Native.Output.Length -eq 200000 -and $Native.Error.Length -eq 200000) 'Output pipes were not drained concurrently'
+        $PidFile=Join-Path $Root 'hung.pid';$Timer=[Diagnostics.Stopwatch]::StartNew();$TimedOut=$false
+        try { Invoke-WorkspaceSetupProcess $RunnerExe @('hang',$PidFile) -TimeoutSeconds 1 | Out-Null } catch { $TimedOut=$true }
+        Assert-Workspace ($TimedOut -and $Timer.Elapsed.TotalSeconds -lt 6) 'A stuck child did not time out'
+        $HungPid=[int][IO.File]::ReadAllText($PidFile)
+        Assert-Workspace (-not (Get-Process -Id $HungPid -ErrorAction SilentlyContinue)) 'Timed-out child was left running'
+        Write-Host 'PASS: native argument encoding, closed stdin, concurrent output reads and bounded process termination'
+        # Mock only SSH transport for the installer scenarios. The unmodified
+        # process runner above and the real SSH canary cover the native boundary.
+        $RunnerAst=$SetupAst.Find({param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq 'Invoke-WorkspaceSetupProcess'},$true)
+        $MockRunner=@'
+function Invoke-WorkspaceSetupProcess {
+    param([string]$FilePath,[string[]]$Arguments,[int]$TimeoutSeconds=30)
+    if($FilePath -eq $SshExecutable) {
+        $Output=@(& ssh.exe @Arguments)
+        $ErrorText=if($global:LASTEXITCODE -eq 255){'Permission denied (publickey,password).'}else{''}
+        return [pscustomobject]@{ExitCode=$global:LASTEXITCODE;Output=($Output -join "`n");Error=$ErrorText}
+    }
+    & $NativeRunner @PSBoundParameters
+}
+'@
+        $MockSetup=[ScriptBlock]::Create($Source.Substring(0,$RunnerAst.Extent.StartOffset)+$MockRunner+$Source.Substring($RunnerAst.Extent.EndOffset))
         $HostKey = Join-Path $Root 'server-key'
         $Empty = if ($PSVersionTable.PSVersion.Major -lt 7) { '""' } else { '' }
         & ssh-keygen.exe -q -t ed25519 -N $Empty -f $HostKey
         Assert-Workspace ($LASTEXITCODE -eq 0) 'Fixture key generation failed'
         $HostFingerprint = ((& ssh-keygen.exe -lf ($HostKey+'.pub') -E sha256) -split '\s+')[1]
-        $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0; AutoLaunches=0}
+        $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0; AutoLaunches=0; Checks=0}
         function ssh-keyscan.exe { throw 'Do not use Windows ssh-keyscan: unsupported hybrid KEX' }
         function sftp.exe { $global:LASTEXITCODE=0 }
         function ssh.exe {
@@ -85,23 +140,28 @@ try {
                 $Answer = & $env:SSH_ASKPASS
                 Assert-Workspace ($Answer -ceq $Password) 'Native AskPass did not read the local bootstrap password'
                 Assert-Workspace (($args -join ' ') -notlike ('*'+$Password+'*')) 'Password appeared in arguments'
-                $global:WorkspaceFixtureState.Enrolled=$true; $global:WorkspaceFixtureState.Enrollments++; $global:LASTEXITCODE=0; return
+                $global:WorkspaceFixtureState.Enrolled=$true; $global:WorkspaceFixtureState.Enrollments++; $global:LASTEXITCODE=0; 'KIVIDAS_ENROLLED'; return
             }
             if (($args -join ' ') -like '*cd /workspace/claude && exec python3*') {
                 Assert-Workspace $global:WorkspaceFixtureState.Enrolled 'Automatic launch happened before key sign-in'
                 $global:WorkspaceFixtureState.AutoLaunches++; $global:LASTEXITCODE=0; return
             }
+            foreach($Required in @('-n','-T','IdentityAgent=none')) { Assert-Workspace ($args -contains $Required) 'Setup SSH inherited interactive input or agent' }
+            Assert-Workspace ($args[-1] -ceq "printf 'KIVIDAS_KEY_OK\n'") 'Verification did not request a response'
+            $global:WorkspaceFixtureState.Checks++
             $global:LASTEXITCODE = if ($global:WorkspaceFixtureState.Enrolled) { 0 } else { 255 }
+            if ($global:WorkspaceFixtureState.Enrolled) { 'KIVIDAS_KEY_OK' }
         }
         try {
             [IO.File]::WriteAllText($Connection,(Material $HostFingerprint),$Utf8)
             $InitialLocation=(Get-Location).Path
-            & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection -Launch
+            & $MockSetup -ConnectionFile $Connection -Launch
             Assert-Workspace ((Get-Location).Path -ceq $InitialLocation) 'Setup changed the caller working directory'
             $Base=Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/ssh/ssh02-'+$User)
             $Before=[IO.File]::ReadAllText((Join-Path $Base 'id_ed25519'))
-            & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
+            & $MockSetup -ConnectionFile $Connection
             Assert-Workspace ($global:WorkspaceFixtureState.Enrollments -eq 1) 'Repeat setup did not reuse the key'
+            Assert-Workspace ($global:WorkspaceFixtureState.Checks -eq 3) 'Repeat setup performed a redundant verification connection'
             Assert-Workspace ($global:WorkspaceFixtureState.AutoLaunches -eq 1) 'The configured remote Claude was not launched automatically'
             Assert-Workspace ([IO.File]::ReadAllText((Join-Path $Base 'id_ed25519')) -ceq $Before) 'Device key changed'
             Assert-Workspace ((Get-Acl -LiteralPath (Join-Path $Base 'id_ed25519')).AreAccessRulesProtected) 'Private key ACL still inherits'
@@ -147,7 +207,7 @@ try {
             Write-Host 'PASS: native Windows key generation, ACL, AskPass compilation/password cleanup and repeat enrollment'
             [IO.File]::WriteAllText($Connection,$Valid,$Utf8)
             $Rejected=$false
-            try { & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection } catch { $Rejected=$_.Exception.Message.Contains('fingerprint mismatch') }
+            try { & $MockSetup -ConnectionFile $Connection } catch { $Rejected=$_.Exception.Message.Contains('fingerprint mismatch') }
             Assert-Workspace $Rejected 'Wrong server fingerprint was accepted'
             Assert-Workspace ($global:WorkspaceFixtureState.Enrollments -eq 1) 'Authentication attempted before server fingerprint verification'
             Write-Host 'PASS: fingerprint mismatch stops before credential use'
