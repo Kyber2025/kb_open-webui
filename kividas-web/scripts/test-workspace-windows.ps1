@@ -50,8 +50,7 @@ try {
         & ssh-keygen.exe -q -t ed25519 -N $Empty -f $HostKey
         Assert-Workspace ($LASTEXITCODE -eq 0) 'Fixture key generation failed'
         $HostFingerprint = ((& ssh-keygen.exe -lf ($HostKey+'.pub') -E sha256) -split '\s+')[1]
-        $script:Enrolled = $false
-        $script:Enrollments = 0
+        $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0}
         function ssh-keyscan.exe { '[192.0.2.12]:2222 ' + [IO.File]::ReadAllText($HostKey+'.pub').Trim(); $global:LASTEXITCODE=0 }
         function sftp.exe { $global:LASTEXITCODE=0 }
         function ssh.exe {
@@ -60,9 +59,9 @@ try {
                 $Answer = & $env:SSH_ASKPASS
                 Assert-Workspace ($Answer -ceq $Password) 'Native AskPass did not read the local bootstrap password'
                 Assert-Workspace (($args -join ' ') -notlike ('*'+$Password+'*')) 'Password appeared in arguments'
-                $script:Enrolled=$true; $script:Enrollments++; $global:LASTEXITCODE=0; return
+                $global:WorkspaceFixtureState.Enrolled=$true; $global:WorkspaceFixtureState.Enrollments++; $global:LASTEXITCODE=0; return
             }
-            $global:LASTEXITCODE = if ($script:Enrolled) { 0 } else { 255 }
+            $global:LASTEXITCODE = if ($global:WorkspaceFixtureState.Enrolled) { 0 } else { 255 }
         }
         try {
             [IO.File]::WriteAllText($Connection,(Material $HostFingerprint),$Utf8)
@@ -70,7 +69,7 @@ try {
             $Base=Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/ssh/ssh02-'+$User)
             $Before=[IO.File]::ReadAllText((Join-Path $Base 'id_ed25519'))
             & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
-            Assert-Workspace ($script:Enrollments -eq 1) 'Repeat setup did not reuse the key'
+            Assert-Workspace ($global:WorkspaceFixtureState.Enrollments -eq 1) 'Repeat setup did not reuse the key'
             Assert-Workspace ([IO.File]::ReadAllText((Join-Path $Base 'id_ed25519')) -ceq $Before) 'Device key changed'
             Assert-Workspace ((Get-Acl -LiteralPath (Join-Path $Base 'id_ed25519')).AreAccessRulesProtected) 'Private key ACL still inherits'
             Assert-Workspace (@(Get-ChildItem -LiteralPath $Base -Force -Filter '.enroll-*').Count -eq 0) 'AskPass password/helper not cleaned up'
@@ -81,6 +80,7 @@ try {
         } finally {
             [Environment]::SetEnvironmentVariable('Path',$SavedPath,'User')
             $env:KIVIDAS_CLIENT_HOME=$SavedHome
+            Remove-Variable WorkspaceFixtureState -Scope Global
         }
         # Run the actual CMD envelope with the real validation phase as payload.
         # A supplied TXT skips the interactive picker so this also works in CI.
