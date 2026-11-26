@@ -3,8 +3,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -20,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/crypto/ssh"
 )
 
 const endpoint = "wss://ai.kividas.com/api/workspace-transport/v1/connect"
@@ -28,6 +27,7 @@ type config struct {
 	Address string `json:"address"`
 	Username string `json:"username"`
 	Token string `json:"token"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 func readConfig(path string) (config, error) {
@@ -41,35 +41,41 @@ func readConfig(path string) (config, error) {
 	if d.Decode(&extra) != io.EOF { return c, errors.New("连接配置无效") }
 	host, port, err := net.SplitHostPort(c.Address)
 	if err != nil || net.ParseIP(host).To4() == nil || !regexp.MustCompile(`^[1-9][0-9]{0,4}$`).MatchString(port) ||
-		!regexp.MustCompile(`^ws_[a-f0-9]{16}$`).MatchString(c.Username) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(c.Token) {
+		!regexp.MustCompile(`^ws_[a-f0-9]{16}$`).MatchString(c.Username) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(c.Token) || !regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`).MatchString(c.Fingerprint) {
 		return c, errors.New("连接配置无效")
 	}
 	return c, nil
 }
 
-type bufferedConn struct { net.Conn; reader *bufio.Reader }
-func (c *bufferedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+var errHostKey = errors.New("实例指纹不一致，已停止连接")
 
-// Read only the identification banner. Nothing from stdin (including SSH
-// authentication) is sent until one transport is selected. Never replay data.
-func direct(address string, timeout time.Duration) (net.Conn, error) {
-	c, err := net.DialTimeout("tcp4", address, timeout)
-	if err != nil { return nil, err }
-	c.SetDeadline(time.Now().Add(timeout))
-	r := bufio.NewReaderSize(c, 8192)
-	var banner bytes.Buffer
-	for banner.Len() < 8192 {
-		line, e := r.ReadSlice('\n')
-		if e != nil { err = e; break }
-		banner.Write(line)
-		if strings.HasPrefix(string(line), "SSH-2.0-") {
-			c.SetDeadline(time.Time{})
-			return &bufferedConn{c, bufio.NewReader(io.MultiReader(bytes.NewReader(banner.Bytes()), r))}, nil
-		}
-	}
-	c.Close()
-	if err == nil { err = errors.New("SSH banner missing") }
-	return nil, err
+// Complete an unauthenticated SSH key exchange before selecting native ingress.
+// Some proxies permit the banner but reset the following SSH handshake. No
+// password, agent or device key is used; the actual OpenSSH stream is never replayed.
+func direct(cfg config, timeout time.Duration) (net.Conn, error) {
+ probe, err := net.DialTimeout("tcp4", cfg.Address, timeout)
+ if err != nil { return nil, err }
+ probe.SetDeadline(time.Now().Add(timeout))
+ verified := false
+ client, _, _, err := ssh.NewClientConn(probe, cfg.Address, &ssh.ClientConfig{
+  User: cfg.Username,
+  HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
+  HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+   if ssh.FingerprintSHA256(key) != cfg.Fingerprint { return errHostKey }
+   verified = true
+   return nil
+  },
+ })
+ probe.Close()
+ if client != nil { client.Close() }
+ if errors.Is(err, errHostKey) { return nil, errHostKey }
+ // No authentication methods were supplied. Reaching the server's auth
+ // rejection proves the complete encrypted handshake succeeded.
+ if !verified || (err != nil && !strings.Contains(err.Error(), "unable to authenticate, attempted methods [none]")) {
+  if err == nil { err = errors.New("SSH handshake incomplete") }
+  return nil, err
+ }
+ return net.DialTimeout("tcp4", cfg.Address, timeout)
 }
 
 func tunnel(ctx context.Context, c config, url string, client *http.Client) (net.Conn, error) {
@@ -106,8 +112,9 @@ func run() error {
 	// A test/operator-only --https flag can verify the backup even on a healthy
 	// direct network. Normal setup and all launchers use automatic selection.
 	if len(os.Args) == 1 {
-		conn, e := direct(c.Address, 3*time.Second)
+		conn, e := direct(c, 3*time.Second)
 		if e == nil { return transfer(conn, os.Stdin, os.Stdout) }
+		if errors.Is(e, errHostKey) { return e }
 		fmt.Fprintln(os.Stderr, "直连暂不可用，正在尝试 HTTPS 备用入口…")
 	} else if len(os.Args) != 2 || os.Args[1] != "--https" { return errors.New("不支持的启动参数") }
 	client := &http.Client{

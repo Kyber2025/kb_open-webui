@@ -1,7 +1,7 @@
 # SSH transport helper
 
 OpenSSH `ProxyCommand` for the existing workspace launchers. It selects a direct
-SSH connection when a banner arrives within a bounded timeout, otherwise opens
+SSH connection after a bounded, pinned key exchange without credentials, otherwise opens
 an authenticated TLS WebSocket to the existing `ai.kividas.com` gateway. Native
 OpenSSH still checks the TXT host fingerprint and authenticates the device key.
 It never retries after forwarding SSH bytes or after a host-key/login rejection.
@@ -16,7 +16,8 @@ Run `go test ./...`, then `python3 build.py`. The build script emits six binarie
 to `backend/open_webui/resources/workspace/transport/` (ignored build artifacts),
 writes `manifest.json`, and pins those hashes in the installers. Release packaging
 must verify the manifest and include all six artifacts in the backend image.
-The public binary download endpoint carries no customer data. Setup scripts and
+New helpers use immutable hash-addressed download URLs; retain earlier binaries
+for already-downloaded scripts. The public binary endpoint carries no customer data. Setup scripts and
 personal TXT downloads continue to require a live owner binding.
 
 `--https` forces the backup path for operator acceptance tests; normal installed

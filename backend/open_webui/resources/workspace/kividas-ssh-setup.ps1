@@ -142,8 +142,8 @@ foreach ($File in @($Key, "$Key.pub", $Known, $Config, (Join-Path $Base 'launch.
 }
 # BEGIN TRANSPORT HASHES
 $TransportHashes = @{
-    'windows-amd64' = 'f7e278aad12028110d48f7296ca56c026d339302bf152f0cf5c09a13670d4b04'
-    'windows-arm64' = '8d65e649878086693d115cbe263308243b82373202b9f1d30cf53a7d89fba83b'
+    'windows-amd64' = '454399064b091bd4a30537a358b00d62e908395a9886973581ea1f135573d04f'
+    'windows-arm64' = 'e225e9dc81ac86fd5d0d70cf98f0dc2bbf4a6422e2f74c19269b4763beaaff72'
 }
 # END TRANSPORT HASHES
 $Architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'amd64' }
@@ -156,7 +156,7 @@ if (-not (Test-Path -LiteralPath $Transport) -or (Get-FileHash -LiteralPath $Tra
     $TemporaryTransport = Join-Path $Base ('.transport-' + [Guid]::NewGuid().ToString('N'))
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -UseBasicParsing -Uri ('https://chat.kividas.com/api/v1/code/ssh-workspaces/transport/v1/' + $TransportPlatform) -OutFile $TemporaryTransport -TimeoutSec 90 -MaximumRedirection 0
+        Invoke-WebRequest -UseBasicParsing -Uri ('https://chat.kividas.com/api/v1/code/ssh-workspaces/transport/' + $TransportHash + '/' + $TransportPlatform) -OutFile $TemporaryTransport -TimeoutSec 90 -MaximumRedirection 0
         if ((Get-FileHash -LiteralPath $TemporaryTransport -Algorithm SHA256).Hash -ine $TransportHash) { throw '连接组件校验失败，请重新下载配置文件。' }
         Move-Item -LiteralPath $TemporaryTransport -Destination $Transport -Force
     } finally { if (Test-Path -LiteralPath $TemporaryTransport) { Remove-Item -LiteralPath $TemporaryTransport -Force } }
@@ -164,7 +164,7 @@ if (-not (Test-Path -LiteralPath $Transport) -or (Get-FileHash -LiteralPath $Tra
 $Digest = [Security.Cryptography.SHA256]::Create()
 try { $RelayToken = ([BitConverter]::ToString($Digest.ComputeHash($Utf8.GetBytes("kividas-ssh-relay-v1`0" + $Fields.SSH_PASSWORD)))).Replace('-', '').ToLowerInvariant() }
 finally { $Digest.Dispose() }
-$TransportConfig = @{ address = "${WorkspaceHost}:$WorkspacePort"; username = $WorkspaceUser; token = $RelayToken } | ConvertTo-Json -Compress
+$TransportConfig = @{ address = "${WorkspaceHost}:$WorkspacePort"; username = $WorkspaceUser; token = $RelayToken; fingerprint = $ExpectedFingerprint } | ConvertTo-Json -Compress
 [IO.File]::WriteAllText((Join-Path $Base 'transport.json'), $TransportConfig, $Utf8)
 $RelayToken = $null; $TransportConfig = $null
 $ProxyCommand = '"' + $Transport.Replace('\', '/').Replace('%', '%%').Replace('"', '\"') + '"'

@@ -1,5 +1,6 @@
 """Personal SSH downloads. Ownership is derived exclusively from the signed-in user."""
 import base64
+import re
 from pathlib import Path
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -13,13 +14,17 @@ router = APIRouter()
 RESOURCES = Path(__file__).resolve().parents[1] / 'resources' / 'workspace'
 HEADERS = {'Cache-Control': 'private, no-store', 'Vary': 'Authorization, Cookie', 'X-Content-Type-Options': 'nosniff'}
 
-@router.get('/transport/v1/{platform}')
-async def transport_binary(platform: str):
+@router.get('/transport/{version}/{platform}')
+async def transport_binary(version: str, platform: str):
     # Common executable only, no account data. Installers verify a pinned SHA256;
     # scripts and personal TXT retain their authenticated, owner-scoped downloads.
     if platform not in ('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64', 'linux-amd64', 'linux-arm64'):
         raise HTTPException(404, '文件不存在', headers=HEADERS)
-    path = RESOURCES / 'transport' / platform
+    if version != 'v1' and not re.fullmatch(r'[a-f0-9]{64}', version):
+        raise HTTPException(404, '文件不存在', headers=HEADERS)
+    # Keep v1 downloads compatible with previously issued scripts. New scripts
+    # request immutable hash-addressed artifacts, including during rolling deploys.
+    path = RESOURCES / 'transport' / platform if version == 'v1' else RESOURCES / 'transport' / version / platform
     if not path.is_file():
         raise HTTPException(503, '连接组件暂不可用', headers=HEADERS)
     return FileResponse(path, filename='transport.exe' if platform.startswith('windows-') else 'transport',
