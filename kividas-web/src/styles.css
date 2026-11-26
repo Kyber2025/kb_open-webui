@@ -3415,7 +3415,7 @@ td code {
 /* /code: one row of method cards; the panel below shows the selected one. */
 .code-download-page { max-width: 820px; }
 .code-download-page .code-page-heading p { max-width: 520px; margin: 0 auto; line-height: 1.7; }
-.code-methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 8px; }
+.code-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 8px; }
 .code-method { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 22px 20px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); text-align: left; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .code-method:hover { border-color: var(--muted); box-shadow: var(--shadow); transform: translateY(-2px); }
 .code-method[aria-selected="true"] { border-color: var(--ink); box-shadow: var(--shadow); }
@@ -3469,3 +3469,40 @@ td code {
 .gateway-usage-downloads { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--border); }
 .gateway-usage-downloads h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
 .gateway-usage-downloads > p { font-size: 13px; line-height: 1.7; margin: 0 0 14px; }
+
+/* SSH setup: personal material, universal installer, then a single command. */
+.ssh-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.ssh-panel-heading h2 { margin-bottom:0; }
+.ssh-guide-button { flex-shrink:0; }
+.ssh-binding { display:flex; align-items:center; gap:14px; padding:18px 20px; margin:24px 0; border:1px dashed var(--line); border-radius:14px; background:var(--soft); }
+.ssh-binding.is-bound { border-style:solid; border-color:color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.ssh-binding-copy { display:grid; gap:4px; flex:1; min-width:0; }
+.ssh-binding-copy strong { font-size:14px; font-weight:550; }
+.ssh-binding-copy span { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.ssh-setup-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.ssh-step { display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--line); border-radius:16px; padding:22px; }
+.ssh-step-number { color:var(--accent); font-size:12px; letter-spacing:2px; font-weight:600; }
+.ssh-step h3, .ssh-run-step h3 { font-size:16px; font-weight:550; margin:10px 0 6px; }
+.ssh-step p { font-size:13px; color:var(--muted); line-height:1.7; margin:0 0 20px; }
+.ssh-step > .btn { margin-top:auto; }
+.ssh-platforms { display:flex; border:1px solid var(--line); border-radius:9px; padding:3px; gap:3px; margin-bottom:12px; background:var(--soft); }
+.ssh-platforms button { background:transparent; border:0; border-radius:6px; padding:6px 12px; font-size:12px; color:var(--muted); }
+.ssh-platforms button[aria-pressed="true"] { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px #0001; }
+.ssh-run-step { display:flex; gap:18px; padding:26px 0; }
+.ssh-run-step > .ssh-step-number { margin-top:13px; }
+.ssh-run-step > div { flex:1; min-width:0; }
+.ssh-run-step p { font-size:13px; line-height:1.7; }
+.ssh-command { display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--soft); border:1px solid var(--line); border-radius:10px; }
+.ssh-command code { flex:1; font-size:12px; overflow-wrap:anywhere; }
+.ssh-small { font-size:12px!important; margin-bottom:0; }
+.ssh-shortcuts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:18px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.ssh-shortcuts > div { display:grid; gap:5px; }
+.ssh-shortcuts code { font-size:13px; }
+.ssh-shortcuts span { font-size:12px; color:var(--muted); }
+.ssh-retention { font-size:12px; line-height:1.8; color:var(--muted); margin:20px 0; }
+.ssh-retention strong { color:var(--ink); font-weight:500; }
+.ssh-help { font-size:13px; line-height:1.8; }
+.ssh-help summary { display:flex; align-items:center; gap:8px; cursor:pointer; }
+.ssh-help p { color:var(--muted); }
+.ssh-error { font-size:13px; color:#b34a35; padding:12px; background:#b34a350c; border-radius:10px; }
+@media(max-width:650px) { .ssh-panel-heading { align-items:flex-start; flex-direction:column; }.ssh-setup-grid { grid-template-columns:1fr; }.ssh-step { padding:18px; }.ssh-shortcuts { grid-template-columns:1fr; gap:16px; }.ssh-binding { padding:14px; }.ssh-binding > svg { display:none; }.ssh-run-step { gap:10px; } }

@@ -1,6 +1,5 @@
-// The three ways to code with a Kividas account, in the order /code shows
-// them. The Claude Code Gateway comes first and is the default selection.
-export type CodeMethodId = "gateway" | "desktop" | "cli";
+// SSH is the recommended default; Gateway remains available as the second tab.
+export type CodeMethodId = "ssh" | "gateway";
 
 export interface CodeMethod {
   id: CodeMethodId;
@@ -15,35 +14,20 @@ export interface CodeMethod {
 
 export const codeMethods: readonly CodeMethod[] = [
   {
-    id: "gateway",
-    tagline: "官方客户端",
-    title: "Claude Code Gateway",
-    description:
-      "用 Kividas 订阅接入官方 Claude 桌面端和 Claude Code CLI，用量计入你的订阅。",
+    id: "ssh", tagline: "云端开发工作区", title: "SSH 工作区",
+    description: "连接你的专属 VPS，在终端直接使用 Claude Code。支持 Git、文件传输与断线会话恢复。",
+    platforms: "macOS · Linux · Windows", badge: "推荐",
+  },
+  {
+    id: "gateway", tagline: "本地客户端接入", title: "Claude Code Gateway",
+    description: "用 Kividas 订阅连接官方 Claude 桌面端和 Claude Code CLI，在自己的电脑上工作。",
     platforms: "macOS · Windows · CLI",
-    badge: "推荐",
-  },
-  {
-    id: "desktop",
-    tagline: "桌面客户端",
-    title: "Kividas Code",
-    description:
-      "Kividas 的 AI 编程桌面客户端，下载安装后用 Kividas 账号登录即可使用。",
-    platforms: "macOS · Windows",
-  },
-  {
-    id: "cli",
-    tagline: "终端命令行",
-    title: "Kividas CLI",
-    description:
-      "一条命令安装，在任意终端用 Kividas 账号运行 Claude Code，无需 Node.js。",
-    platforms: "macOS · Windows · Linux",
   },
 ];
 
 export const defaultCodeMethod: CodeMethodId = codeMethods[0].id;
 
-/** Resolve a `?method=` query value; anything unknown falls back to the Gateway. */
+/** Resolve a `?method=` query value; anything unknown falls back to SSH. */
 export function parseCodeMethod(value: unknown): CodeMethodId {
   return codeMethods.some((method) => method.id === value)
     ? (value as CodeMethodId)

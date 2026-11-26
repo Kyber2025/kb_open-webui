@@ -26,7 +26,10 @@ from open_webui.utils.auth import get_verified_user
 
 log = logging.getLogger(__name__)
 
+from open_webui.routers.workspaces import router as workspaces_router
+
 router = APIRouter()
+router.include_router(workspaces_router, prefix='/ssh-workspaces')
 
 _BASE_URL = 'https://dl.kividas.com'
 _DOWNLOADS_URL = f'{_BASE_URL}/downloads.json'

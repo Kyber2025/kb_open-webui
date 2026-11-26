@@ -1,7 +1,5 @@
 import {
-  useEffect,
   useRef,
-  useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -9,76 +7,28 @@ import { useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
   Check,
-  Copy,
-  Download,
   KeyRound,
   Terminal,
 } from "lucide-react";
-import { request } from "../lib/api";
-import {
-  cliPlatforms,
-  desktopBuilds,
-  accountInstallCommands,
-  safeDownload,
-  type CliRelease,
-  type DesktopRelease,
-} from "../lib/downloads";
 import {
   codeMethods,
   defaultCodeMethod,
   parseCodeMethod,
   type CodeMethodId,
 } from "../lib/code-methods";
-import { useNotify } from "../components/UI";
+import { WorkspaceSetup } from "../components/WorkspaceSetup";
 import { GatewayResources } from "../components/GatewayResources";
 import { ClaudeAppIcon } from "../components/ClaudeAppIcon";
 
-type Platform = "mac" | "windows";
-type Builds = ReturnType<typeof desktopBuilds>;
-
 const methodIcons: Record<CodeMethodId, ReactNode> = {
+  ssh: <Terminal size={24} />,
   gateway: <ClaudeAppIcon className="code-method-app-icon" />,
-  desktop: <img src="/kividas-code.png" alt="" width={40} height={40} />,
-  cli: <Terminal size={22} />,
-};
-const panelClass: Record<CodeMethodId, string> = {
-  gateway: "gateway-downloads",
-  desktop: "desktop-downloads",
-  cli: "cli-downloads",
 };
 
-export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => void; usageUrl?: string }) {
-  const [desktop, setDesktop] = useState<DesktopRelease | null>(null);
-  const [cli, setCli] = useState<CliRelease | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [unavailable, setUnavailable] = useState<string[]>([]);
+export function CodeDownloads({ onGateway }: { onGateway: () => void; usageUrl?: string }) {
   const [params, setParams] = useSearchParams();
   const selected = parseCodeMethod(params.get("method"));
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
-  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
-  const builds = desktopBuilds(desktop, !!usageUrl && usageUrl !== 'https://proxy.kividas.com/');
-  const order: Platform[] = isMac ? ["mac", "windows"] : ["windows", "mac"];
-  const versions: Partial<Record<CodeMethodId, string | null | undefined>> = {
-    desktop: builds[order[0]].version,
-    cli: cli?.version,
-  };
-  async function load() {
-    setLoading(true);
-    const [desktopResult, cliResult] = await Promise.allSettled([
-      request<DesktopRelease>("/api/v1/code/latest"),
-      request<CliRelease>("/api/v1/code/cli"),
-    ]);
-    const failed = [];
-    if (desktopResult.status === "fulfilled") setDesktop(desktopResult.value);
-    else failed.push("desktop");
-    if (cliResult.status === "fulfilled") setCli(cliResult.value);
-    else failed.push("CLI");
-    setUnavailable(failed);
-    setLoading(false);
-  }
-  useEffect(() => {
-    void load();
-  }, []);
   function select(id: CodeMethodId) {
     if (id === selected) return;
     const next = new URLSearchParams(params);
@@ -110,7 +60,7 @@ export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => v
         <span className="eyebrow">KIVIDAS CODE</span>
         <h1>A little more room to build.</h1>
         <p className="muted">
-          三种方式把 Kividas 账号接入你的桌面和终端，点击卡片查看对应的配置步骤。
+          在云端工作区使用 Claude，或连接你自己的桌面和终端。选择适合你的方式。
         </p>
       </header>
       <div
@@ -121,7 +71,6 @@ export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => v
       >
         {codeMethods.map((method, index) => {
           const active = method.id === selected;
-          const version = versions[method.id];
           return (
             <button
               key={method.id}
@@ -146,7 +95,6 @@ export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => v
               <span className="code-method-copy">
                 <span className="code-method-tagline">
                   {method.tagline}
-                  {version && ` · v${version}`}
                 </span>
                 <strong>{method.title}</strong>
                 <span className="code-method-desc">{method.description}</span>
@@ -166,31 +114,10 @@ export function CodeDownloads({ onGateway, usageUrl = '' }: { onGateway: () => v
         role="tabpanel"
         id={`code-panel-${selected}`}
         aria-labelledby={`code-tab-${selected}`}
-        className={`download-panel code-method-panel ${panelClass[selected]}`}
+        className={`download-panel code-method-panel ${selected}-downloads`}
       >
-        {selected === "gateway" ? (
-          <GatewayPanel onGateway={onGateway} />
-        ) : selected === "desktop" ? (
-          <DesktopPanel builds={builds} order={order} />
-        ) : (
-          <CliPanel cli={cli} usageUrl={usageUrl} />
-        )}
+        {selected === "ssh" ? <WorkspaceSetup /> : <GatewayPanel onGateway={onGateway} />}
       </section>
-      <div className="download-status" role="status">
-        {loading ? (
-          "Checking for the latest releases…"
-        ) : unavailable.length > 0 ? (
-          <>
-            <span>
-              Could not refresh {unavailable.join(" and ")} releases. Available
-              installers and installation commands are still shown.
-            </span>
-            <button className="text-btn" onClick={() => void load()}>
-              Try again
-            </button>
-          </>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -247,136 +174,6 @@ function GatewayPanel({ onGateway }: { onGateway: () => void }) {
         完整解压后，Windows 双击“配置Windows.cmd”。Mac 在终端输入 <code>/bin/bash </code>
         （末尾留一个空格），再拖入“配置Mac.sh”并回车。详细步骤见压缩包内的“Mac启动说明.txt”。
       </p>} />
-    </>
-  );
-}
-
-function DesktopPanel({
-  builds,
-  order,
-}: {
-  builds: Builds;
-  order: Platform[];
-}) {
-  const macZip = builds.mac.url.endsWith(".zip");
-  return (
-    <>
-      <div className="download-icon">
-        <img src="/kividas-code.png" alt="Kividas Code" width={64} height={64} />
-      </div>
-      <h2>Kividas Code</h2>
-      <p className="muted">AI coding desktop client for Windows and macOS.</p>
-      <div className="desktop-buttons">
-        {order.map((platform, index) => (
-          <div className="desktop-build" key={platform}>
-            <a
-              className={`btn ${index === 0 ? "primary" : ""}`}
-              href={builds[platform].url || undefined}
-              aria-disabled={!builds[platform].url}
-              download
-            >
-              <Download size={18} />
-              Download for{" "}
-              {platform === "mac"
-                ? `macOS (${macZip ? ".zip" : ".dmg"})`
-                : "Windows (.exe)"}
-            </a>
-            <small>
-              {platform === "mac" && "Apple Silicon · "}Version{" "}
-              {builds[platform].version || "暂不可用，请稍后刷新"}
-            </small>
-            {platform === "mac" && macZip && (
-              <small>Unzip and drag Kividas Code to Applications.</small>
-            )}
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function CliPanel({ cli, usageUrl }: { cli: CliRelease | null; usageUrl: string }) {
-  const installCommands = usageUrl ? accountInstallCommands(usageUrl) : null;
-  const [copied, setCopied] = useState("");
-  const notify = useNotify();
-  useEffect(() => {
-    if (!copied) return;
-    const timeout = setTimeout(() => setCopied(""), 1800);
-    return () => clearTimeout(timeout);
-  }, [copied]);
-  async function copy(key: "sh" | "ps1") {
-    if (!installCommands) return;
-    try {
-      await navigator.clipboard.writeText(installCommands[key]);
-      setCopied(key);
-    } catch {
-      notify("Could not copy. Select the command and copy it manually.", true);
-    }
-  }
-  const direct = cliPlatforms.filter(({ key }) =>
-    safeDownload(cli?.platforms?.[key]?.url),
-  );
-  return (
-    <>
-      <div className="cli-heading">
-        <h2>
-          <Terminal size={21} />
-          Kividas CLI
-        </h2>
-        <small>
-          {cli?.version && (
-            <>
-              Version {cli.version}
-              {cli.claude_version && <> · Claude Code {cli.claude_version}</>}
-            </>
-          )}
-        </small>
-      </div>
-      <p className="muted">
-        Run Claude Code with your Kividas account from any terminal on macOS,
-        Windows or Linux. No Node.js or npm required.
-      </p>
-      {installCommands && (["sh", "ps1"] as const).map((key) => (
-        <div className="install-command" key={key}>
-          <label htmlFor={`install-${key}`}>
-            {key === "sh" ? "macOS / Linux" : "Windows (PowerShell)"}
-          </label>
-          <div>
-            <code id={`install-${key}`}>{installCommands[key]}</code>
-            <button
-              className="btn"
-              aria-label={`Copy ${key === "sh" ? "macOS / Linux" : "Windows"} install command`}
-              onClick={() => void copy(key)}
-            >
-              <Copy size={14} />
-              {copied === key ? "Copied" : "Copy"}
-            </button>
-          </div>
-        </div>
-      ))}
-      <p className="cli-help">
-        Then run <code>kividas login</code> with the same account as
-        {usageUrl ? new URL(usageUrl).hostname : 'your Kividas web account'}, and <code>kividas</code> to open the terminal. Windows
-        also needs Git for Windows (Git Bash), which Claude Code uses to run
-        commands.
-      </p>
-      {direct.length > 0 && (
-        <>
-          <nav className="direct-downloads" aria-label="CLI direct downloads">
-            <span>Direct downloads:</span>
-            {direct.map(({ key, name }) => (
-              <a key={key} href={cli!.platforms![key]!.url} download>
-                {name}
-              </a>
-            ))}
-          </nav>
-          <p className="cli-help">
-            macOS: unzip and open “Kividas CLI” to install the command and open
-            a Terminal. Linux: run <code>chmod +x kividas</code>, then{" "}
-            <code>./kividas</code>.
-          </p>
-        </>
-      )}
     </>
   );
 }

@@ -6,17 +6,16 @@ import {
 } from "../src/lib/code-methods";
 
 describe("code page methods", () => {
-  it("lists the Gateway first and makes it the default", () => {
+  it("lists SSH first and makes it the default", () => {
     expect(codeMethods.map((method) => method.id)).toEqual([
+      "ssh",
       "gateway",
-      "desktop",
-      "cli",
     ]);
-    expect(defaultCodeMethod).toBe("gateway");
+    expect(defaultCodeMethod).toBe("ssh");
   });
-  it("falls back to the Gateway for a missing or unknown ?method value", () => {
+  it("falls back to SSH for a missing or unknown ?method value", () => {
     for (const value of [null, undefined, "", "admin", "DESKTOP", 1, {}])
-      expect(parseCodeMethod(value)).toBe("gateway");
+      expect(parseCodeMethod(value)).toBe("ssh");
   });
   it("accepts each listed method", () => {
     for (const method of codeMethods)
