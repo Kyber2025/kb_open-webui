@@ -149,8 +149,10 @@ $TransportHashes = @{
 $Architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'amd64' }
 if (-not [Environment]::Is64BitOperatingSystem) { throw '需要 64 位 Windows。' }
 $TransportPlatform = 'windows-' + $Architecture
-$Transport = Join-Path $Base 'transport.exe'
 $TransportHash = $TransportHashes[$TransportPlatform]
+# Versioned executables let an existing Windows SSH session keep running during an update.
+$Transport = Join-Path $Base ('transport-' + $TransportHash + '.exe')
+if ((Test-Path -LiteralPath $Transport) -and ((Get-Item -LiteralPath $Transport -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Refusing a linked transport executable.' }
 if (-not (Test-Path -LiteralPath $Transport) -or (Get-FileHash -LiteralPath $Transport -Algorithm SHA256).Hash -ine $TransportHash) {
     Write-Host '  正在准备自动连接组件…' -ForegroundColor DarkGray
     $TemporaryTransport = Join-Path $Base ('.transport-' + [Guid]::NewGuid().ToString('N'))
@@ -205,6 +207,7 @@ Host workspace-probe
     # Authentication failure is expected; the host key was exchanged before it.
     if (-not (Test-Path -LiteralPath $Scan) -or (Get-Item -LiteralPath $Scan).Length -eq 0) {
         $Diagnostic = $Probe.Error
+        if ($Diagnostic -match '实例指纹不一致') { throw 'Server fingerprint mismatch. Setup stopped.' }
         $Reason = switch -Regex ($Diagnostic) {
             'timed out' { '连接超时'; break }
             'Connection refused' { '服务器拒绝连接'; break }
