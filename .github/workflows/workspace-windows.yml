@@ -17,6 +17,11 @@ jobs:
         shell: [powershell, pwsh]
     steps:
       - uses: actions/checkout@v5
-      - name: Test TXT import and native setup
-        shell: ${{ matrix.shell }}
+      - name: Test Windows PowerShell 5.1
+        if: matrix.shell == 'powershell'
+        shell: powershell
+        run: ./kividas-web/scripts/test-workspace-windows.ps1 -RequireWindows
+      - name: Test PowerShell 7
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
         run: ./kividas-web/scripts/test-workspace-windows.ps1 -RequireWindows
