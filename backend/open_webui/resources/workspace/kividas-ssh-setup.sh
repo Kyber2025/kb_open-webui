@@ -63,10 +63,10 @@ case "$(uname -m)" in x86_64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) fail
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$arch"
 # BEGIN TRANSPORT HASHES
 case "$platform" in
-  darwin-amd64) transport_hash=89637fb94655d2fe01663ec16a90d07f01b59dc930795cb5ac491ca1795b0150 ;;
-  darwin-arm64) transport_hash=1b0d3377d369b0c890a3b94db610b43ed0840145c4af8fe7aca45965d79f04c9 ;;
-  linux-amd64) transport_hash=9cece2dfa6ca613a2782d6763c868126ab1f8bdba664c06a576a19b8ab015d0b ;;
-  linux-arm64) transport_hash=4f17fdda08508f7ab97101675122024107fde3588771f2105ecf53e45c76b853 ;;
+  darwin-amd64) transport_hash=53c877dbc0f87485b8d6b70a5154958f3f9dd37f74d63014c9b65945c8d84b45 ;;
+  darwin-arm64) transport_hash=7783905314c410175ca72093cb6af2233b9b63d60a44704a85d1d1941f49e654 ;;
+  linux-amd64) transport_hash=d01288b5580f859ea1813b07475d30c1aa642ff283f57a2191a7013844769edd ;;
+  linux-arm64) transport_hash=a2757223aa13309bf06dbdb983de01821c9aaeaddc9cb273ad370dc39199d524 ;;
   *) fail '暂不支持此电脑架构。' ;;
 esac
 # END TRANSPORT HASHES

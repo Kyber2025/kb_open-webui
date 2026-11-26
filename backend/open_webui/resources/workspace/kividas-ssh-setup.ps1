@@ -142,8 +142,8 @@ foreach ($File in @($Key, "$Key.pub", $Known, $Config, (Join-Path $Base 'launch.
 }
 # BEGIN TRANSPORT HASHES
 $TransportHashes = @{
-    'windows-amd64' = '454399064b091bd4a30537a358b00d62e908395a9886973581ea1f135573d04f'
-    'windows-arm64' = 'e225e9dc81ac86fd5d0d70cf98f0dc2bbf4a6422e2f74c19269b4763beaaff72'
+    'windows-amd64' = 'e30744a865196b4723531cf8628b908e40d0922c3c84ce9c1468fb2920bcfd4b'
+    'windows-arm64' = '2697ee2f583da5de6320ad0981386ed8524258556cb7a58eb853def1b820e334'
 }
 # END TRANSPORT HASHES
 $Architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'amd64' }

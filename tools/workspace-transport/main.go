@@ -115,7 +115,6 @@ func run() error {
 		conn, e := direct(c, 3*time.Second)
 		if e == nil { return transfer(conn, os.Stdin, os.Stdout) }
 		if errors.Is(e, errHostKey) { return e }
-		fmt.Fprintln(os.Stderr, "直连暂不可用，正在尝试 HTTPS 备用入口…")
 	} else if len(os.Args) != 2 || os.Args[1] != "--https" { return errors.New("不支持的启动参数") }
 	client := &http.Client{
 		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
