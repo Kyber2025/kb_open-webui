@@ -1,6 +1,14 @@
-﻿param([switch]$RequireWindows)
+﻿param([switch]$RequireWindows, [switch]$RequireStandardUser)
 $ErrorActionPreference = 'Stop'
 if ($RequireWindows -and $env:OS -ne 'Windows_NT') { throw 'Actual Windows host required' }
+if ($RequireStandardUser) {
+    $Identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+    $Principal=New-Object Security.Principal.WindowsPrincipal($Identity)
+    if ($Identity.IsSystem -or $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'A non-administrator Windows user is required' }
+    $Privileges=(& whoami.exe /priv | Out-String)
+    if ($Privileges -match 'SeSecurityPrivilege') { throw 'Test user must not hold SeSecurityPrivilege' }
+    Write-Host 'PASS: running as a standard Windows user without SeSecurityPrivilege'
+}
 function Assert-Workspace($Condition, $Message) { if (-not $Condition) { throw $Message } }
 $Resources = Join-Path $PSScriptRoot '../../backend/open_webui/resources/workspace'
 $Source = [IO.File]::ReadAllText((Join-Path $Resources 'kividas-ssh-setup.ps1'))
@@ -116,5 +124,5 @@ try {
         Remove-Item Env:KIVIDAS_CMD_TEST_OUTPUT
         Write-Host 'PASS: double-click CMD envelope, quoted TXT path and Windows PowerShell execution'
     }
-    @{passed=$true;version=$PSVersionTable.PSVersion.ToString();actualWindows=($env:OS -eq 'Windows_NT')} | ConvertTo-Json -Compress
+    @{passed=$true;version=$PSVersionTable.PSVersion.ToString();actualWindows=($env:OS -eq 'Windows_NT');standardUser=[bool]$RequireStandardUser} | ConvertTo-Json -Compress
 } finally { if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force } }

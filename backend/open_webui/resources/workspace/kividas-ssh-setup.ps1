@@ -67,12 +67,25 @@ foreach ($Directory in @($Root, (Join-Path $Root 'ssh'), $Base, $Bin)) {
 }
 # Only the current Windows user can read the private key directory.
 $Sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+function Assert-WorkspaceOwner([string]$Path) {
+    $Owner = (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($Owner -notin @($Sid.Value, 'S-1-5-18', 'S-1-5-32-544')) {
+        throw 'Refusing a configuration file or directory owned by another user.'
+    }
+}
+Assert-WorkspaceOwner $Base
 $Acl = New-Object System.Security.AccessControl.DirectorySecurity
-$Acl.SetOwner($Sid)
 $Acl.SetAccessRuleProtection($true, $false)
 $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule($Sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
 $Acl.AddAccessRule($Rule)
-Set-Acl -LiteralPath $Base -AclObject $Acl
+# Set-Acl copies the audit descriptor too, which can require SeSecurityPrivilege
+# once inheritance is protected. Persist only the access rules via .NET; retain
+# the verified owner so ordinary users never need WRITE_OWNER or audit privileges.
+if ($PSVersionTable.PSVersion.Major -lt 6) {
+    [IO.Directory]::SetAccessControl($Base, $Acl)
+} else {
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($Base), $Acl)
+}
 $Key = Join-Path $Base 'id_ed25519'
 $Known = Join-Path $Base 'known_hosts'
 $Config = Join-Path $Base 'config'
@@ -145,11 +158,15 @@ if (-not (Test-Path -LiteralPath $Key)) {
     & ssh-keygen.exe -q -t ed25519 -N $EmptyPassphrase -C kividas-workspace-client -f $Key
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the device key.' }
 }
+Assert-WorkspaceOwner $Key
 $KeyAcl = New-Object System.Security.AccessControl.FileSecurity
-$KeyAcl.SetOwner($Sid)
 $KeyAcl.SetAccessRuleProtection($true, $false)
 $KeyAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($Sid, 'FullControl', 'Allow')))
-Set-Acl -LiteralPath $Key -AclObject $KeyAcl
+if ($PSVersionTable.PSVersion.Major -lt 6) {
+    [IO.File]::SetAccessControl($Key, $KeyAcl)
+} else {
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($Key), $KeyAcl)
+}
 $PublicLines = @(& ssh-keygen.exe -y -f $Key)
 if ($LASTEXITCODE -ne 0 -or $PublicLines.Count -ne 1) { throw 'Could not read the device public key.' }
 # Some OpenSSH versions retain the comment; only the validated key fields are sent.
