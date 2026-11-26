@@ -74,7 +74,7 @@ export function WorkspaceSetup() {
         </button>
       </div>
       <div className="ssh-step"><span className="ssh-step-number">02</span><h3>下载通用脚本</h3>
-        <p>同一份脚本适用于所有实例。运行后导入 TXT，自动完成连接和免密配置。</p>
+        <p>同一份脚本适用于所有实例。运行后导入 TXT，自动完成连接和免密配置，直连不通时自动尝试 HTTPS 备用入口。</p>
         <div className="ssh-platforms" role="group" aria-label="客户电脑系统">
           <button aria-pressed={platform === 'unix'} onClick={() => setPlatform('unix')}>Mac / Linux</button>
           <button aria-pressed={platform === 'windows'} onClick={() => setPlatform('windows')}>Windows</button>
@@ -95,6 +95,7 @@ export function WorkspaceSetup() {
     <p className="ssh-retention"><strong>文件与订阅</strong> · 代码保存在云端 /workspace/claude。订阅到期会自动解绑，旧密码和密钥失效，并清空工作区。请提前推送 Git 或下载备份；续费后需重新绑定并下载新 TXT。</p>
     <details className="ssh-help"><summary>Git、SFTP 和断线恢复 <ArrowUpRight size={15} /></summary><div>
       <p>运行 <code>claude-ssh</code>，在工作区中使用 <code>git clone</code>，进入仓库后运行 <code>claude</code>。私有仓库使用你自己的 Git 凭据。</p>
+      <p>开着 Clash / TUN 也无需手动添加分流规则。配置及日常启动会自动尝试直连和 HTTPS 备用入口；两条线路都不可达时，会提示连接失败。指纹或身份验证失败时会停止。</p>
       <p>SSH 与终端 SFTP 可同时使用。网络断线后重新运行同一命令可恢复会话；实例重启或解绑会结束会话。</p>
       <p>配置会让本机的 <code>claude</code> 命令连接云端工作区。个人 TXT 含登录密码，请勿转发。</p>
     </div></details>

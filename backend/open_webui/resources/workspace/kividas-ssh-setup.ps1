@@ -135,11 +135,39 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 $Key = Join-Path $Base 'id_ed25519'
 $Known = Join-Path $Base 'known_hosts'
 $Config = Join-Path $Base 'config'
-foreach ($File in @($Key, "$Key.pub", $Known, $Config, (Join-Path $Base 'launch.ps1'))) {
+foreach ($File in @($Key, "$Key.pub", $Known, $Config, (Join-Path $Base 'launch.ps1'), (Join-Path $Base 'transport.exe'), (Join-Path $Base 'transport.json'))) {
     if ((Test-Path -LiteralPath $File) -and ((Get-Item -LiteralPath $File -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw 'Refusing a linked configuration file.'
     }
 }
+# BEGIN TRANSPORT HASHES
+$TransportHashes = @{
+    'windows-amd64' = 'f7e278aad12028110d48f7296ca56c026d339302bf152f0cf5c09a13670d4b04'
+    'windows-arm64' = '8d65e649878086693d115cbe263308243b82373202b9f1d30cf53a7d89fba83b'
+}
+# END TRANSPORT HASHES
+$Architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'amd64' }
+if (-not [Environment]::Is64BitOperatingSystem) { throw '需要 64 位 Windows。' }
+$TransportPlatform = 'windows-' + $Architecture
+$Transport = Join-Path $Base 'transport.exe'
+$TransportHash = $TransportHashes[$TransportPlatform]
+if (-not (Test-Path -LiteralPath $Transport) -or (Get-FileHash -LiteralPath $Transport -Algorithm SHA256).Hash -ine $TransportHash) {
+    Write-Host '  正在准备自动连接组件…' -ForegroundColor DarkGray
+    $TemporaryTransport = Join-Path $Base ('.transport-' + [Guid]::NewGuid().ToString('N'))
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -UseBasicParsing -Uri ('https://chat.kividas.com/api/v1/code/ssh-workspaces/transport/v1/' + $TransportPlatform) -OutFile $TemporaryTransport -TimeoutSec 90 -MaximumRedirection 0
+        if ((Get-FileHash -LiteralPath $TemporaryTransport -Algorithm SHA256).Hash -ine $TransportHash) { throw '连接组件校验失败，请重新下载配置文件。' }
+        Move-Item -LiteralPath $TemporaryTransport -Destination $Transport -Force
+    } finally { if (Test-Path -LiteralPath $TemporaryTransport) { Remove-Item -LiteralPath $TemporaryTransport -Force } }
+}
+$Digest = [Security.Cryptography.SHA256]::Create()
+try { $RelayToken = ([BitConverter]::ToString($Digest.ComputeHash($Utf8.GetBytes("kividas-ssh-relay-v1`0" + $Fields.SSH_PASSWORD)))).Replace('-', '').ToLowerInvariant() }
+finally { $Digest.Dispose() }
+$TransportConfig = @{ address = "${WorkspaceHost}:$WorkspacePort"; username = $WorkspaceUser; token = $RelayToken } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $Base 'transport.json'), $TransportConfig, $Utf8)
+$RelayToken = $null; $TransportConfig = $null
+$ProxyCommand = '"' + $Transport.Replace('\', '/').Replace('%', '%%').Replace('"', '\"') + '"'
 $Scan = Join-Path $Base ('.host-key-' + [Guid]::NewGuid().ToString('N'))
 $ProbeConfig = $Scan + '.config'
 $ProbeError = $Scan + '.error'
@@ -152,6 +180,7 @@ try {
     [IO.File]::WriteAllText($ProbeConfig, @"
 Host workspace-probe
   HostName $WorkspaceHost
+  ProxyCommand $ProxyCommand
   Port $WorkspacePort
   User $WorkspaceUser
   UserKnownHostsFile "$ProbeKnownPath"
@@ -169,7 +198,7 @@ Host workspace-probe
   IdentityAgent none
   ForwardAgent no
   ClearAllForwardings yes
-  ConnectTimeout 15
+  ConnectTimeout 25
   ConnectionAttempts 1
 "@ + "`n", $Utf8)
     $Probe = Invoke-WorkspaceSetupProcess $SshExecutable @('-n','-T','-F',$ProbeConfig,'workspace-probe','true')
@@ -184,7 +213,7 @@ Host workspace-probe
             'no matching|unsupported|Bad configuration|Bad owner|Bad permissions' { 'SSH 客户端或本机配置不兼容'; break }
             default { '未收到服务器主机密钥' }
         }
-        throw "无法连接 ${WorkspaceHost}:$WorkspacePort（$Reason）。请检查当前网络是否能访问此 SSH 地址和端口，然后重试。"
+        throw "无法连接 ${WorkspaceHost}:$WorkspacePort（$Reason）。直连及 HTTPS 备用入口均未完成连接，请检查网络后重试。"
     }
     $Fingerprint = & ssh-keygen.exe -lf $Scan -E sha256
     if ($LASTEXITCODE -ne 0 -or @($Fingerprint).Count -ne 1 -or (($Fingerprint -split '\s+')[1] -cne $ExpectedFingerprint)) {
@@ -222,6 +251,7 @@ $ConfigBase = $Base.Replace('\', '/').Replace('%', '%%').Replace('"', '\"')
 [IO.File]::WriteAllText($Config, @"
 Host workspace
   HostName $WorkspaceHost
+  ProxyCommand $ProxyCommand
   Port $WorkspacePort
   User $WorkspaceUser
   IdentityFile "$ConfigBase/id_ed25519"
@@ -232,7 +262,7 @@ Host workspace
   IdentitiesOnly yes
   ServerAliveInterval 30
   ServerAliveCountMax 10
-  ConnectTimeout 15
+  ConnectTimeout 25
   ForwardAgent no
   ClearAllForwardings yes
 "@ + "`n", $Utf8)

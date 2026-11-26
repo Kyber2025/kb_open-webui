@@ -13,6 +13,18 @@ router = APIRouter()
 RESOURCES = Path(__file__).resolve().parents[1] / 'resources' / 'workspace'
 HEADERS = {'Cache-Control': 'private, no-store', 'Vary': 'Authorization, Cookie', 'X-Content-Type-Options': 'nosniff'}
 
+@router.get('/transport/v1/{platform}')
+async def transport_binary(platform: str):
+    # Common executable only, no account data. Installers verify a pinned SHA256;
+    # scripts and personal TXT retain their authenticated, owner-scoped downloads.
+    if platform not in ('windows-amd64', 'windows-arm64', 'darwin-amd64', 'darwin-arm64', 'linux-amd64', 'linux-arm64'):
+        raise HTTPException(404, '文件不存在', headers=HEADERS)
+    path = RESOURCES / 'transport' / platform
+    if not path.is_file():
+        raise HTTPException(503, '连接组件暂不可用', headers=HEADERS)
+    return FileResponse(path, filename='transport.exe' if platform.startswith('windows-') else 'transport',
+                        media_type='application/octet-stream', headers=HEADERS)
+
 class DownloadRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 

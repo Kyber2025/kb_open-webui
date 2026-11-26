@@ -44,7 +44,7 @@ step '[2/4]' '验证实例指纹与连接'
 client_home="${KIVIDAS_CLIENT_HOME:-$HOME}"
 root="$client_home/.kividas"
 base="$root/ssh/$name-$user"
-for tool in ssh sftp ssh-keygen ssh-keyscan; do
+for tool in ssh sftp ssh-keygen curl openssl; do
   command -v "$tool" >/dev/null || { echo "Missing required command: $tool" >&2; exit 1; }
 done
 for directory in "$root" "$root/ssh" "$base"; do
@@ -52,13 +52,53 @@ for directory in "$root" "$root/ssh" "$base"; do
   mkdir -p "$directory"
   chmod 700 "$directory"
 done
-for file in id_ed25519 id_ed25519.pub known_hosts config launch.sh; do
+for file in id_ed25519 id_ed25519.pub known_hosts config launch.sh transport transport.json; do
   test ! -L "$base/$file" || { echo 'Refusing a symbolic-link configuration file.' >&2; exit 1; }
 done
 scan=$(mktemp "$base/.host-key.XXXXXXXX")
 secret_dir=''
 trap 'rm -f -- "$scan"; if test -n "$secret_dir"; then rm -rf -- "$secret_dir"; fi' EXIT
-ssh-keyscan -T 10 -p "$port" -t ed25519 "$host" >"$scan" 2>/dev/null
+# Normalize the two supported CPU families without evaluating TXT fields.
+case "$(uname -m)" in x86_64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) fail '暂不支持此电脑架构。' ;; esac
+platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$arch"
+# BEGIN TRANSPORT HASHES
+case "$platform" in
+  darwin-amd64) transport_hash=29655e9d2fd49bd0c9a63c9528780dd8e8932ca4fb8891dff30abcaec5cd8dc5 ;;
+  darwin-arm64) transport_hash=e093f1e1a5287a89c1922188c5405c289f8ffc609499f0e8e82d76d706398e6f ;;
+  linux-amd64) transport_hash=5b867f8e9b7fb293b68389a1f8ff12fef729d13da65bde75d7babb379742e66a ;;
+  linux-arm64) transport_hash=8578863799460f804e7800f0af74fa78476fe84a6f4b0f723e80c607d582ca37 ;;
+  *) fail '暂不支持此电脑架构。' ;;
+esac
+# END TRANSPORT HASHES
+file_hash() { openssl dgst -sha256 "$1" | awk '{print $NF}'; }
+if ! test -f "$base/transport" || test "$(file_hash "$base/transport")" != "$transport_hash"; then
+  printf '  正在准备自动连接组件…\n'
+  download=$(mktemp "$base/.transport.XXXXXXXX")
+  if ! curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 90 \
+      "https://chat.kividas.com/api/v1/code/ssh-workspaces/transport/v1/$platform" -o "$download"; then
+    rm -f -- "$download"; fail '连接组件下载失败，请检查网络后重新运行。'
+  fi
+  if test "$(file_hash "$download")" != "$transport_hash"; then
+    rm -f -- "$download"; fail '连接组件校验失败，请重新下载配置文件。'
+  fi
+  chmod 700 "$download"; mv -f -- "$download" "$base/transport"
+fi
+relay_token=$(printf 'kividas-ssh-relay-v1\0%s' "$password" | openssl dgst -sha256 | awk '{print $NF}')
+printf '{"address":"%s:%s","username":"%s","token":"%s"}\n' "$host" "$port" "$user" "$relay_token" > "$base/transport.json"
+unset relay_token
+# ProxyCommand is interpreted by the login shell; quote the entire literal path.
+proxy_path=${base//\'/\'\\\'\'}
+proxy_path=${proxy_path//%/%%}
+proxy_command="exec '$proxy_path/transport'"
+# The native SSH client performs a key exchange through either transport. No
+# authentication is offered until the returned host key matches the personal TXT.
+probe_known=${scan//\\/\\\\}; probe_known=${probe_known//\"/\\\"}; probe_known=${probe_known//%/%%}
+ssh -n -T -F /dev/null -o "ProxyCommand=$proxy_command" -o "UserKnownHostsFile=\"$probe_known\"" \
+  -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=accept-new -o HostKeyAlgorithms=ssh-ed25519 \
+  -o UpdateHostKeys=no -o BatchMode=yes -o PreferredAuthentications=none -o PubkeyAuthentication=no \
+  -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o IdentityAgent=none \
+  -o ForwardAgent=no -o ClearAllForwardings=yes -o ConnectTimeout=25 -p "$port" "$user@$host" true 2>/dev/null || true
+test -s "$scan" || fail '直连及 HTTPS 备用入口均未完成连接，请检查网络后重试。'
 actual=$(ssh-keygen -lf "$scan" -E sha256 | awk '{print $2}')
 test "$actual" = "$expected" || { echo 'Server fingerprint mismatch. Setup stopped.' >&2; exit 1; }
 mv -f -- "$scan" "$base/known_hosts"
@@ -75,6 +115,7 @@ config_base=${config_base//%/%%}
 cat >"$base/config" <<CONFIG
 Host workspace
   HostName $host
+  ProxyCommand $proxy_command
   Port $port
   User $user
   IdentityFile "$config_base/id_ed25519"
@@ -85,7 +126,7 @@ Host workspace
   IdentitiesOnly yes
   ServerAliveInterval 30
   ServerAliveCountMax 10
-  ConnectTimeout 15
+  ConnectTimeout 25
   ForwardAgent no
   ClearAllForwardings yes
 CONFIG

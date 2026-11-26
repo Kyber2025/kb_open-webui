@@ -313,3 +313,4 @@ cypress/screenshots
 
 # Reproducible one-click package staging
 kividas-web/dist-setup/
+backend/open_webui/resources/workspace/transport/

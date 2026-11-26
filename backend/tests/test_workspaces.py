@@ -76,4 +76,14 @@ class Workspaces(unittest.TestCase):
         transport.return_value=(500,{'message':'SECRET INTERNAL DETAILS'})
         r=client.get(base,headers=headers)
         self.assertEqual(r.status_code,503);self.assertNotIn('SECRET',r.text)
+    def test_common_transport_has_no_credentials_or_arbitrary_paths(self):
+        self.assertEqual(client.get(base+'/transport/v1/secrets.txt').status_code,404)
+        # A public helper needs no owner token; only the six known binary names
+        # can be served. Missing build artifacts fail closed with 503.
+        r=client.get(base+'/transport/v1/windows-amd64')
+        self.assertIn(r.status_code,(200,503))
+        if r.status_code==200:
+            self.assertEqual(r.content[:2],b'MZ')
+            self.assertIn('no-store',r.headers['cache-control'])
+        transport.assert_not_awaited()
 if __name__=='__main__':unittest.main()

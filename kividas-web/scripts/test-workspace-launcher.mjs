@@ -30,9 +30,10 @@ try {
   writeFileSync(join(home,'.profile'),'# existing login config\n')
   const record=join(scratch,'calls.jsonl'),enrolled=join(scratch,'enrolled')
   const hostLine=`[${workspace.host}]:${workspace.port} ${readFileSync(join(scratch,'host-key.pub'),'utf8')}`
+  writeFileSync(join(bin,'curl'),`#!${process.execPath}\nimport fs from 'node:fs'; const a=process.argv.slice(2); const platform=a.find(x=>x.startsWith('https://')).split('/').at(-1); fs.copyFileSync(${JSON.stringify(resolve('../backend/open_webui/resources/workspace/transport'))}+'/'+platform,a[a.indexOf('-o')+1]);\n`,{mode:0o755})
   writeFileSync(join(bin,'ssh-keyscan'),`#!/bin/sh\nprintf '%s\\n' '${hostLine.trim()}'\n`,{mode:0o755})
   writeFileSync(join(bin,'ssh'),`#!${process.execPath}\nimport fs from 'node:fs';import cp from 'node:child_process';
-const a=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(record)},JSON.stringify(a)+'\\n');
+const a=process.argv.slice(2);if(a.includes('PreferredAuthentications=none')){const k=a.find(x=>x.startsWith('UserKnownHostsFile=')).slice(19).slice(1,-1).replaceAll('%%','%');fs.writeFileSync(k,${JSON.stringify(hostLine)});process.exit(255)};fs.appendFileSync(${JSON.stringify(record)},JSON.stringify(a)+'\\n');
 if(a.includes('PubkeyAuthentication=no')){const pass=cp.spawnSync(process.env.SSH_ASKPASS,[],{encoding:'utf8'}).stdout.trim();if(pass!=='A'.repeat(32))process.exit(4);const key=fs.readFileSync(0,'utf8');if(!key.startsWith('ssh-ed25519 '))process.exit(2);fs.writeFileSync(${JSON.stringify(enrolled)},key);process.exit(0)}
 if(!fs.existsSync(${JSON.stringify(enrolled)}))process.exit(255);
 const remote=a.at(-1);if(remote.startsWith('cd /workspace/claude && exec /usr/local/bin/workspace-session claude')) {const r=cp.spawnSync('bash',['-c',remote.replace('cd /workspace/claude && exec /usr/local/bin/workspace-session claude', 'exec claude')],{stdio:'inherit'});process.exit(r.status)}
