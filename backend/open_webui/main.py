@@ -522,6 +522,7 @@ from open_webui.routers import (
     scim,
     skills,
     code as code_router,
+    workspaces as workspaces_router,
     kyber as kyber_router,
     subscriptions,
     guest as guest_router,
@@ -1495,6 +1496,7 @@ app.include_router(commerce.router, prefix='/api/v1/commerce', tags=['commerce']
 app.include_router(guest_router.router, prefix='/api/v1/guest', tags=['guest'])
 app.include_router(kyber_router.router, prefix='/api/v1/kyber', tags=['kyber'])
 app.include_router(code_router.router, prefix='/api/v1/code', tags=['code'])
+app.include_router(workspaces_router.router, prefix='/api/v1/code/ssh-workspaces', tags=['workspaces'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
