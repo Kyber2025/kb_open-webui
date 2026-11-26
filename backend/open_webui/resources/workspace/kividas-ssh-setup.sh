@@ -11,6 +11,9 @@ fail() { printf '\n  配置未完成：%s\n  请检查连接资料或参考下�
 step '[1/4]' '导入个人连接 TXT'
 config=${1:-}
 if test -z "$config"; then printf '  将个人连接 TXT 拖入终端，按回车：'; IFS= read -r config; fi
+# Terminal may append a space after a dragged path. Preserve literal filenames
+# that already exist, and otherwise remove the drag-and-drop trailing whitespace.
+if ! test -f "$config"; then config="${config%"${config##*[!$' \t']}"}"; fi
 # Finder drag-and-drop escapes spaces; strip only known path escaping, never eval.
 config=${config#\'}; config=${config%\'}; config=${config#\"}; config=${config%\"}
 config=${config//\\ / }; config=${config//\\(/(}; config=${config//\\)/)}

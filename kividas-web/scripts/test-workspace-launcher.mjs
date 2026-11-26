@@ -42,6 +42,7 @@ const remote=a.at(-1);if(remote.startsWith('cd /workspace/claude && exec /usr/lo
   const env={...process.env,PATH:bin+':'+process.env.PATH,KIVIDAS_CLIENT_HOME:home}
   run('bash',[setup,txt],{env})
   run('bash',[setup,txt],{env})
+  run('/bin/bash',[setup],{env,input:txt.replaceAll(' ','\\ ')+' \n'})
   const calls=readFileSync(record,'utf8').trim().split('\n').map(JSON.parse)
   assert.equal(calls.filter(a=>a.includes('PubkeyAuthentication=no')).length,1,'Repeat setup should reuse the enrolled key')
   assert(!existsSync(join(home,'.bash_profile')),'Do not shadow an existing .profile')
