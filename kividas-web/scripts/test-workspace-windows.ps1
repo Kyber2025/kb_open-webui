@@ -52,13 +52,21 @@ try {
         # replacing the SSH transport with a deterministic, credential-free fixture.
         $SavedHome = $env:KIVIDAS_CLIENT_HOME
         $SavedPath = [Environment]::GetEnvironmentVariable('Path','User')
+        $SavedProcessPath = $env:Path
+        $SavedPolicy = Get-ExecutionPolicy -Scope CurrentUser
         $env:KIVIDAS_CLIENT_HOME = Join-Path $Root ('client space '+[char]0x4E2D+[char]0x6587)
+        $ProfileOriginal = '$global:WorkspaceProfileMarker = "kept"' + "`r`n" + 'function global:claude { throw "Local Claude must not run" }' + "`r`n" + 'Set-Alias -Name claude -Value Write-Output' + "`r`n"
+        foreach ($Edition in @('WindowsPowerShell','PowerShell')) {
+            $Folder = Join-Path $env:KIVIDAS_CLIENT_HOME ('Documents/'+$Edition)
+            [IO.Directory]::CreateDirectory($Folder) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $Folder 'Microsoft.PowerShell_profile.ps1'), $ProfileOriginal, $Utf8)
+        }
         $HostKey = Join-Path $Root 'server-key'
         $Empty = if ($PSVersionTable.PSVersion.Major -lt 7) { '""' } else { '' }
         & ssh-keygen.exe -q -t ed25519 -N $Empty -f $HostKey
         Assert-Workspace ($LASTEXITCODE -eq 0) 'Fixture key generation failed'
         $HostFingerprint = ((& ssh-keygen.exe -lf ($HostKey+'.pub') -E sha256) -split '\s+')[1]
-        $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0}
+        $global:WorkspaceFixtureState = @{Enrolled=$false; Enrollments=0; AutoLaunches=0}
         function ssh-keyscan.exe { throw 'Do not use Windows ssh-keyscan: unsupported hybrid KEX' }
         function sftp.exe { $global:LASTEXITCODE=0 }
         function ssh.exe {
@@ -79,17 +87,22 @@ try {
                 Assert-Workspace (($args -join ' ') -notlike ('*'+$Password+'*')) 'Password appeared in arguments'
                 $global:WorkspaceFixtureState.Enrolled=$true; $global:WorkspaceFixtureState.Enrollments++; $global:LASTEXITCODE=0; return
             }
+            if (($args -join ' ') -like '*cd /workspace/claude && exec python3*') {
+                Assert-Workspace $global:WorkspaceFixtureState.Enrolled 'Automatic launch happened before key sign-in'
+                $global:WorkspaceFixtureState.AutoLaunches++; $global:LASTEXITCODE=0; return
+            }
             $global:LASTEXITCODE = if ($global:WorkspaceFixtureState.Enrolled) { 0 } else { 255 }
         }
         try {
             [IO.File]::WriteAllText($Connection,(Material $HostFingerprint),$Utf8)
             $InitialLocation=(Get-Location).Path
-            & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
+            & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection -Launch
             Assert-Workspace ((Get-Location).Path -ceq $InitialLocation) 'Setup changed the caller working directory'
             $Base=Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/ssh/ssh02-'+$User)
             $Before=[IO.File]::ReadAllText((Join-Path $Base 'id_ed25519'))
             & (Join-Path $Resources 'kividas-ssh-setup.ps1') -ConnectionFile $Connection
             Assert-Workspace ($global:WorkspaceFixtureState.Enrollments -eq 1) 'Repeat setup did not reuse the key'
+            Assert-Workspace ($global:WorkspaceFixtureState.AutoLaunches -eq 1) 'The configured remote Claude was not launched automatically'
             Assert-Workspace ([IO.File]::ReadAllText((Join-Path $Base 'id_ed25519')) -ceq $Before) 'Device key changed'
             Assert-Workspace ((Get-Acl -LiteralPath (Join-Path $Base 'id_ed25519')).AreAccessRulesProtected) 'Private key ACL still inherits'
             Assert-Workspace (@(Get-ChildItem -LiteralPath $Base -Force -Filter '.enroll-*').Count -eq 0) 'AskPass password/helper not cleaned up'
@@ -97,6 +110,40 @@ try {
             foreach ($Name in @('claude','claude-ssh','claude-sftp')) {
                 Assert-Workspace (Test-Path -LiteralPath (Join-Path $env:KIVIDAS_CLIENT_HOME ('.kividas/bin/'+$Name+'.cmd'))) 'Shortcut missing'
             }
+            foreach ($Edition in @('WindowsPowerShell','PowerShell')) {
+                $ProfilePath=Join-Path $env:KIVIDAS_CLIENT_HOME ('Documents/'+$Edition+'/Microsoft.PowerShell_profile.ps1')
+                $ProfileText=[IO.File]::ReadAllText($ProfilePath)
+                Assert-Workspace ($ProfileText.Contains($ProfileOriginal.TrimEnd())) 'Existing PowerShell profile was changed'
+                Assert-Workspace ([regex]::Matches($ProfileText,'# BEGIN KIVIDAS WORKSPACE').Count -eq 1) 'Duplicate managed profile block'
+                Assert-Workspace ([IO.File]::ReadAllText($ProfilePath+'.before-kividas') -ceq $ProfileOriginal) 'Profile backup was not preserved'
+            }
+            $Link=[KividasWorkspaceShortcut]::Read((Join-Path $env:KIVIDAS_CLIENT_HOME 'Desktop/Claude SSH.lnk'))
+            Assert-Workspace ($Link[1].Contains((Join-Path $Base 'launch.ps1')) -and $Link[0] -eq 'Kividas SSH workspace: ssh02') 'Desktop entry does not select the installed workspace'
+            # Exercise command selection in a fresh native PowerShell process with
+            # a stale PATH, an old local binary, and an existing alias/function.
+            $Stub=Join-Path $Root 'stale-path';[IO.Directory]::CreateDirectory($Stub) | Out-Null
+            $Compiler=Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+            $StubSource=Join-Path $Stub 'stub.cs'
+            [IO.File]::WriteAllText($StubSource,'using System; using System.Text; class Stub { static void Main(string[] args) { Console.WriteLine("REMOTE_SSH="+Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("\0",args)))); } }')
+            & $Compiler /nologo /target:exe (('/out:')+(Join-Path $Stub 'ssh.exe')) $StubSource
+            Assert-Workspace ($LASTEXITCODE -eq 0) 'SSH transport fixture compilation failed'
+            [IO.File]::WriteAllText((Join-Path $Stub 'claude.cmd'),"@echo LOCAL_CLAUDE_MUST_NOT_RUN`r`n",[Text.Encoding]::ASCII)
+            $env:Path=$Stub+';'+$SavedProcessPath
+            $Edition=if($PSVersionTable.PSVersion.Major -lt 6){'WindowsPowerShell'}else{'PowerShell'}
+            $env:KIVIDAS_TEST_PROFILE=Join-Path $env:KIVIDAS_CLIENT_HOME ('Documents/'+$Edition+'/Microsoft.PowerShell_profile.ps1')
+            $env:KIVIDAS_TEST_ARGS=ConvertTo-Json -InputObject @('space value','',('code '+[char]0x4E2D+[char]0x6587)) -Compress
+            $ChildCommand='. $env:KIVIDAS_TEST_PROFILE; if($global:WorkspaceProfileMarker -ne "kept"){throw "Existing profile did not run"}; $a=ConvertFrom-Json $env:KIVIDAS_TEST_ARGS; claude @a'
+            $Child=& (Get-Process -Id $PID).Path -NoLogo -NoProfile -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ChildCommand)))
+            Assert-Workspace ($LASTEXITCODE -eq 0) 'Fresh PowerShell could not start the remote command'
+            $Record=@($Child | Where-Object { $_ -like 'REMOTE_SSH=*' })
+            Assert-Workspace ($Record.Count -eq 1 -and ($Child -join '') -notlike '*LOCAL_CLAUDE*') 'Stale PATH or local Claude took priority'
+            $SshArgs=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Record[0].Substring(11))) -split ([char]0)
+            $Remote=$SshArgs[-1];$Payload=($Remote -split ' ')[-1]
+            $RemoteArgs=ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)))
+            Assert-Workspace ($RemoteArgs[0] -eq '/usr/local/bin/workspace-session' -and $RemoteArgs[1] -eq 'claude' -and $RemoteArgs[2] -eq 'space value' -and $RemoteArgs[3] -ceq '') 'Remote command arguments changed'
+            Remove-Item Env:KIVIDAS_TEST_PROFILE,Env:KIVIDAS_TEST_ARGS
+            $env:Path=$SavedProcessPath
+            Write-Host 'PASS: automatic remote launch, desktop entry, preserved profiles and remote command priority over stale PATH/local Claude'
             Write-Host 'PASS: native Windows key generation, ACL, AskPass compilation/password cleanup and repeat enrollment'
             [IO.File]::WriteAllText($Connection,$Valid,$Utf8)
             $Rejected=$false
@@ -106,6 +153,8 @@ try {
             Write-Host 'PASS: fingerprint mismatch stops before credential use'
         } finally {
             [Environment]::SetEnvironmentVariable('Path',$SavedPath,'User')
+            $env:Path=$SavedProcessPath
+            Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy $SavedPolicy -Force -ErrorAction SilentlyContinue
             $env:KIVIDAS_CLIENT_HOME=$SavedHome
             Remove-Variable WorkspaceFixtureState -Scope Global
         }

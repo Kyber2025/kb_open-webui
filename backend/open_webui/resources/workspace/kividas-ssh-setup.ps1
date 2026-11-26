@@ -1,4 +1,4 @@
-﻿param([string]$ConnectionFile, [switch]$PickConnectionFile)
+﻿param([string]$ConnectionFile, [switch]$PickConnectionFile, [switch]$Launch)
 $ErrorActionPreference = 'Stop'
 Write-Host ''
 Write-Host '  KIVIDAS  /  SSH WORKSPACE' -ForegroundColor Magenta
@@ -273,9 +273,131 @@ foreach ($Name in $Modes.Keys) {
 $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $Parts = @($UserPath -split ';' | Where-Object { $_ -and $_.TrimEnd('\') -ine $Bin.TrimEnd('\') })
 [Environment]::SetEnvironmentVariable('Path', (@($Bin) + $Parts) -join ';', 'User')
-Write-Host "`n  ✓ 配置完成。打开新终端，输入 claude 即可使用。" -ForegroundColor Green
-Write-Host 'Shell: claude-ssh    Files: claude-sftp'
-Write-Host 'Claude now runs on the remote workspace. Removing the user binding revokes this key.'
-Write-Host ('If this terminal still has the old PATH, launch directly: & "' + (Join-Path $Bin 'claude.cmd') + '"')
+$env:Path = $Bin + ';' + $env:Path
+$LauncherPath = Join-Path $Base 'launch.ps1'
+
+# Profiles are read for each new PowerShell session, even when Windows Terminal
+# passes down a stale PATH. Functions also take priority over a local Claude binary.
+# Only configure this user's console profiles; preserve their other customizations.
+$Documents = if ($env:KIVIDAS_CLIENT_HOME) { Join-Path $ClientHome 'Documents' } else { [Environment]::GetFolderPath('MyDocuments') }
+$Desktop = if ($env:KIVIDAS_CLIENT_HOME) { Join-Path $ClientHome 'Desktop' } else { [Environment]::GetFolderPath('DesktopDirectory') }
+$Begin = '# BEGIN KIVIDAS WORKSPACE'
+$End = '# END KIVIDAS WORKSPACE'
+$QuotedLauncher = $LauncherPath.Replace("'", "''")
+$ProfileBlock = $Begin + "`r`n"
+foreach ($Name in @('claude', 'claude-ssh', 'claude-sftp')) {
+    $ProfileBlock += 'Remove-Item -LiteralPath Alias:\' + $Name + ' -Force -ErrorAction SilentlyContinue' + "`r`n"
+    $ProfileBlock += 'function global:' + $Name + " { & '" + $QuotedLauncher + "' '" + $Modes[$Name] + "' @args }`r`n"
+}
+$ProfileBlock += $End + "`r`n"
+$ProfilePattern = '(?ms)^# BEGIN KIVIDAS WORKSPACE\r?\n.*?^# END KIVIDAS WORKSPACE(?:\r?\n|$)'
+$ProfileReady = $false
+try {
+    # Enable locally-created profiles only when no persistent policy was set.
+    # Never relax an explicit user, machine or organization policy.
+    $PersistentPolicies = @('MachinePolicy','UserPolicy','CurrentUser','LocalMachine' | ForEach-Object { Get-ExecutionPolicy -Scope $_ } | Where-Object { $_ -ne 'Undefined' })
+    if (-not $PersistentPolicies.Count) {
+        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force -ErrorAction SilentlyContinue
+        $PersistentPolicies = @(Get-ExecutionPolicy -Scope CurrentUser)
+    }
+    if ($PersistentPolicies[0] -notin @('RemoteSigned','Unrestricted','Bypass')) { throw '当前安全策略不允许自动加载 PowerShell 配置' }
+    foreach ($Edition in @('WindowsPowerShell','PowerShell')) {
+        $ProfileDirectory = Join-Path $Documents $Edition
+        $ProfilePath = Join-Path $ProfileDirectory 'Microsoft.PowerShell_profile.ps1'
+        [IO.Directory]::CreateDirectory($ProfileDirectory) | Out-Null
+        $ExistingProfile = ''
+        if (Test-Path -LiteralPath $ProfilePath) {
+            if ((Get-Item -LiteralPath $ProfilePath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'PowerShell 配置文件是链接，未自动修改' }
+            $ExistingProfile = [IO.File]::ReadAllText($ProfilePath)
+            if ($ExistingProfile.Contains('# SIG # Begin signature block')) { throw 'PowerShell 配置文件有数字签名，未自动修改' }
+            if (-not (Test-Path -LiteralPath ($ProfilePath + '.before-kividas'))) { Copy-Item -LiteralPath $ProfilePath -Destination ($ProfilePath + '.before-kividas') }
+        }
+        $WithoutManaged = [regex]::Replace($ExistingProfile, $ProfilePattern, '')
+        if ($WithoutManaged.Contains($Begin) -or $WithoutManaged.Contains($End)) { throw 'PowerShell 配置中的快捷命令区块不完整' }
+        $UpdatedProfile = $WithoutManaged.TrimEnd([char[]]"`r`n") + "`r`n" + $ProfileBlock
+        $ParseTokens = $null; $ParseErrors = $null
+        $null = [Management.Automation.Language.Parser]::ParseInput($UpdatedProfile, [ref]$ParseTokens, [ref]$ParseErrors)
+        if ($ParseErrors.Count) { throw '现有 PowerShell 配置存在语法错误，未自动修改' }
+        [IO.File]::WriteAllText($ProfilePath, $UpdatedProfile, $Utf8Bom)
+    }
+    $ProfileReady = $true
+} catch {
+    Write-Host ('  PowerShell 快捷命令未启用：' + $_.Exception.Message + '。可使用桌面 Claude SSH 入口。') -ForegroundColor DarkYellow
+}
+
+# The desktop entry and immediate launch never depend on command lookup or PATH.
+try {
+    [IO.Directory]::CreateDirectory($Desktop) | Out-Null
+    $ShortcutPath = Join-Path $Desktop 'Claude SSH.lnk'
+    # Use the Unicode ShellLink interface: WScript.Shell can corrupt non-ANSI
+    # user/desktop paths when saving shortcuts.
+    if (-not ('KividasWorkspaceShortcut' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+[ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+class KividasShellLink {}
+[ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IKividasShellLinkW {
+    void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int count, IntPtr data, uint flags);
+    void GetIDList(out IntPtr list);
+    void SetIDList(IntPtr list);
+    void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder value, int count);
+    void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string value);
+    void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder value, int count);
+    void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string value);
+    void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder value, int count);
+    void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string value);
+    void GetHotkey(out short value);
+    void SetHotkey(short value);
+    void GetShowCmd(out int value);
+    void SetShowCmd(int value);
+    void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int count, out int index);
+    void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
+    void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+    void Resolve(IntPtr window, uint flags);
+    void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+}
+public static class KividasWorkspaceShortcut {
+    public static string[] Read(string path) {
+        var link = (IKividasShellLinkW)new KividasShellLink();
+        try {
+            ((IPersistFile)link).Load(path, 0);
+            var description = new StringBuilder(32768); var arguments = new StringBuilder(32768);
+            link.GetDescription(description, description.Capacity); link.GetArguments(arguments, arguments.Capacity);
+            return new string[] { description.ToString(), arguments.ToString() };
+        } finally { Marshal.ReleaseComObject(link); }
+    }
+    public static void Save(string path, string target, string arguments, string directory, string description) {
+        if (File.Exists(path) && !Read(path)[0].StartsWith("Kividas SSH workspace:", StringComparison.Ordinal))
+            throw new IOException("Desktop shortcut already exists and is not managed by Kividas.");
+        var link = (IKividasShellLinkW)new KividasShellLink();
+        try {
+            link.SetPath(target); link.SetArguments(arguments); link.SetWorkingDirectory(directory);
+            link.SetDescription(description); ((IPersistFile)link).Save(path, true);
+        } finally { Marshal.ReleaseComObject(link); }
+    }
+}
+'@
+    }
+    [KividasWorkspaceShortcut]::Save($ShortcutPath,
+        (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'),
+        ('-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $LauncherPath + '" claude'),
+        $ClientHome, ('Kividas SSH workspace: ' + $WorkspaceName))
+} catch {
+    Write-Host ('  桌面入口未创建：' + $_.Exception.Message) -ForegroundColor DarkYellow
+}
+
+Write-Host "`n  ✓ 配置完成：$WorkspaceName · /workspace/claude" -ForegroundColor Green
+if ($ProfileReady) { Write-Host '以后在新的 PowerShell 窗口或标签页输入 claude，即可进入远端。' }
+Write-Host '也可双击桌面的 Claude SSH。Shell: claude-ssh    Files: claude-sftp'
 
 Write-Host '个人 TXT 含 SSH 密码，请妥善保存。到期自动解绑并清空文件，请提前备份。' -ForegroundColor DarkYellow
+if ($Launch) {
+    Write-Host "`n  正在进入 $WorkspaceName 的远端 Claude…" -ForegroundColor Cyan
+    & $LauncherPath claude
+    if ($LASTEXITCODE -ne 0) { Write-Host '远端连接已结束，可双击桌面 Claude SSH 重新连接。' -ForegroundColor DarkYellow }
+}

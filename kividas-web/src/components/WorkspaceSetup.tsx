@@ -83,9 +83,9 @@ export function WorkspaceSetup() {
       </div>
     </div>
     <div className="ssh-run-step"><span className="ssh-step-number">03</span><div><h3>{platform === 'unix' ? '打开终端，拖入脚本' : '双击文件，选择连接资料'}</h3>
-      <p className="muted">{platform === 'unix' ? '输入 /bin/bash，末尾留一个空格，再将下载的 kividas-ssh-setup.sh 拖入终端并回车。启动后按提示拖入个人 TXT，再按回车。' : '双击下载的 kividas-ssh-setup.cmd，在弹出的窗口选择个人连接 TXT，按步骤自动完成配置。无需输入 PowerShell 命令。'}</p>
+      <p className="muted">{platform === 'unix' ? '输入 /bin/bash，末尾留一个空格，再将下载的 kividas-ssh-setup.sh 拖入终端并回车。启动后按提示拖入个人 TXT，再按回车。' : '双击下载的 kividas-ssh-setup.cmd，选择个人连接 TXT。配置完成后会自动进入远端 Claude，并创建桌面启动入口。'}</p>
       {platform === 'unix' && <div className="ssh-command"><code>{command}</code><button className="icon-btn" aria-label="复制配置命令（含末尾空格）" onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>}
-      <p className="muted ssh-small">{platform === 'unix' ? '也可手动填写 .sh 和 TXT 的完整路径。' : '需要 Windows OpenSSH 客户端；配置窗口会显示每一步的结果。'}配置完成后重新打开终端，输入 claude。</p>
+      <p className="muted ssh-small">{platform === 'unix' ? '也可手动填写 .sh 和 TXT 的完整路径。' : '以后双击桌面 Claude SSH，或在新的 PowerShell 窗口输入 claude。'}{platform === 'unix' ? '配置完成后重新打开终端，输入 claude。' : ''}</p>
     </div></div>
     <div className="ssh-shortcuts">
       <div><code>claude</code><span>启动 / 恢复 Claude</span></div>
